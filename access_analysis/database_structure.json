@@ -1,0 +1,894 @@
+{
+  "Т_ВидДокумента": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Вид документа",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Вид документа"
+      ],
+      "rows": [
+        [
+          1,
+          "Ненормативный правовой акт"
+        ],
+        [
+          2,
+          "Нормативный правовой акт"
+        ]
+      ]
+    },
+    "row_count": 2,
+    "indexes": []
+  },
+  "Т_Исполнитель": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Исполнитель",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Исполнитель"
+      ],
+      "rows": [
+        [
+          1,
+          "Арчугова Л.А"
+        ],
+        [
+          2,
+          "Ханевичев Е.Н."
+        ],
+        [
+          3,
+          "Макаровских С.П."
+        ],
+        [
+          4,
+          "Антель О.В."
+        ],
+        [
+          5,
+          "Синеок Е.М."
+        ]
+      ]
+    },
+    "row_count": 311,
+    "indexes": []
+  },
+  "Т_КтоПодписал": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Кто подписал",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Кто подписал"
+      ],
+      "rows": [
+        [
+          1,
+          "Голованов В.В."
+        ],
+        [
+          2,
+          "Вальтер В.Р."
+        ],
+        [
+          4,
+          "Котов В.П."
+        ],
+        [
+          8,
+          "Ваганов Е.Г."
+        ],
+        [
+          9,
+          "Азархин И.М."
+        ]
+      ]
+    },
+    "row_count": 9,
+    "indexes": []
+  },
+  "Т_НормативныеАкты": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Статус документа",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Тип документа",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Подписание документа",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Регистрационный номер",
+        "type": "REAL",
+        "size": 24,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Регистрационная дата",
+        "type": "DATETIME",
+        "size": 19,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "ИсполнительДокумента",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Тема",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Заголовок",
+        "type": "VARCHAR",
+        "size": 255,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Вид документа",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Подлежит ли опубликованию",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "№",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Опубликовано",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Дата публикации",
+        "type": "DATETIME",
+        "size": 19,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Ответственный исполнитель",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Дата контроля",
+        "type": "DATETIME",
+        "size": 19,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Результат исполнения",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "С контроля снято",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Количество листов",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Количество приложений",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Дело №",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Том №",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Листы",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Документ",
+        "type": "LONGCHAR",
+        "size": 1073741823,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Статус документа",
+        "Тип документа",
+        "Подписание документа",
+        "Регистрационный номер",
+        "Регистрационная дата",
+        "ИсполнительДокумента",
+        "Тема",
+        "Заголовок",
+        "Вид документа",
+        "Подлежит ли опубликованию",
+        "№",
+        "Опубликовано",
+        "Дата публикации",
+        "Ответственный исполнитель",
+        "Дата контроля",
+        "Результат исполнения",
+        "С контроля снято",
+        "Количество листов",
+        "Количество приложений",
+        "Дело №",
+        "Том №",
+        "Листы",
+        "Документ"
+      ],
+      "rows": [
+        [
+          2,
+          5,
+          3,
+          2,
+          28.0,
+          "2025-09-12 00:00:00",
+          2,
+          7,
+          "О комплектовании слушателями учебно - методического центра Областного Государственного учреждения \"Гражданская защита Челябинской области\"",
+          1,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          1,
+          null,
+          null,
+          null,
+          null,
+          "files\\2010\\01\\2Р.doc"
+        ],
+        [
+          3,
+          5,
+          3,
+          2,
+          3.0,
+          "2010-01-13 00:00:00",
+          3,
+          29,
+          "Об утверждении акта классификации автоматизированной ситемы \"№1 отдела ЗАПГС Администрации Сосновского муниципального района",
+          1,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          4,
+          1,
+          null,
+          null,
+          null,
+          "files\\2010\\01\\3.doc"
+        ],
+        [
+          4,
+          5,
+          3,
+          2,
+          4.0,
+          "2010-01-15 00:00:00",
+          1,
+          39,
+          "О снятии с учета",
+          1,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          1,
+          null,
+          null,
+          null,
+          null,
+          "files\\2010\\01\\4.doc"
+        ],
+        [
+          5,
+          5,
+          3,
+          2,
+          5.0,
+          "2010-01-15 00:00:00",
+          4,
+          3,
+          "Об утверждении градостроительного плана земельного участка для строительства магазина в западной части села Долгодеревенское Сосновского муниципального района Челябинской области  ",
+          1,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          1,
+          null,
+          null,
+          null,
+          null,
+          "files\\2010\\01\\5.doc"
+        ],
+        [
+          6,
+          5,
+          3,
+          2,
+          6.0,
+          "2010-01-15 00:00:00",
+          4,
+          3,
+          "Об утверждении градостроительного плана земельного участка для строительства магазина смешанных товаров рядом с сельским домом культуры по ул. Трактовая в селе Большие Харлуши Сосновского муниципального района Челябинской области  ",
+          1,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          1,
+          null,
+          null,
+          null,
+          null,
+          "files\\2010\\01\\6.doc"
+        ]
+      ]
+    },
+    "row_count": 105665,
+    "indexes": []
+  },
+  "Т_НормативныеАкты подчин": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "КодДокумента",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Кто подписал",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "КодДокумента",
+        "Кто подписал"
+      ],
+      "rows": [
+        [
+          2,
+          2,
+          2
+        ],
+        [
+          3,
+          3,
+          2
+        ],
+        [
+          4,
+          4,
+          2
+        ],
+        [
+          5,
+          5,
+          2
+        ],
+        [
+          6,
+          6,
+          2
+        ]
+      ]
+    },
+    "row_count": 105623,
+    "indexes": []
+  },
+  "Т_НормативныеАкты подчин2": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "КодДокумента",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "Согласовано",
+        "type": "INTEGER",
+        "size": 10,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "КодДокумента",
+        "Согласовано"
+      ],
+      "rows": [
+        [
+          3,
+          2,
+          1
+        ],
+        [
+          4,
+          2,
+          2
+        ],
+        [
+          5,
+          3,
+          1
+        ],
+        [
+          6,
+          3,
+          6
+        ],
+        [
+          7,
+          4,
+          1
+        ]
+      ]
+    },
+    "row_count": 266180,
+    "indexes": []
+  },
+  "Т_Опубликовано": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Опубликовано",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Опубликовано"
+      ],
+      "rows": [
+        [
+          1,
+          "\"Сосновская Нива\""
+        ],
+        [
+          3,
+          "Информационный бюллетень \"Сосновская Нива\""
+        ]
+      ]
+    },
+    "row_count": 2,
+    "indexes": []
+  },
+  "Т_ОтветственныйИсполнитель": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "ФИО",
+        "type": "VARCHAR",
+        "size": 150,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "ФИО"
+      ],
+      "rows": [
+        [
+          1,
+          null
+        ],
+        [
+          2,
+          "Агафонова М.Б."
+        ],
+        [
+          3,
+          "Антонов В.М."
+        ],
+        [
+          4,
+          "Аншакова Н.Р."
+        ],
+        [
+          5,
+          "Вальтер В.Р."
+        ]
+      ]
+    },
+    "row_count": 48,
+    "indexes": []
+  },
+  "Т_Подписание": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Подписание",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Подписание"
+      ],
+      "rows": [
+        [
+          1,
+          "Многостороннее"
+        ],
+        [
+          2,
+          "Одностороннее"
+        ]
+      ]
+    },
+    "row_count": 2,
+    "indexes": []
+  },
+  "Т_Согласование": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "ФИО",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "ФИО"
+      ],
+      "rows": [
+        [
+          1,
+          "Вальтер В.Р"
+        ],
+        [
+          2,
+          "Черкасова М.Г."
+        ],
+        [
+          3,
+          "Ефимова Л.А."
+        ],
+        [
+          4,
+          "Павельева Е.П."
+        ],
+        [
+          5,
+          "Козин В.К."
+        ]
+      ]
+    },
+    "row_count": 110,
+    "indexes": []
+  },
+  "Т_Статус": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Статус документа",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Статус документа"
+      ],
+      "rows": [
+        [
+          1,
+          null
+        ],
+        [
+          2,
+          "Внесены дополнения"
+        ],
+        [
+          3,
+          "Внесены дополнения и изменения"
+        ],
+        [
+          4,
+          "Внесены изменения"
+        ],
+        [
+          5,
+          "Действует"
+        ]
+      ]
+    },
+    "row_count": 7,
+    "indexes": []
+  },
+  "Т_Тема": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Тема",
+        "type": "VARCHAR",
+        "size": 255,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Тема"
+      ],
+      "rows": [
+        [
+          2,
+          "Автотранспорт"
+        ],
+        [
+          3,
+          "Архитектура"
+        ],
+        [
+          6,
+          "Выборы"
+        ],
+        [
+          7,
+          "ГОЧС"
+        ],
+        [
+          9,
+          "ЖКХ"
+        ]
+      ]
+    },
+    "row_count": 27,
+    "indexes": []
+  },
+  "Т_ТипДокумента": {
+    "columns": [
+      {
+        "name": "Код",
+        "type": "COUNTER",
+        "size": 10,
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "Тип документа",
+        "type": "VARCHAR",
+        "size": 50,
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "sample_data": {
+      "columns": [
+        "Код",
+        "Тип документа"
+      ],
+      "rows": [
+        [
+          1,
+          null
+        ],
+        [
+          2,
+          "Постановление"
+        ],
+        [
+          3,
+          "Распоряжение"
+        ]
+      ]
+    },
+    "row_count": 3,
+    "indexes": []
+  }
+}

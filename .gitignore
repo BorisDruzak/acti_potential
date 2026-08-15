@@ -1,0 +1,43 @@
+# Python bytecode, environments, and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+env/
+env_broken_py312/
+
+# Local application data, documents, backups, and logs
+data/
+db/
+files/
+logs/
+src/data/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.zip
+*.rar
+*.tar.gz
+
+# Local database profiles may include connection details and credentials
+db_config.json
+src/db_config.json
+
+# Build and package outputs
+build/
+build_*/
+dist/
+dist_*/
+installer/output/
+
+# Other local tooling outputs
+_forensics/
+_tmp_sqlite_test/
+_tmp*/
+*_tmp_*
+old_version/
+access_data/
+aftomatizaciua/node_modules/
+aftomatizaciua/directum_workspace_*/

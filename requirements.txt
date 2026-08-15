@@ -1,0 +1,8 @@
+﻿PyQt5==5.15.9
+pywin32==306
+python-docx==0.8.11
+docx2txt==0.9
+openpyxl==3.1.2
+chardet==6.0.0.post1
+pyodbc>=5.0
+pytest>=8.0
