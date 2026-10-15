@@ -8,6 +8,83 @@ def admin_headers(client):
     }
 
 
+def test_admin_previews_unassigned_draft_reference_items_without_source_metadata(client, factory):
+    from uuid import UUID
+
+    from app.api.dependencies import current_actor
+    from app.identity.models import User
+    from app.identity.policy import Actor
+    from app.registry.models import ReferenceItem
+    from tests.conftest import login_admin
+
+    login_admin(client, factory)
+    headers = admin_headers(client)
+    reference = client.post(
+        "/api/v1/references",
+        headers=headers,
+        json={"code": "synthetic_preview", "name": "Synthetic preview choices"},
+    )
+    assert reference.status_code == 201, reference.text
+    reference_id = reference.json()["id"]
+    created = client.post(
+        f"/api/v1/references/{reference_id}/items",
+        headers=headers,
+        json={"label": "Synthetic preview choice", "metadata": {"position": "Synthetic metadata"}},
+    )
+    assert created.status_code == 201, created.text
+    item_id = created.json()["id"]
+    with factory.begin() as db:
+        item = db.get(ReferenceItem, UUID(item_id))
+        item.source_database = "synthetic_preview"
+        item.source_entity = "ref_synthetic"
+        item.source_id = "1"
+    kind = client.post(
+        "/api/v1/document-types",
+        headers=headers,
+        json={"code": "synthetic_preview", "name": "Synthetic unpublished preview"},
+    )
+    assert kind.status_code == 201, kind.text
+    draft = client.get(f"/api/v1/document-types/{kind.json()['id']}/versions").json()[0]
+    saved = client.put(
+        f"/api/v1/form-schemas/{draft['id']}",
+        headers=headers,
+        json={"schema": schema("reference", reference_set_id=reference_id)},
+    )
+    assert saved.status_code == 200 and saved.json()["state"] == "draft", saved.text
+    administrative = client.get(f"/api/v1/references/{reference_id}/items").json()[0]
+    assert administrative["metadata"] == {"position": "Synthetic metadata"}
+    assert administrative["source_database"] == "synthetic_preview"
+    for mode in ("editor", "viewer"):
+        preview = client.get(f"/api/v1/references/{reference_id}/items?mode={mode}")
+        assert preview.status_code == 200, preview.text
+        item = preview.json()[0]
+        assert item["id"] == item_id and item["label"] == "Synthetic preview choice"
+        assert item["metadata"] == {}
+        assert all(item[key] is None for key in ("source_database", "source_entity", "source_id"))
+        assert reference_id in {
+            r["id"] for r in client.get(f"/api/v1/references?mode={mode}").json()
+        }
+
+    try:
+        for role in ("editor", "viewer"):
+            with factory.begin() as db:
+                user = User(display_name=f"Synthetic preview {role}")
+                db.add(user)
+                db.flush()
+                actor = Actor(user.id, user.display_name, frozenset({role}))
+            client.app.dependency_overrides[current_actor] = lambda: actor
+            for mode in ("editor", "viewer"):
+                assert (
+                    client.get(f"/api/v1/references/{reference_id}/items?mode={mode}").status_code
+                    == 404
+                )
+                assert reference_id not in {
+                    r["id"] for r in client.get(f"/api/v1/references?mode={mode}").json()
+                }
+    finally:
+        client.app.dependency_overrides.pop(current_actor, None)
+
+
 def test_configuration_publication_copy_and_key_history(client, factory):
     from uuid import uuid4
 

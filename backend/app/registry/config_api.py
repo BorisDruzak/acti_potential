@@ -202,7 +202,9 @@ def _reference_output(row):
 
 
 def _readable_reference_ids(session, actor, mode=None):
-    if _is_admin(actor) and mode is None:
+    # Preview modes change presentation, while administrators retain configuration
+    # access before a draft is published or assigned to a registry.
+    if _is_admin(actor):
         return None
     allowed = set()
     all_sets = list(session.scalars(select(ReferenceSet)))
