@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
-from app.identity.models import AuthSession, Role, User, UserRole
+from app.identity.models import AuthSession, LocalCredential, Role, User, UserRole
 from app.identity.policy import Actor
 from app.identity.service import AuthenticationError
 
@@ -47,7 +47,11 @@ def resolve_actor(session, token: str, now: datetime) -> Actor:
     if not user or not user.active:
         raise AuthenticationError()
     roles = session.scalars(select(Role.code).join(UserRole).where(UserRole.user_id == user.id))
-    return Actor(user.id, user.display_name, frozenset(roles))
+    credential = session.get(LocalCredential, user.id)
+    return Actor(
+        user.id, user.display_name, frozenset(roles),
+        bool(credential and credential.must_change_password),
+    )
 
 
 def revoke_session(session, token: str) -> None:

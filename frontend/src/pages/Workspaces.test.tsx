@@ -1,0 +1,272 @@
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { App } from "../App";
+import { AuthProvider } from "../auth/AuthProvider";
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  window.history.replaceState(null, "", "/");
+});
+function setup(roles: string[], mustChange = false) {
+  let revision = 1;
+  let uploaded = false;
+  const fetch = vi
+    .fn()
+    .mockImplementation((url: string, init?: RequestInit) => {
+      let data: unknown = {};
+      if (url.endsWith("/users/me"))
+        data = {
+          id: "u",
+          display_name: "Тест",
+          roles,
+          csrf_token: "csrf",
+          must_change_password: mustChange,
+        };
+      else if (url.includes("/registries"))
+        data = [
+          {
+            id: "r",
+            name: "Тестовый реестр",
+            code: "test",
+            document_type_ids: ["t"],
+            permissions: ["read", "create", "update", "upload", "download"],
+          },
+        ];
+      else if (url.includes("/document-types/t/versions"))
+        data = [
+          {
+            id: "s",
+            document_type_id: "t",
+            version: 1,
+            state: "published",
+            schema: {
+              sections: [
+                {
+                  key: "main",
+                  title: "Основное",
+                  fields: [
+                    {
+                      key: "publish",
+                      label: "Публиковать",
+                      type: "boolean",
+                      filterable: true,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ];
+      else if (url.includes("/document-types"))
+        data = [{ id: "t", code: "test", name: "Тестовый тип" }];
+      else if (url.includes("/references")) data = [];
+      else if (url.includes("/documents?"))
+        data = {
+          items: [
+            {
+              id: "d",
+              title: "Тестовый документ",
+              revision: 1,
+              reg_number: "TEST-1",
+            },
+          ],
+          total: 1,
+          page: 1,
+          page_size: 20,
+        };
+      else if (url.includes("/documents/d")) {
+        if (init?.method === "PUT") {
+          revision += 1;
+          if (JSON.parse(String(init.body)).files?.length) uploaded = true;
+        }
+        if (url.includes("/files?") && init?.method === "POST") {
+          revision += 1;
+          uploaded = true;
+        }
+        data = {
+          id: "d",
+          title: "Тестовый документ",
+          registry_id: "r",
+          revision,
+          values: { title: "Тестовый документ" },
+          permissions: ["read", "update", "upload", "download"],
+          files: uploaded
+            ? [
+                {
+                  id: "f",
+                  name: "example.txt",
+                  version: 1,
+                  field_key: "original",
+                  size: 7,
+                  created_at: "2026-10-15T00:00:00Z",
+                },
+              ]
+            : [],
+          schema: {
+            sections: [
+              {
+                key: "main",
+                title: "Карточка",
+                fields: [
+                  { key: "title", label: "Название", type: "text" },
+                  { key: "original", label: "Оригинал", type: "file" },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      return Promise.resolve(new Response(JSON.stringify(data)));
+    });
+  vi.stubGlobal("fetch", fetch);
+  render(
+    <AuthProvider>
+      <App />
+    </AuthProvider>,
+  );
+  return fetch;
+}
+it("forces initial password change before loading any workspace configuration", async () => {
+  const fetch = setup(["admin"], true);
+  await screen.findByRole("heading", { name: "Установите свой пароль" });
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(["/api/v1/users/me"]);
+  expect(screen.queryByRole("navigation")).toBeNull();
+});
+it("reader route exposes no mutation controls even when returned permissions include them", async () => {
+  window.history.replaceState(null, "", "/view");
+  const fetch = setup(["viewer"]);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Тестовый реестр" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Открыть карточку" }),
+  );
+  await screen.findByText("UUID: d");
+  expect(screen.queryByRole("button", { name: "Создать документ" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Редактировать карточку" }),
+  ).toBeNull();
+  expect(
+    screen.queryByLabelText("Добавить файл или следующую версию"),
+  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Пользователи" })).toBeNull();
+  await waitFor(() =>
+    expect(
+      fetch.mock.calls.some(
+        ([url]) => url === "/api/v1/documents/d?mode=viewer",
+      ),
+    ).toBe(true),
+  );
+});
+it("viewer cannot open administration by typing its route", async () => {
+  window.history.replaceState(null, "", "/admin");
+  setup(["viewer"]);
+  await screen.findByRole("heading", { name: "Мои реестры" });
+  expect(window.location.pathname).toBe("/view");
+  expect(screen.queryByRole("button", { name: "Типы документов" })).toBeNull();
+});
+it("entering card edit mode never turns the clicked button into a submit button", async () => {
+  window.history.replaceState(null, "", "/work");
+  const fetch = setup(["editor"]);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Тестовый реестр" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Открыть карточку" }),
+  );
+  const editButton = (await screen.findByRole("button", {
+    name: "Редактировать карточку",
+  })) as HTMLButtonElement;
+  expect(editButton.type).toBe("button");
+  fireEvent.click(editButton);
+  const saveButton = screen.getByRole("button", {
+    name: "Сохранить карточку",
+  }) as HTMLButtonElement;
+  // Reusing the click target here lets the browser's pending native default
+  // action submit the form after React commits the new state.
+  expect(editButton.type).toBe("button");
+  expect(editButton.isConnected).toBe(false);
+  expect(saveButton).not.toBe(editButton);
+  expect(saveButton.type).toBe("submit");
+  expect((screen.getByLabelText("Название") as HTMLInputElement).value).toBe(
+    "Тестовый документ",
+  );
+  expect(
+    fetch.mock.calls.filter(([, init]) => init?.method === "PUT"),
+  ).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Отмена изменений" }));
+  expect(
+    screen.getByRole("button", { name: "Редактировать карточку" }),
+  ).toBeTruthy();
+  expect(
+    fetch.mock.calls.filter(([, init]) => init?.method === "PUT"),
+  ).toHaveLength(0);
+});
+it("atomically saves a file selected during editing with the updated card values", async () => {
+  window.history.replaceState(null, "", "/work");
+  const fetch = setup(["editor"]);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Тестовый реестр" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Открыть карточку" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Редактировать карточку" }),
+  );
+  const file = new File(["example"], "example.txt", { type: "text/plain" });
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => new TextEncoder().encode("example").buffer,
+  });
+  fireEvent.change(screen.getByLabelText("Оригинал"), {
+    target: { files: [file] },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Сохранить карточку" }));
+  await screen.findByText("example.txt · версия 1");
+  const update = fetch.mock.calls.find(
+    ([url, init]) => url === "/api/v1/documents/d" && init?.method === "PUT",
+  );
+  expect(update).toBeTruthy();
+  const body = JSON.parse(String(update![1].body));
+  expect(body.revision).toBe(1);
+  expect(body.files).toEqual([
+    {
+      field_key: "original",
+      name: "example.txt",
+      mime: "text/plain",
+      content_base64: "ZXhhbXBsZQ==",
+    },
+  ]);
+  expect(fetch.mock.calls.some(([url]) => url.includes("/files?"))).toBe(false);
+});
+it("boolean extra filter uses typed control and sends false rather than dropping it", async () => {
+  window.history.replaceState(null, "", "/view");
+  const fetch = setup(["viewer"]);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Тестовый реестр" }),
+  );
+  fireEvent.change(screen.getByLabelText("Тип"), { target: { value: "t" } });
+  fireEvent.change(await screen.findByLabelText("Дополнительный фильтр"), {
+    target: { value: "publish" },
+  });
+  fireEvent.change(screen.getByLabelText("Значение фильтра"), {
+    target: { value: "false" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Найти" }));
+  await waitFor(() =>
+    expect(
+      fetch.mock.calls.some(
+        ([url]) =>
+          url.includes("filters=") &&
+          new URL(url, "https://example.test").searchParams.get("filters") ===
+            '{"publish":false}',
+      ),
+    ).toBe(true),
+  );
+});

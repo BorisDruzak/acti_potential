@@ -29,6 +29,10 @@ def current_actor(
     if not token:
         raise AuthenticationError()
     actor = resolve_actor(session, token, datetime.now(UTC))
+    if actor.must_change_password and request.url.path not in {
+        '/api/v1/users/me', '/api/v1/users/me/password', '/api/v1/auth/logout'
+    }:
+        fail(403, 'password_change_required', 'Сначала смените первоначальный пароль')
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         check_origin(request)
         if not secrets.compare_digest(

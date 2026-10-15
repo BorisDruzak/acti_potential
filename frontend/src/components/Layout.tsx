@@ -1,36 +1,57 @@
 import { useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
-
-export const sections = [
-  "Моя работа",
-  "Документы",
-  "Процессы",
-  "Поиск",
-  "Шаблоны",
-  "Справочники",
-  "Администрирование",
-  "Аудит",
-];
-const marks = ["⌂", "▤", "⇄", "⌕", "▦", "☷", "⚙", "◷"];
+export type Space = "admin" | "work" | "view";
+const spaceNames: Record<Space, string> = {
+  admin: "Администратор",
+  work: "Редактор",
+  view: "Читатель",
+};
 export function Layout({
   section,
   setSection,
+  space,
+  setSpace,
   children,
 }: {
   section: string;
   setSection: (value: string) => void;
+  space: Space;
+  setSpace: (space: Space) => void;
   children: ReactNode;
 }) {
   const auth = useAuth();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const roles = auth.user?.roles || [];
+  const spaces: Space[] = [
+    ...(roles.includes("admin") ? ["admin" as Space] : []),
+    ...(roles.some((role) => ["admin", "editor", "user"].includes(role))
+      ? ["work" as Space]
+      : []),
+    "view",
+  ];
+  const sections =
+    space === "admin"
+      ? [
+          "Обзор системы",
+          "Реестры",
+          "Типы документов",
+          "Конструктор форм",
+          "Справочники",
+          "Пользователи",
+          "Роли и доступ",
+          "История и аудит",
+          "Состояние платформы",
+          "Мой пароль",
+        ]
+      : ["Мои реестры", "Мой пароль"];
   async function logout() {
     setBusy(true);
     setError("");
     try {
       await auth.logout();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось выйти");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Не удалось выйти");
     } finally {
       setBusy(false);
     }
@@ -44,38 +65,46 @@ export function Layout({
         <div className="brand">
           ACTI<span>v3</span>
         </div>
-        <p className="sidebar-caption">РАБОЧЕЕ ПРОСТРАНСТВО</p>
+        <label className="space-picker">
+          Рабочее пространство
+          <select
+            value={space}
+            onChange={(event) => setSpace(event.target.value as Space)}
+          >
+            {spaces.map((item) => (
+              <option key={item} value={item}>
+                {spaceNames[item]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="sidebar-caption">{spaceNames[space].toUpperCase()}</p>
         <nav aria-label="Основная навигация">
-          {sections.map((title, index) => {
-            const available =
-              index === 0 ||
-              (index === 6 && auth.user?.roles.includes("admin"));
-            return (
-              <button
-                key={title}
-                className={section === title ? "nav-item active" : "nav-item"}
-                onClick={() => setSection(title)}
-                aria-current={section === title ? "page" : undefined}
-              >
-                <span className="nav-mark" aria-hidden="true">
-                  {marks[index]}
-                </span>
-                <span>
-                  {title}
-                  {!available && <small>В разработке</small>}
-                </span>
-              </button>
-            );
-          })}
+          {sections.map((title, index) => (
+            <button
+              key={title}
+              className={section === title ? "nav-item active" : "nav-item"}
+              onClick={() => setSection(title)}
+              aria-current={section === title ? "page" : undefined}
+            >
+              <span className="nav-mark" aria-hidden="true">
+                {index === 0 ? "⌂" : "◇"}
+              </span>
+              <span>{title}</span>
+            </button>
+          ))}
         </nav>
         <div className="sidebar-footer">
-          <i /> Платформенное ядро <span>0.1</span>
+          <i />
+          Универсальный реестр<span>v3</span>
         </div>
       </aside>
       <div className="main-column">
         <header className="topbar">
           <span className="breadcrumb">
-            Рабочее пространство <b>/</b> <strong>{section}</strong>
+            {spaceNames[space]}
+            <b>/</b>
+            <strong>{section}</strong>
           </span>
           <div className="account">
             <span className="avatar" aria-hidden="true">
@@ -83,13 +112,13 @@ export function Layout({
             </span>
             <span className="account-name">
               {auth.user?.display_name}
-              <small>
-                {auth.user?.roles.includes("admin")
-                  ? "Администратор"
-                  : "Пользователь"}
-              </small>
+              <small>{spaceNames[space]}</small>
             </span>
-            <button className="logout" onClick={logout} disabled={busy}>
+            <button
+              className="logout"
+              onClick={() => void logout()}
+              disabled={busy}
+            >
               {busy ? "Выход…" : "Выйти"}
             </button>
           </div>
@@ -103,7 +132,7 @@ export function Layout({
           {children}
         </main>
         <footer className="page-footer">
-          ACTI v3<span>Документы · Процессы · Организационная память</span>
+          ACTI v3<span>Документы · Реестры · Совместная работа</span>
         </footer>
       </div>
     </div>

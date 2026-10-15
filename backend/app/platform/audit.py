@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.platform.contracts import EVENT_FIELDS
 from app.platform.models import AuditEvent
 
 
@@ -16,7 +17,8 @@ class AuditInput:
 
 
 def record_audit(session, event: AuditInput) -> UUID:
-    if set(event.details) - {"reason_code", "role_codes"}:
+    allowed = {"reason_code", "role_codes"} | set(EVENT_FIELDS.get(event.action, set()))
+    if set(event.details) - allowed:
         raise ValueError("Audit details are not in the approved allowlist")
     row = AuditEvent(**vars(event))
     session.add(row)

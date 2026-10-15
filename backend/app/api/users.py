@@ -14,4 +14,5 @@ def me(request: Request, actor=Depends(current_actor)):
         "display_name": actor.display_name,
         "roles": sorted(actor.roles),
         "csrf_token": csrf_for_token(request.cookies[COOKIE_NAME]),
+        "must_change_password": actor.must_change_password,
     }
