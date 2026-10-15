@@ -1,0 +1,24 @@
+import os
+
+from alembic import context
+from sqlalchemy import create_engine
+
+from app.db.base import Base
+from app.identity import models as identity_models  # noqa: F401
+from app.platform import models as platform_models  # noqa: F401
+
+config = context.config
+
+
+def run(connection):
+    context.configure(connection=connection, target_metadata=Base.metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+if config.attributes.get("connection") is not None:
+    run(config.attributes["connection"])
+else:
+    engine = create_engine(os.environ["ACTI_DATABASE_URL"], hide_parameters=True)
+    with engine.connect() as conn:
+        run(conn)

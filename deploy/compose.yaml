@@ -1,0 +1,34 @@
+name: acti-v3
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?Set a pinned PostgreSQL image}
+    environment:
+      POSTGRES_USER: acti
+      POSTGRES_DB: acti
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set an external password}
+    volumes:
+      - type: bind
+        source: /srv/acti/postgresql/data
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U acti -d acti"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: "no"
+    networks: [internal]
+  redis:
+    image: ${REDIS_IMAGE:?Set a pinned Redis image}
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: "no"
+    networks: [internal]
+networks:
+  internal:
+    internal: true

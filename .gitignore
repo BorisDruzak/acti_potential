@@ -19,7 +19,7 @@ env_broken_py312/
 
 # Application data, documents, credentials, and build outputs
 data/
-db/
+/db/
 files/
 logs/
 db_config.json
