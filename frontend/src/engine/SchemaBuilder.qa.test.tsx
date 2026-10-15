@@ -93,3 +93,32 @@ it("shows the actual comparison value when enabling a condition", async () => {
   fireEvent.change(within(condition).getByLabelText("Поле условия"), { target: { value: "flag" } });
   expect((within(condition).getByLabelText(/^Значение/) as HTMLInputElement).value).toBe("true");
 });
+
+it("edits all six operators and publishes presence conditions without a comparison operand", async () => {
+  const requests = await setup([title, { key: "flag", label: "Флаг", type: "boolean" }]);
+  fireEvent.click(screen.getByRole("button", { name: /Название.*title/ }));
+  const condition = screen.getByText("Условие видимости").closest("fieldset")!;
+  fireEvent.change(within(condition).getByLabelText("Поле условия"), {target: {value: "flag"}});
+  expect(Array.from((within(condition).getByLabelText("Оператор") as HTMLSelectElement).options).map(option => option.value)).toEqual(["eq", "ne", "in", "not_in", "present", "absent"]);
+  fireEvent.change(within(condition).getByLabelText("Оператор"), {target: {value: "absent"}});
+  expect(within(condition).queryByLabelText(/^Значение/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "Сохранить черновик"}));
+  await waitFor(() => expect(requests).toHaveLength(1));
+  expect(requests[0].body.schema.sections[0].fields[0].visible_when).toEqual({field: "flag", op: "absent"});
+});
+
+it("preserves list columns while editing the form and orders group children", async () => {
+  const requests = await setup([title, {key: "rows", label: "Строки", type: "group", children: [{key: "first", label: "Первое", type: "text"}, {key: "second", label: "Второе", type: "date"}]}]);
+  const view = screen.getByText("Представление списка документов").closest("details")!;
+  fireEvent.click(within(view).getByLabelText("Название"));
+  fireEvent.change(within(view).getByLabelText("Заголовок: title"), {target: {value: "Документ"}});
+  fireEvent.click(screen.getByRole("button", {name: /Название.*title/}));
+  fireEvent.change(screen.getByLabelText("Описание"), {target: {value: "Подсказка"}});
+  fireEvent.change(screen.getByLabelText("Регулярное выражение"), {target: {value: "[А-Яа-я ]+"}});
+  fireEvent.click(screen.getByLabelText("Дочернее поле выше: Второе"));
+  fireEvent.click(screen.getByRole("button", {name: "Сохранить черновик"}));
+  await waitFor(() => expect(requests).toHaveLength(1));
+  expect(requests[0].body.schema.list_view).toEqual({columns: [{key: "title", label: "Документ"}]});
+  expect(requests[0].body.schema.sections[0].fields[0].constraints?.pattern).toBe("[А-Яа-я ]+");
+  expect(requests[0].body.schema.sections[0].fields[1].children?.map(field => field.key)).toEqual(["second", "first"]);
+});

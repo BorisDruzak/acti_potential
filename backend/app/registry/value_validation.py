@@ -16,6 +16,7 @@ from app.registry.policy import (
     field_readable,
     field_writable,
 )
+from app.registry.references import selectable
 
 SYSTEM_KEYS = frozenset({"reg_number", "reg_date", "title", "status"})
 
@@ -144,7 +145,7 @@ def validate_value(
             if (
                 item is None
                 or item.reference_set_id != ref.id
-                or (not item.active and str(item_id) not in previous_entries)
+                or (not selectable(item) and str(item_id) not in previous_entries)
             ):
                 invalid(key, "Значение справочника недоступно")
             if str(item_id) not in normalized:
@@ -240,7 +241,14 @@ def validate_values(
     if values.keys() - fields.keys():
         invalid("values", "Переданы незарегистрированные поля")
     result = dict(previous or {})
-    proposed = {**result, **values}
+    # Preview applies defaults before evaluating conditions. Use the same complete
+    # proposed state even when a dependent field occurs before its controller.
+    defaults = {
+        key: field["default"]
+        for key, field in fields.items()
+        if field.get("default") is not None and key not in result and key not in values
+    }
+    proposed = {**defaults, **result, **values}
     root_values = proposed if _root_values is None else _root_values
     root_fields = _root_fields or fields
     for key, value in values.items():

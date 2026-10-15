@@ -119,6 +119,13 @@ def redact_schema(schema, actor, mode=None, *, _root_fields=None):
                     # A hidden dependency cannot disclose either values or its predicate.
                     field.pop(key, None)
                     field["editable"] = False
+    if "list_view" in result:
+        result["list_view"]["columns"] = [
+            column
+            for column in result["list_view"]["columns"]
+            if column["key"] in visible
+            and field_accessible(root_fields[column["key"]], actor, root_fields, mode)
+        ]
     return result
 
 
@@ -144,10 +151,12 @@ def condition_matches(condition, values, fields=None):
         return equal(expected)
     if op == "ne":
         return not equal(expected)
-    if op == "in":
-        return any(equal(item) for item in expected) if isinstance(expected, list) else False
-    if op == "present":
-        return value is not None and value != "" and value != []
+    if op in {"in", "not_in"}:
+        matches = any(equal(item) for item in expected) if isinstance(expected, list) else False
+        return matches if op == "in" else not matches
+    if op in {"present", "absent"}:
+        present = value is not None and value != "" and value != []
+        return present if op == "present" else not present
     return False
 
 

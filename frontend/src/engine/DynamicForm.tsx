@@ -89,7 +89,7 @@ function Lookup({
             ? data.map((item) => ({
                 id: item.id,
                 label: "label" in item ? item.label : item.display_name,
-                active: "active" in item ? item.active : true,
+                active: "selectable" in item ? item.selectable : "active" in item ? item.active : true,
               }))
             : data.items.map((item) => ({
                 id: item.id,
@@ -443,9 +443,17 @@ function FieldControl({
 }
 
 export function DynamicForm({ schema, values, onChange, ...props }: Props) {
+  const navigationId = useId();
   const conditionFields = props.conditionFields || schema.sections.flatMap((section) => section.fields);
   return (
     <div className="dynamic-form">
+      {!props.prefix && schema.sections.length > 2 && (
+        <nav className="form-navigation" aria-label="Разделы формы">
+          {schema.sections.filter(section => section.fields.some(field => canRead(field, props.mode, props.roles, props.conditionValues || values, props.displayMode, conditionFields))).map(section => (
+            <a key={section.key} href={`#${navigationId}-${section.key}`}>{section.title}</a>
+          ))}
+        </nav>
+      )}
       {schema.sections.map((section) => {
         const visible = section.fields.filter((field) =>
           canRead(
@@ -458,7 +466,7 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
           ),
         );
         return visible.length ? (
-          <section className="form-section" key={section.key}>
+          <section className="form-section" key={section.key} id={`${navigationId}-${section.key}`}>
             {section.title && <h3>{section.title}</h3>}
             <div className="form-grid">
               {visible.map((field) => (

@@ -3,12 +3,12 @@ import { Feedback } from "../components/Feedback";
 import { SchemaBuilder } from "../engine/SchemaBuilder";
 import {
   type DocumentType,
-  type ReferenceItem,
   type ReferenceSet,
   type Registry,
   type SchemaVersion,
 } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
+import { ReferenceItems } from "./ReferenceItems";
 
 function TypeSettings({
   type,
@@ -486,148 +486,6 @@ export function RegistriesAdmin() {
   );
 }
 
-function ReferenceItems({ reference }: { reference: ReferenceSet }) {
-  const items = useData<ReferenceItem[]>(
-    "/references/" + reference.id + "/items",
-  );
-  const [label, setLabel] = useState("");
-  const action = useAction();
-  return (
-    <section className="panel">
-      <h2>{reference.name}</h2>
-      <ReferenceSettings reference={reference} />
-      <form
-        className="inline-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void action.run(async () => {
-            await action.request(
-              "/references/" + reference.id + "/items",
-              "POST",
-              { label, active: true },
-            );
-            setLabel("");
-            items.reload();
-          });
-        }}
-      >
-        <label>
-          Новое значение
-          <input
-            required
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-          />
-        </label>
-        <button className="primary" disabled={action.busy}>
-          Добавить значение
-        </button>
-      </form>
-      <Feedback
-        error={items.error || action.error}
-        message={action.message}
-        loading={items.loading}
-      />
-      <div className="reference-list">
-        {items.data?.map((item) => (
-          <ReferenceRow
-            key={item.id}
-            referenceId={reference.id}
-            item={item}
-            reload={items.reload}
-          />
-        ))}
-      </div>
-      {items.data?.length === 0 && (
-        <p className="empty-state">В справочнике пока нет значений.</p>
-      )}
-    </section>
-  );
-}
-function ReferenceSettings({ reference }: { reference: ReferenceSet }) {
-  const [name, setName] = useState(reference.name);
-  const action = useAction();
-  return (
-    <details>
-      <summary>Настройки справочника</summary>
-      <form
-        className="inline-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void action.run(async () => {
-            await action.request("/references/" + reference.id, "PATCH", {
-              name,
-            });
-          });
-        }}
-      >
-        <label>
-          Название справочника
-          <input
-            value={name}
-            required
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <button disabled={action.busy}>Сохранить название</button>
-        <Feedback {...action} />
-      </form>
-      <p className="muted">
-        Код: {reference.code}. Область справочника сохраняется для существующих
-        связей.
-      </p>
-    </details>
-  );
-}
-function ReferenceRow({
-  referenceId,
-  item,
-  reload,
-}: {
-  referenceId: string;
-  item: ReferenceItem;
-  reload: () => void;
-}) {
-  const [label, setLabel] = useState(item.label);
-  const [active, setActive] = useState(item.active);
-  const action = useAction();
-  return (
-    <form
-      className="inline-form reference-row"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void action.run(async () => {
-          await action.request(
-            "/references/" + referenceId + "/items/" + item.id,
-            "PATCH",
-            { label, active },
-          );
-          reload();
-        });
-      }}
-    >
-      <label>
-        Значение
-        <input
-          aria-label={"Значение: " + item.label}
-          value={label}
-          required
-          onChange={(event) => setLabel(event.target.value)}
-        />
-      </label>
-      <label className="checkbox-label">
-        <input
-          type="checkbox"
-          checked={active}
-          onChange={(event) => setActive(event.target.checked)}
-        />
-        Активно
-      </label>
-      <button disabled={action.busy}>Сохранить значение</button>
-      <Feedback {...action} />
-    </form>
-  );
-}
 export function ReferencesAdmin() {
   const references = useData<ReferenceSet[]>("/references");
   const registries = useData<Registry[]>("/registries");

@@ -1,11 +1,8 @@
-import json
-from datetime import date
-from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import Numeric, and_, case, delete, false, func, or_, select
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy import delete, select
 
 from app.api.dependencies import current_actor, current_admin, db_session
 from app.api.errors import fail
@@ -19,6 +16,12 @@ from app.registry.document_contracts import (
     HistoryOutput,
     UserOption,
 )
+from app.registry.document_search import (
+    ExportParameters,
+    SearchParameters,
+    count_rows,
+    search_query,
+)
 from app.registry.documents import (
     append_history,
     check_revision,
@@ -31,173 +34,29 @@ from app.registry.documents import (
 )
 from app.registry.events import emit
 from app.registry.models import Document, DocumentACL, FormSchema, MetadataRevision, Registry
-from app.registry.policy import accessible_document_clause, field_readable, permissions_for
-from app.registry.value_validation import uuid_value, validate_value, validate_values
+from app.registry.policy import permissions_for
+from app.registry.value_validation import validate_values
 
 router = APIRouter()
 Db = Annotated[object, Depends(db_session, scope="function")]
 Actor = Annotated[object, Depends(current_actor)]
 
 
-def fields_for(session, actor, mode=None):
-    allowed_types = {
-        UUID(tid)
-        for registry in session.scalars(select(Registry))
-        if "read" in permissions_for(session, actor, registry.id)
-        for tid in registry.document_type_ids
-    }
-    allowed_schemas = select(Document.schema_version_id).where(
-        accessible_document_clause(session, actor)
-    )
-    return [
-        (row.id, f)
-        for row in session.scalars(
-            select(FormSchema).where(
-                FormSchema.state == "published",
-                or_(
-                    FormSchema.document_type_id.in_(allowed_types),
-                    FormSchema.id.in_(allowed_schemas),
-                ),
-            )
-        )
-        for s in row.schema_data.get("sections", [])
-        for f in s.get("fields", [])
-        if field_readable(f, actor, mode) and not f.get("visible_when")
-    ]
-
-
-def field_expression(field):
-    system = field.get("system")
-    return getattr(Document, system) if system else Document.custom_data[field["key"]].astext
-
-
-def safe_system_filter(fields, system, predicate):
-    return or_(
-        false(),
-        *[
-            and_(Document.schema_version_id == schema_id, predicate(field_expression(field)))
-            for schema_id, field in fields
-            if field.get("system") == system and field.get("filterable", False)
-        ],
-    )
-
-
-def custom_filter(session, actor, schema_id, field, value):
-    kind = field["type"]
-    if kind in {"group", "file"}:
-        fail(422, "invalid_filter", "Поле недоступно для фильтрации")
-    if kind in {"reference", "multi_reference", "user", "department", "document"}:
-        normalized = str(uuid_value(value, field["key"])) if value is not None else None
-    else:
-        normalized = validate_value(session, actor, field, value, None)
-    expression = field_expression(field)
-    if kind == "multi_reference" and normalized is not None:
-        predicate = Document.custom_data[field["key"]].contains([normalized])
-    elif kind == "decimal" and normalized is not None:
-        # Different form versions can reuse a key with a different type. CASE
-        # prevents PostgreSQL from casting unrelated schemas' text values.
-        expression = case((Document.schema_version_id == schema_id, expression))
-        predicate = expression.cast(Numeric) == Decimal(normalized)
-    elif normalized is None:
-        predicate = expression.is_(None)
-    else:
-        predicate = expression == (
-            str(normalized).lower() if isinstance(normalized, bool) else str(normalized)
-        )
-    return and_(Document.schema_version_id == schema_id, predicate)
-
-
 @router.get("/documents", response_model=DocumentPage)
-def list_documents(
-    session: Db,
-    actor: Actor,
-    registry_id: UUID | None = None,
-    document_type_id: UUID | None = None,
-    q: str = Query("", max_length=255),
-    reg_number: str | None = Query(None, max_length=255),
-    title: str | None = Query(None, max_length=255),
-    reg_date: date | None = None,
-    date_from: date | None = None,
-    date_to: date | None = None,
-    status: str | None = Query(None, max_length=100),
-    filters: str | None = Query(None, max_length=8000),
-    sort: Literal["updated_at", "created_at", "reg_date", "reg_number", "title"] = "updated_at",
-    direction: Literal["asc", "desc"] = "desc",
-    page: int = Query(1, ge=1, le=1000000),
-    page_size: int = Query(25, ge=1, le=100),
-    mode: Literal["editor", "viewer"] | None = None,
-):
-    query = select(Document).where(accessible_document_clause(session, actor))
-    if registry_id:
-        query = query.where(Document.registry_id == registry_id)
-    if document_type_id:
-        query = query.where(Document.document_type_id == document_type_id)
-    fields = fields_for(session, actor, mode)
-    for system, value in [("reg_number", reg_number), ("title", title), ("status", status)]:
-        if value is not None:
-            query = query.where(safe_system_filter(fields, system, lambda col: col.contains(value)))
-    if q:
-        query = query.where(
-            or_(
-                safe_system_filter(fields, "title", lambda col: col.ilike("%" + q + "%")),
-                safe_system_filter(fields, "reg_number", lambda col: col.ilike("%" + q + "%")),
-            )
-        )
-    for value, operator in ((reg_date, "eq"), (date_from, "ge"), (date_to, "le")):
-        if value:
-            query = query.where(
-                safe_system_filter(
-                    fields,
-                    "reg_date",
-                    lambda col: (
-                        col == value
-                        if operator == "eq"
-                        else col >= value
-                        if operator == "ge"
-                        else col <= value
-                    ),
-                )
-            )
-    if filters:
-        try:
-            extra = json.loads(filters)
-        except ValueError:
-            fail(422, "invalid_filter", "Неверный фильтр")
-        if not isinstance(extra, dict) or len(extra) > 20:
-            fail(422, "invalid_filter", "Неверный фильтр")
-        for key, value in extra.items():
-            options = [(sid, f) for sid, f in fields if f["key"] == key and f.get("filterable")]
-            if not options or isinstance(value, (dict, list)):
-                fail(422, "invalid_filter", "Поле недоступно для фильтрации")
-            predicates = []
-            for sid, field in options:
-                try:
-                    predicates.append(custom_filter(session, actor, sid, field, value))
-                except HTTPException as error:
-                    if error.status_code != 422:
-                        raise
-            if not predicates:
-                fail(422, "invalid_filter", "Неверное значение фильтра")
-            query = query.where(or_(*predicates))
-    total = session.scalar(select(func.count()).select_from(query.subquery()))
-    order_column = getattr(Document, sort)
-    if sort in {"title", "reg_number", "reg_date"}:
-        allowed_schemas = [sid for sid, field in fields if field.get("system") == sort]
-        order_column = case(
-            (Document.schema_version_id.in_(allowed_schemas), order_column), else_=None
-        )
-    order = (
-        order_column.asc().nulls_last() if direction == "asc" else order_column.desc().nulls_last()
-    )
-    rows = session.scalars(
-        query.order_by(order, Document.id).offset((page - 1) * page_size).limit(page_size)
-    )
-    return {
-        "items": [document_summary(session, row, actor, mode=mode) for row in rows],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    }
+def list_documents(session: Db, actor: Actor, params: Annotated[SearchParameters, Query()]):
+    query, _ = search_query(session, actor, params)
+    total = count_rows(session, query)
+    rows = session.scalars(query.offset((params.page - 1) * params.page_size).limit(params.page_size))
+    return {"items": [document_summary(session, row, actor, mode=params.mode) for row in rows],
+            "total": total, "page": params.page, "page_size": params.page_size}
+
+
+@router.get("/documents/export")
+def export_documents(request: Request, session: Db, actor: Actor,
+                     params: Annotated[ExportParameters, Query()]):
+    from app.registry.document_export import export_documents_response
+
+    return export_documents_response(request, session, actor, params)
 
 
 @router.post("/documents", response_model=DocumentOutput, status_code=201)

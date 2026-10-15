@@ -56,6 +56,8 @@ class DocumentSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     permissions: list[str]
+    values: dict[str, Any] = Field(default_factory=dict)
+    display_values: dict[str, Any] = Field(default_factory=dict)
 
 
 class DocumentOutput(DocumentSummary):

@@ -41,6 +41,7 @@ export type Field = {
 };
 export type FormSchema = {
   sections: { key: string; title: string; fields: Field[] }[];
+  list_view?: { columns: { key: string; label: string }[] };
 };
 export type SchemaVersion = {
   id: string;
@@ -67,9 +68,10 @@ export type ReferenceSet = {
   id: string;
   code: string;
   name: string;
+  description?: string;
   registry_id?: string | null;
 };
-export type ReferenceItem = { id: string; label: string; active: boolean };
+export type ReferenceItem = { id: string; label: string; active: boolean; code?: string; description?: string; sort_order?: number; parent_id?: string | null; valid_from?: string | null; valid_until?: string | null; selectable?: boolean };
 export type FileVersion = {
   id: string;
   version: number;
@@ -91,6 +93,7 @@ export type Card = {
   revision: number;
   current_version: number;
   values: Values;
+  display_values?: Values;
   schema: FormSchema;
   files: FileVersion[];
   permissions: string[];
@@ -119,10 +122,12 @@ export function conditionMatches(
   fields: Field[] = [],
 ): boolean {
   if (!condition) return true;
-  const actual = values[condition.field];
+  const actual = values[condition.field] ?? null;
   const decimal = fields.find((field) => field.key === condition.field)?.type === "decimal";
   const equal = (expected: unknown) => {
-    if (!decimal) return actual === expected;
+    if (!decimal) return Array.isArray(actual) && Array.isArray(expected)
+      ? JSON.stringify(actual) === JSON.stringify(expected)
+      : actual === expected;
     const left = canonicalDecimal(actual);
     const right = canonicalDecimal(expected);
     return left !== null && right !== null ? left === right : actual === expected;
@@ -183,8 +188,14 @@ export function canRead(
   values: Values,
   displayMode = mode === "view" ? "viewer" : "editor",
   conditionFields: Field[] = [],
+  seen: Set<Field> = new Set(),
 ) {
   const effectiveRoles = roles.includes("user") ? [...roles, "editor"] : roles;
+  if (seen.has(field)) return false;
+  if (field.visible_when && conditionFields.length) {
+    const dependency = conditionFields.find(current => current.key === field.visible_when!.field);
+    if (!dependency || !canRead(dependency, mode, roles, values, displayMode, conditionFields, new Set([...seen, field]))) return false;
+  }
   return (
     (!field.modes?.length || field.modes.includes(displayMode)) &&
     (!field.read_roles?.length ||

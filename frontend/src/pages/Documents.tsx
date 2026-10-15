@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ApiError, apiUpload, encodeFile, saveDownload } from "../api/client";
+import { ApiError, apiUpload, encodeFile, saveDownload, saveExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
 import { DynamicForm } from "../engine/DynamicForm";
@@ -583,6 +583,14 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const [filterKey, setFilterKey] = useState("");
   const [filterValue, setFilterValue] = useState<unknown>(null);
   const [sort, setSort] = useState("updated_at");
+  const [direction, setDirection] = useState("desc");
+  const [filterOp, setFilterOp] = useState("eq");
+  const [filterEnd, setFilterEnd] = useState("");
+  const [viewName, setViewName] = useState("");
+  const [savedViews, setSavedViews] = useState<{name: string; registry: string; query: string}[]>(() => {
+    try { const data = JSON.parse(localStorage.getItem(`acti.views.v1.${auth.user?.id}.${readOnly ? "viewer" : "editor"}`) || "[]"); return Array.isArray(data) ? data.filter(item => typeof item?.name === "string" && typeof item?.registry === "string" && typeof item?.query === "string") : []; } catch { return []; }
+  });
+  const exportAction = useAction();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const registry = registries.data?.find((item) => item.id === registryId);
@@ -594,12 +602,13 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           (readOnly ? "viewer" : "editor")
       : null,
   );
+  const publishedSchema = versions.data?.find(item => item.state === "published")?.schema;
+  const configuredColumns = new URLSearchParams(search).get("document_type_id") === typeId ? publishedSchema?.list_view?.columns || [] : [];
+  const exportColumns = configuredColumns.filter(column => publishedSchema?.sections.some(section => section.fields.some(field => field.key === column.key && field.exportable)));
   const filterFields =
-    versions.data
-      ?.find((item) => item.state === "published")
-      ?.schema.sections.flatMap((section) => section.fields)
+    publishedSchema?.sections.flatMap((section) => section.fields)
       .filter(
-        (field) => field.filterable && !["file", "group"].includes(field.type),
+        (field) => field.filterable && !field.visible_when && !["file", "group"].includes(field.type),
       ) || [];
   const filterField = filterFields.find((field) => field.key === filterKey);
   const list = useData<{
@@ -632,17 +641,28 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     if (to) params.set("date_to", to);
     if (typeId) params.set("document_type_id", typeId);
     params.set("sort", sort);
-    params.set("direction", sort === "updated_at" ? "desc" : "asc");
+    params.set("direction", direction);
     if (
       filterKey &&
       filterValue !== null &&
       filterValue !== undefined &&
       filterValue !== ""
     ) {
-      params.set("filters", JSON.stringify({ [filterKey]: filterValue }));
+      params.set("filters", JSON.stringify({ [filterKey]: filterOp === "eq" ? filterValue : {op: filterOp, value: filterOp === "between" ? [filterValue, filterEnd] : filterValue} }));
     }
+    if (filterKey && ["present", "absent"].includes(filterOp)) params.set("filters", JSON.stringify({[filterKey]: {op: filterOp}}));
     setPage(1);
     setSearch("&" + params.toString());
+  }
+  function persistViews(next: typeof savedViews) {
+    setSavedViews(next);
+    try { localStorage.setItem(`acti.views.v1.${auth.user?.id}.${readOnly ? "viewer" : "editor"}`, JSON.stringify(next)); } catch { /* Browser storage can be disabled; current filters still work. */ }
+  }
+  function loadView(query: string) {
+    const params = new URLSearchParams(query);
+    setQ(params.get("q") || ""); setNumber(params.get("reg_number") || ""); setStatus(params.get("status") || ""); setFrom(params.get("date_from") || ""); setTo(params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "updated_at"); setDirection(params.get("direction") || "desc");
+    try { const [key, value] = Object.entries(JSON.parse(params.get("filters") || "{}"))[0] || ["", null]; setFilterKey(key); const typed = value as {op?: string; value?: unknown} | null; setFilterOp(typed && typeof typed === "object" ? typed.op || "eq" : "eq"); setFilterValue(typed && typeof typed === "object" ? (Array.isArray(typed.value) && typed.op === "between" ? typed.value[0] : typed.value) : value); setFilterEnd(typed?.op === "between" && Array.isArray(typed.value) ? String(typed.value[1]) : ""); } catch { setFilterKey(""); setFilterValue(null); }
+    setPage(1); setSearch("&" + query);
   }
   const close = () => {
     setDocumentId("");
@@ -715,6 +735,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 setFrom("");
                 setTo("");
                 setSort("updated_at");
+                setDirection("desc"); setFilterOp("eq"); setFilterEnd("");
                 setTypeId("");
                 setFilterKey("");
                 setFilterValue(null);
@@ -733,6 +754,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       )}
       {registry && (
         <>
+          <details className="panel"><summary>Сохранённые фильтры и сортировки</summary>
+            <div className="inline-form"><label>Название представления<input value={viewName} onChange={event => setViewName(event.target.value)} /></label><button disabled={!viewName.trim() || !search} onClick={() => {persistViews([...savedViews.filter(item => !(item.registry === registryId && item.name === viewName.trim())), {name: viewName.trim(), registry: registryId, query: search.slice(1)}]); setViewName("");}}>Сохранить текущий поиск</button></div>
+            {savedViews.filter(item => item.registry === registryId).map(item => <div className="button-row" key={item.name}><button onClick={() => loadView(item.query)}>{item.name}</button><button aria-label={`Удалить представление: ${item.name}`} onClick={() => persistViews(savedViews.filter(current => current !== item))}>Удалить</button></div>)}
+          </details>
           <form
             className="panel filters"
             onSubmit={(event) => {
@@ -785,7 +810,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 value={typeId}
                 onChange={(event) => {
                   setTypeId(event.target.value);
-                  setFilterKey("");
+                  setFilterKey(""); setFilterOp("eq"); setFilterEnd(""); setSort("updated_at");
                 }}
               >
                 <option value="">Все типы</option>
@@ -810,8 +835,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 <option value="reg_date">Дата регистрации</option>
                 <option value="reg_number">Номер</option>
                 <option value="title">Название</option>
+                {filterFields.filter(field => !field.system && field.type !== "multi_reference").map(field => <option key={field.key} value={`custom:${field.key}`}>{field.label}</option>)}
               </select>
             </label>
+            <label>Направление сортировки<select value={direction} onChange={event => setDirection(event.target.value)}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
             {filterFields.length > 0 && (
               <>
                 <label>
@@ -820,7 +847,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                     value={filterKey}
                     onChange={(event) => {
                       setFilterKey(event.target.value);
-                      setFilterValue(null);
+                      setFilterValue(null); setFilterOp("eq"); setFilterEnd("");
                     }}
                   >
                     <option value="">Без дополнительного фильтра</option>
@@ -831,7 +858,8 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                     ))}
                   </select>
                 </label>
-                {filterField && (
+                {filterField && <label>Сравнение<select value={filterOp} onChange={event => setFilterOp(event.target.value)}><option value="eq">Равно</option><option value="ne">Не равно</option>{["text", "textarea"].includes(filterField.type) && <option value="contains">Содержит</option>}{["integer", "decimal", "date", "datetime"].includes(filterField.type) && <><option value="gte">Не меньше</option><option value="lte">Не больше</option><option value="between">В диапазоне</option></>}<option value="present">Заполнено</option><option value="absent">Не заполнено</option></select></label>}
+                {filterField && !["present", "absent"].includes(filterOp) && (
                   <div className="filter-value">
                     <DynamicForm
                       schema={{
@@ -866,6 +894,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                       references={references.data || []}
                       displayMode={readOnly ? "viewer" : "editor"}
                     />
+                    {filterOp === "between" && <label>Верхняя граница<input type={filterField.type === "date" ? "date" : filterField.type === "datetime" ? "datetime-local" : "number"} step="any" value={filterEnd} onChange={event => setFilterEnd(event.target.value)} /></label>}
                   </div>
                 )}
               </>
@@ -873,6 +902,9 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             <button className="primary">Найти</button>
           </form>
           <Feedback {...list} />
+          <Feedback {...exportAction} />
+          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/documents/export?registry_id=${encodeURIComponent(registryId)}&format=${format}&mode=${readOnly ? "viewer" : "editor"}${search}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
+          {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
           <div className="toolbar">
             <h2>Документы</h2>
             <span className="muted">Найдено: {list.data?.total ?? "…"}</span>
@@ -881,9 +913,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             <table>
               <thead>
                 <tr>
-                  <th>Номер</th>
-                  <th>Дата</th>
-                  <th>Название</th>
+                  {configuredColumns.length ? configuredColumns.map(column => <th key={column.key}>{column.label}</th>) : <><th>Номер</th><th>Дата</th><th>Название</th></>}
                   <th>Редакция</th>
                   <th>Действия</th>
                 </tr>
@@ -891,9 +921,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               <tbody>
                 {list.data?.items.map((item) => (
                   <tr key={item.id}>
-                    <td>{item.reg_number || "—"}</td>
-                    <td>{item.reg_date || "—"}</td>
-                    <td>{item.title || "Документ"}</td>
+                    {configuredColumns.length ? configuredColumns.map(column => <td key={column.key}>{displayListValue(item.display_values?.[column.key] ?? item.values?.[column.key])}</td>) : <><td>{item.reg_number || "—"}</td><td>{item.reg_date || "—"}</td><td>{item.title || "Документ"}</td></>}
                     <td>{item.revision}</td>
                     <td>
                       <button onClick={() => setDocumentId(item.id)}>
@@ -931,4 +959,11 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       )}
     </>
   );
+}
+
+function displayListValue(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Да" : "Нет";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
