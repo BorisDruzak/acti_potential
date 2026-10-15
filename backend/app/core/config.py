@@ -11,3 +11,4 @@ class Settings(BaseSettings):
     storage_root: str = "/documents"
     secure_cookie: bool = True
     source_sha: str = "development"
+    trusted_proxy_cidrs: str = ""
