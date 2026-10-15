@@ -103,6 +103,13 @@ def _default_type(field):
         valid = isinstance(value, list)
         if kind == "group":
             valid = valid and all(isinstance(item, dict) for item in value)
+            if valid:
+                children = {child["key"]: child for child in field.get("children", [])}
+                for row in value:
+                    if row.keys() - children.keys():
+                        raise ValueError("Group default contains unknown child fields")
+                    for key, entry in row.items():
+                        _default_type({**children[key], "default": entry})
         elif valid:
             for item in value:
                 try:

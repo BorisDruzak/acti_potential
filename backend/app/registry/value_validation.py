@@ -295,9 +295,9 @@ def validate_values(
             continue
         required = field.get("required", False) or (
             bool(field.get("required_when"))
-            and condition_matches(field["required_when"], root_values)
+            and condition_matches(field["required_when"], root_values, root_fields)
         )
-        if required and condition_matches(field.get("visible_when"), root_values):
+        if required and condition_matches(field.get("visible_when"), root_values, root_fields):
             if (
                 result.get(key) is None
                 or result.get(key) == []

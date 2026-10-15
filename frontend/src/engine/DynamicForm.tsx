@@ -25,6 +25,7 @@ type Props = {
   onFile?: (field: string, file: File) => void;
   prefix?: string;
   conditionValues?: Values;
+  conditionFields?: Field[];
   displayMode?: "editor" | "viewer";
 };
 type Choice = { id: string; label: string; active?: boolean };
@@ -198,7 +199,7 @@ function FieldControl({
   const required =
     field.required ||
     (!!field.required_when &&
-      conditionMatches(field.required_when, props.conditionValues || values));
+      conditionMatches(field.required_when, props.conditionValues || values, props.conditionFields));
   if (
     !canRead(
       field,
@@ -206,6 +207,7 @@ function FieldControl({
       props.roles,
       props.conditionValues || values,
       props.displayMode,
+      props.conditionFields,
     )
   )
     return null;
@@ -238,6 +240,7 @@ function FieldControl({
                 )
               }
               mode={writable ? props.mode : "view"}
+              displayMode={props.displayMode || (props.mode === "view" ? "viewer" : "editor")}
               prefix={`${props.prefix || ""}${field.key}.${index}.`}
             />
             {writable && (
@@ -435,6 +438,7 @@ function FieldControl({
 }
 
 export function DynamicForm({ schema, values, onChange, ...props }: Props) {
+  const conditionFields = props.conditionFields || schema.sections.flatMap((section) => section.fields);
   return (
     <div className="dynamic-form">
       {schema.sections.map((section) => {
@@ -445,6 +449,7 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
             props.roles,
             props.conditionValues || values,
             props.displayMode,
+            conditionFields,
           ),
         );
         return visible.length ? (
@@ -454,6 +459,7 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
               {visible.map((field) => (
                 <FieldControl
                   {...props}
+                  conditionFields={conditionFields}
                   key={field.key}
                   field={field}
                   values={values}

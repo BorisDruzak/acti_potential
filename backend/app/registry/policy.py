@@ -1,4 +1,5 @@
 from copy import deepcopy
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import and_, exists, or_, select
 
@@ -83,7 +84,7 @@ def field_accessible(field, actor, fields, mode=None, *, values=None, seen=froze
         dependency, actor, fields, mode, values=values, seen=seen | {id(field)}
     ):
         return False
-    return values is None or condition_matches(condition, values)
+    return values is None or condition_matches(condition, values, fields)
 
 
 def redact_schema(schema, actor, mode=None, *, _root_fields=None):
@@ -121,17 +122,30 @@ def redact_schema(schema, actor, mode=None, *, _root_fields=None):
     return result
 
 
-def condition_matches(condition, values):
+def condition_matches(condition, values, fields=None):
     if not condition:
         return True
     value, expected = values.get(condition["field"]), condition.get("value")
     op = condition["op"]
+
+    def equal(other):
+        if isinstance(value, bool) or isinstance(other, bool):
+            return type(value) is type(other) and value == other
+        dependency = (fields or {}).get(condition["field"], {})
+        if dependency.get("type") == "decimal" and value is not None and other is not None:
+            try:
+                actual, target = Decimal(str(value)), Decimal(str(other))
+                return actual.is_finite() and target.is_finite() and actual == target
+            except InvalidOperation:
+                return False
+        return value == other
+
     if op == "eq":
-        return value == expected
+        return equal(expected)
     if op == "ne":
-        return value != expected
+        return not equal(expected)
     if op == "in":
-        return value in expected if isinstance(expected, list) else False
+        return any(equal(item) for item in expected) if isinstance(expected, list) else False
     if op == "present":
         return value is not None and value != "" and value != []
     return False
