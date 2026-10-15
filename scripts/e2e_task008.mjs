@@ -174,7 +174,7 @@ export async function runTask008({browser,origin,admin,outputDir,fixturesDir}) {
     pass('editor publishes a universal versioned template and two sourced synthetic practice cases through the UI');
     for(const page of [ep,vp,ap])await json(page,`/knowledge/cases/${publicCase.id}/curate`,'POST',{action:'confirm',reason:'Нет отдельного полномочия'},403);
     await json(vp,`/knowledge/cases/${privateCase.id}`,'GET',undefined,404);await json(ap,`/knowledge/cases/${privateCase.id}`,'GET',undefined,404);
-    await ap.getByRole('button',{name:'Роли и доступ',exact:true}).click();await ap.getByRole('combobox',{name:/^Реестр\s/}).selectOption(processRegistry.id);
+    await ap.getByRole('button',{name:'Роли и доступ',exact:true}).click();await ap.getByRole('combobox',{name:'Реестр',exact:true}).selectOption(processRegistry.id);
     for(const actor of [administrator,roles.editor.account])await ap.getByLabel(`${actor.display_name}: Подтверждение и рекомендация практики`,{exact:true}).check();
     await mutation(ap,`/admin/access/${processRegistry.id}`,()=>ap.getByRole('button',{name:'Сохранить права',exact:true}).click(),'PUT',200);
     await catalog(ep,'cases');await ep.locator('.knowledge-cards').getByRole('button',{name:new RegExp(publicCase.name)}).click();
@@ -230,7 +230,7 @@ export async function runTask008({browser,origin,admin,outputDir,fixturesDir}) {
     await vp.screenshot({path:path.join(outputDir,'reader-practice-basis-viewport.png'),fullPage:false});
     await context.getByRole('link',{name:'Открыть документ знания',exact:true}).click();await vp.locator('.content-block.selected').waitFor();assert.ok((await vp.locator('.content-block.selected').innerText()).includes(block.text));
     await openProcess(vp);await vp.locator('.related-knowledge').getByRole('button',{name:'Похожие случаи',exact:true}).click();await vp.locator('.related-knowledge .knowledge-cards').getByRole('button',{name:new RegExp(publicCase.name)}).waitFor();
-    await vp.setViewportSize({width:430,height:932});await vp.locator('.related-knowledge h3').scrollIntoViewIfNeeded();await vp.screenshot({path:path.join(outputDir,'reader-knowledge-narrow-viewport.png'),fullPage:false});await vp.setViewportSize({width:1440,height:1000});
+    await vp.setViewportSize({width:430,height:932});await vp.locator('.related-knowledge').getByRole('heading',{name:'Знания для этой работы',exact:true}).scrollIntoViewIfNeeded();await vp.screenshot({path:path.join(outputDir,'reader-knowledge-narrow-viewport.png'),fullPage:false});await vp.setViewportSize({width:1440,height:1000});
     pass('reader uses all three process-context tabs type matching case basis and exact byte-checked old and current template downloads');
     await openProcess(vp);const oldTemplates=vp.locator('.process-basis').filter({has:vp.getByRole('button',{name:'Шаблоны и образцы шага',exact:true})});await oldTemplates.getByRole('button',{name:'Шаблоны и образцы шага',exact:true}).click();
     const legacyPending=vp.waitForEvent('download');await oldTemplates.getByRole('button',{name:'Скачать оригинал основания версии 1',exact:true}).click();const legacyDownload=await legacyPending;assert.equal(await legacyDownload.failure(),null);const legacyPath=path.join(outputDir,'legacy-step-template-v1.docx');await legacyDownload.saveAs(legacyPath);assert.deepEqual(await fs.readFile(legacyPath),await fs.readFile(path.join(fixturesDir,'public.docx')));
