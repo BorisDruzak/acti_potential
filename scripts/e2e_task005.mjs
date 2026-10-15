@@ -1,5 +1,5 @@
 /** Real Task005 HTTPS content acceptance; private config also supplies fixturesDir.
- * Generate own fixtures with the ignored operator helper before running.
+ * Generate own fixtures with scripts/generate_task005_fixtures.py before running.
  * No response interception, source databases, OCR or LLM calls.
  */
 import assert from 'node:assert/strict';
@@ -15,6 +15,7 @@ async function helpers(browser, origin, outputDir) {
   const contexts = [];
   const runtimeErrors = [];
   const results = [];
+  let stage = 'browser setup';
   async function pageFor() {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ignoreHTTPSErrors: false });
     contexts.push(context);
@@ -24,6 +25,7 @@ async function helpers(browser, origin, outputDir) {
     return page;
   }
   async function json(page, endpoint, method = 'GET', data, expected = 200) {
+    stage = `API ${method} ${endpoint.split('?')[0]}`;
     const response = await page.evaluate(async ({ endpoint, method, data }) => {
       const me = method === 'GET' ? null : await (await fetch('/api/v1/users/me')).json();
       const response = await fetch('/api/v1' + endpoint, {
@@ -36,6 +38,7 @@ async function helpers(browser, origin, outputDir) {
     return response.body;
   }
   async function login(page, credentials) {
+    stage = 'role UI login';
     await page.goto(origin);
     await page.getByRole('textbox', { name: 'Логин', exact: true }).fill(credentials.login);
     await page.getByLabel('Пароль', { exact: true }).fill(credentials.password);
@@ -43,12 +46,23 @@ async function helpers(browser, origin, outputDir) {
     await page.getByRole('button', { name: 'Выйти', exact: true }).waitFor();
   }
   async function mutation(page, endpoint, action, method = 'POST', expected = 200) {
+    stage = `UI ${method} ${endpoint} action`;
     const pending = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1' + endpoint && response.request().method() === method);
     const [response] = await Promise.all([pending, action()]);
     assert.equal(response.status(), expected, `${method} ${endpoint} UI status`);
+    const uploaded = endpoint.match(/^\/documents\/([0-9a-f-]{36})\/files$/i);
+    if (method === 'POST' && expected === 201 && uploaded) {
+      // Chromium may evict binary-upload response bodies; verify canonical state after success.
+      const card = await json(page, `/documents/${uploaded[1]}`);
+      assert.equal(card.id, uploaded[1]);
+      assert.ok(card.files.length > 0);
+      return card;
+    }
+    stage = `UI ${method} ${endpoint} response JSON after verified ${expected}`;
     return expected === 204 ? null : response.json();
   }
   async function download(page, buttonName, filename) {
+    stage = `UI download ${filename}`;
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: buttonName, exact: true }).click();
     const value = await pending;
@@ -62,7 +76,7 @@ async function helpers(browser, origin, outputDir) {
     results.push({ name, status: 'PASS', ...details });
     console.log(`PASS ${name}`);
   }
-  return { pageFor, json, login, mutation, download, pass, contexts, runtimeErrors, results };
+  return { pageFor, json, login, mutation, download, pass, contexts, runtimeErrors, results, getStage: () => stage };
 }
 
 export async function runTask005({browser,origin,admin,outputDir,fixturesDir}) {
@@ -110,17 +124,22 @@ export async function runTask005({browser,origin,admin,outputDir,fixturesDir}) {
       await ep.getByRole('button',{name:'Файлы и версии',exact:true}).click();
       return mutation(ep,`/documents/${card.id}/files`,()=>ep.getByLabel('Добавить файл или следующую версию',{exact:false}).setInputFiles(fixture(name)),'POST',201);
     }
-    for(const name of ['public.pdf','public.doc','updated.pdf','broken.pdf','blank.pdf','encrypted.pdf']) await upload(name);
-    const expected={'public.docx':'completed','private.docx':'completed','public.pdf':'completed','public.doc':'completed','updated.pdf':'completed','broken.pdf':'failed','blank.pdf':'no_text','encrypted.pdf':'encrypted'};
+    for(const name of ['public.pdf','public.doc','short.doc','updated.pdf','broken.pdf','blank.pdf','encrypted.pdf']) await upload(name);
+    const expected={'public.docx':'completed','private.docx':'completed','public.pdf':'completed','public.doc':'completed','short.doc':'unsupported','updated.pdf':'completed','broken.pdf':'failed','blank.pdf':'no_text','encrypted.pdf':'encrypted'};
     async function waitContent(page,documentId,desired,timeout=120000) {
       const deadline=Date.now()+timeout;let attempts=0,last;
       while(Date.now()<deadline) {
         last=await json(page,`/documents/${documentId}/content`);
         if(Object.entries(desired).every(([name,state])=>last.items.some(item=>item.name===name&&item.state===state)))return last;
-        if(last.items.some(item=>desired[item.name]==='completed'&&['failed','unsupported','encrypted','no_text'].includes(item.state))) throw new Error('Expected supported synthetic document failed extraction');
+        const failed=last.items.find(item=>desired[item.name]==='completed'&&['failed','unsupported','encrypted','no_text'].includes(item.state));
+        if(failed){
+          await fs.writeFile(path.join(outputDir,'pipeline-failure.json'),JSON.stringify({document_id:documentId,expected:desired,observed:last.items.map(item=>({id:item.id,file_id:item.file_id,name:item.name,state:item.state,error_code:item.error_code,parser:item.parser,parser_version:item.parser_version,attempts:item.attempts,block_count:item.block_count}))},null,2));
+          throw new Error(`Expected supported synthetic document ${failed.name} failed extraction: ${failed.state}/${failed.error_code||'no_code'}`);
+        }
         if(++attempts%10===0)console.log('Waiting for real background extraction and PostgreSQL indexing');
         await delay(1000);
       }
+      await fs.writeFile(path.join(outputDir,'pipeline-timeout.json'),JSON.stringify({document_id:documentId,expected:desired,observed:last?.items.map(item=>({name:item.name,state:item.state,error_code:item.error_code,attempts:item.attempts}))},null,2));
       throw new Error('Actual extraction did not reach required states before timeout');
     }
     const content=await waitContent(ep,card.id,expected);
@@ -136,13 +155,14 @@ export async function runTask005({browser,origin,admin,outputDir,fixturesDir}) {
 
     await ep.getByRole('button',{name:'Содержание',exact:true}).click();
     const brokenPanel=ep.locator('details.extraction').filter({has:ep.locator('summary').filter({hasText:'broken.pdf'})});
-    if(!await brokenPanel.getAttribute('open'))await brokenPanel.locator('summary').click();
+    if(!(await brokenPanel.evaluate(element=>element.open)))await brokenPanel.locator('summary').click();
     if(await brokenPanel.getByRole('button',{name:'Повторить извлечение',exact:true}).count()) {
       const repeated=await mutation(ep,`/files/${content.items.find(item=>item.name==='broken.pdf').file_id}/extract`,()=>brokenPanel.getByRole('button',{name:'Повторить извлечение',exact:true}).click(),'POST',202);
       assert.equal(repeated.id,content.items.find(item=>item.name==='broken.pdf').id);await waitContent(ep,card.id,{'broken.pdf':'failed'});
     }
     assert.equal((await json(ep,`/documents/${card.id}`)).id,card.id);
-    pass('corrupt encrypted and scan-only files retain explicit states originals and accessible card');
+    const shortDoc=content.items.find(item=>item.name==='short.doc');assert.equal(shortDoc.error_code,'legacy_doc_short_stream');assert.ok(shortDoc.warnings.includes('legacy_doc_short_stream_unsupported'));
+    pass('corrupt encrypted textless and valid short legacy DOC retain explicit states originals and accessible card');
 
     const closed=await json(ep,'/documents','POST',{registry_id:registry.id,document_type_id:type.id,schema_version_id:version.id,values:{title:`${title} closed`},files:[{field_key:'public_file',name:'closed.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',content_base64:(await fs.readFile(fixture('public.docx'))).toString('base64')}]},201);
     await json(ap,`/documents/${closed.id}/acl`,'PUT',{entries:[{user_id:administrator.id,permissions:['read','download']},{user_id:roles.editor.account.id,permissions:['read','update','download']}]});
@@ -181,6 +201,7 @@ export async function runTask005({browser,origin,admin,outputDir,fixturesDir}) {
     await vp.getByRole('button',{name:'Открыть фрагмент источника',exact:true}).first().click();
     await vp.getByRole('heading',{name:'Содержание и источники',exact:true}).waitFor();await vp.locator('.content-block.selected').waitFor();
     await vp.screenshot({path:path.join(outputDir,'reader-source-block.png'),fullPage:true});
+    await vp.screenshot({path:path.join(outputDir,'reader-source-viewport.png'),fullPage:false});
     const selectedSource=vp.locator('details.extraction').filter({has:vp.locator('.content-block.selected')});
     const sourceName=(await selectedSource.locator('summary').innerText()).split(' · версия ')[0].trim();
     assert.ok(['public.docx','public.doc','public.pdf','updated.pdf'].includes(sourceName));
@@ -201,15 +222,22 @@ export async function runTask005({browser,origin,admin,outputDir,fixturesDir}) {
 
     const legacyType=(await json(ap,'/document-types')).find(value=>value.code==='acti-v2'),legacyRegistry=(await json(ap,'/registries')).find(value=>value.document_type_ids.includes(legacyType.id));
     const previous=await json(ap,`/admin/access/${legacyRegistry.id}`);await json(ap,`/admin/access/${legacyRegistry.id}`,'PUT',{entries:[...previous.entries,...Object.values(roles).map(value=>({user_id:value.account.id,permissions:value.permissions}))]});temporaryRegistries.add(legacyRegistry.id);
-    await ep.reload();await ep.getByRole('button',{name:legacyRegistry.name,exact:true}).click();await ep.getByRole('button',{name:'Создать документ',exact:true}).click();await ep.getByRole('combobox',{name:'Тип документа',exact:true}).selectOption(legacyType.id);await ep.getByLabel('Наименование документа',{exact:false}).fill(`${title} legacy smoke`);await ep.getByLabel('Регистрационный номер',{exact:true}).fill('000005');
-    const legacyCard=await mutation(ep,'/documents',()=>ep.getByRole('button',{name:'Создать документ',exact:true}).click(),'POST',201);assert.equal(legacyCard.reg_number,'000005');assert.equal(legacyCard.values.should_publish??null,null);
-    await vp.goto(`${origin}/view?document=${legacyCard.id}`);await vp.getByText('000005',{exact:true}).first().waitFor();
+    await ep.reload();await ep.getByRole('button',{name:legacyRegistry.name,exact:true}).click();await ep.getByRole('button',{name:'Создать документ',exact:true}).click();await ep.getByRole('combobox',{name:'Тип документа',exact:true}).selectOption(legacyType.id);await ep.getByLabel('Наименование документа',{exact:false}).fill(`${title} legacy smoke`);await ep.getByLabel('Регистрационный номер',{exact:true}).fill('000005');await ep.getByRole('combobox',{name:'Тип документа ACTI v2',exact:true}).selectOption({label:'Постановление'});await ep.getByLabel('Номер тома',{exact:true}).fill('1-2');
+    const legacyCard=await mutation(ep,'/documents',()=>ep.getByRole('button',{name:'Создать документ',exact:true}).click(),'POST',201);assert.equal(legacyCard.reg_number,'000005');assert.equal(legacyCard.values.should_publish??null,null);assert.equal(legacyCard.values.volume_number,'1-2');assert.match(legacyCard.values.type_id,/^[0-9a-f-]{36}$/i);
+    await vp.goto(`${origin}/view?document=${legacyCard.id}`);await vp.getByText('000005',{exact:true}).first().waitFor();await vp.getByText('Постановление',{exact:true}).first().waitFor();await vp.getByText('1-2',{exact:true}).first().waitFor();
     pass('ACTI v2 generated card legacy number and nullable publication remain compatible');
     for(const page of [ep,vp]){await page.goto(`${origin}/admin`);await page.waitForURL(url=>url.pathname!='/admin');await page.getByRole('button',{name:'Выйти',exact:true}).click();await page.getByRole('heading',{name:'Вход в ACTI',exact:true}).waitFor();await json(page,'/users/me','GET',undefined,401);}
     assert.deepEqual(h.runtimeErrors,[]);pass('editor reader forbidden administration and actual logout no application errors');
     return {status:'PASS',source_sha:platform.source_sha,scenarios:h.results,synthetic:{registry_id:registry.id,document_id:card.id,closed_document_id:closed.id},states:content.items.map(item=>({name:item.name,state:item.state,parser:item.parser,version:item.version}))};
   } catch(error) {
-    await fs.writeFile(path.join(outputDir,'failure.txt'),sensitive.reduce((message,value)=>message.split(value).join('[redacted]'),String(error.message)));await ap?.screenshot({path:path.join(outputDir,'failure-admin.png'),fullPage:true}).catch(()=>{});throw error;
+    const failure={stage:h.getStage(),message:String(error.message),stack:String(error.stack||'')};
+    await fs.writeFile(path.join(outputDir,'failure.txt'),sensitive.reduce((message,value)=>message.split(value).join('[redacted]'),JSON.stringify(failure,null,2)));
+    console.error(`Task005 failed operation: ${failure.stage}`);
+    let screenshotIndex=0;
+    for(const context of h.contexts)for(const page of context.pages()) {
+      await page.screenshot({path:path.join(outputDir,`failure-page-${screenshotIndex++}.png`),fullPage:true}).catch(()=>{});
+    }
+    throw error;
   } finally {
     const failures=[];
     if(ap)for(const registryId of temporaryRegistries)try{const current=await json(ap,`/admin/access/${registryId}`);await json(ap,`/admin/access/${registryId}`,'PUT',{entries:current.entries.filter(value=>!accounts.includes(value.user_id))});}catch{failures.push('temporary registry grants');}
