@@ -13,6 +13,7 @@ import { Password } from "./Password";
 import { NumberBook } from "./NumberBook";
 import { ContentErrorsAdmin } from "./DocumentContent";
 import { Processes } from "./Processes";
+import { KnowledgeCatalog } from "./Knowledge";
 export function Workspace() {
   const auth = useAuth();
   const roles = auth.user?.roles || [];
@@ -53,6 +54,8 @@ export function Workspace() {
   }, []);
   let content;
   if (section === "Мой пароль") content = <Password />;
+  else if (section === "Шаблоны" || section === "Как делали раньше")
+    content = <KnowledgeCatalog key={section + space} kind={section === "Шаблоны" ? "templates" : "cases"} readOnly={space === "view"}/>;
   else if (section === "Конструктор процессов" || section === "Процессы")
     content = <Processes admin={space === "admin"} readOnly={space === "view"}/>;
   else if (section === "Серии номеров" || section === "Реестр номеров")

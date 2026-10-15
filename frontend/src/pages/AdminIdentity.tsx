@@ -24,6 +24,7 @@ const actions: Record<string, string> = {
   download: "Скачивание файлов",
   manage: "Управление документами",
   confirm_relations: "Подтверждение связей документов",
+  curate_knowledge: "Подтверждение и рекомендация практики",
 };
 function RolePicker({
   roles,

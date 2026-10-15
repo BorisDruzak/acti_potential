@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from app.content import models as content_models  # noqa: F401
 from app.db.base import Base
 from app.identity import models as identity_models  # noqa: F401
+from app.knowledge import models as knowledge_models  # noqa: F401
 from app.numbering import models as numbering_models  # noqa: F401
 from app.platform import models as platform_models  # noqa: F401
 from app.processes import models as process_models  # noqa: F401

@@ -18,6 +18,8 @@ function setup({viewer = false, current = version} = {}) {
     let data: unknown = [];
     if (url.endsWith("/users/me")) data = {id: "user", display_name: "User", roles: [viewer ? "viewer" : "admin"], csrf_token: "csrf"};
     else if (url.includes("/form-schemas/")) data = {id: "schema", document_type_id: "type", version: 1, state: "published", schema};
+    else if (url.includes("/knowledge/related")) data = {templates: [], cases: []};
+    else if (url.includes("/knowledge/templates")) data = {items: [], total: 0, page: 1, page_size: 100};
     else if (url.includes("/basis?")) data = {items: [{restricted: true, label: "Основание ограничено", document_id: "DO-NOT-RENDER-ID", document: {title: "Секретный акт"}}]};
     else if (url.includes("/process-versions/version") && init?.method === "PUT") data = {...current, ...JSON.parse(String(init.body)), revision: 2};
     else if (url.includes("/validate")) data = {valid: true};

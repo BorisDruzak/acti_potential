@@ -38,6 +38,8 @@ for _event in ("proposed", "confirmed", "rejected"):
     EVENT_FIELDS["relation." + _event] = frozenset({"source_document_id", "target_document_id"})
 for _event in ("created", "updated", "version.created", "version.updated", "version.published"):
     EVENT_FIELDS["process." + _event] = frozenset({"registry_id", "process_version_id"})
+for _event in ("template.created", "template.version.created", "template.version.updated", "template.version.published", "case.created", "case.updated", "case.published", "case.curated", "access.changed"):
+    EVENT_FIELDS["knowledge." + _event] = frozenset({"registry_id"})
 
 
 def validate_payload(event_type, payload):

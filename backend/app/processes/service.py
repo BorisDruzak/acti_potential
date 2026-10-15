@@ -300,6 +300,14 @@ def validate_graph(session, actor, process, version, *, sources=True):
         if sources:
             for item in [*step["sources"], *step["templates"]]:
                 basis(session, actor, item)
+            from app.knowledge.service import get_version as template_version
+            from app.knowledge.service import original_basis
+
+            for identity in step.get("template_versions", []):
+                _, pinned = template_version(session, actor, UUID(str(identity)))
+                if pinned.state != "published":
+                    invalid("Требуется опубликованная версия шаблона")
+                original_basis(session, actor, pinned.data["original"])
     for transition in transitions:
         if transition["from_step"] not in keys or transition["to_step"] not in keys:
             invalid("Переход ссылается на отсутствующий шаг")
@@ -359,6 +367,30 @@ def version_output(session, actor, process, version, mode=None):
     steps, transitions = graph(session, version)
     forms = {}
     for step in steps:
+        from app.knowledge.service import get_version as template_version
+        from app.knowledge.service import safe_original
+
+        pinned_templates = []
+        for identity in step.get("template_versions", []):
+            try:
+                obj, pinned = template_version(session, actor, UUID(str(identity)))
+                if (
+                    pinned.state != "published"
+                    or safe_original(session, actor, pinned.data["original"], mode)["restricted"]
+                ):
+                    raise HTTPException(404)
+                pinned_templates.append(
+                    {
+                        "template_version_id": pinned.id,
+                        "name": pinned.data["name"],
+                        "version": pinned.version,
+                        "restricted": False,
+                    }
+                )
+            except HTTPException:
+                pinned_templates.append({"restricted": True, "label": "Шаблон ограничен"})
+        if "template_versions" in step:
+            step["template_versions"] = pinned_templates
         for key in ("sources", "templates"):
             output = []
             for item in step[key]:

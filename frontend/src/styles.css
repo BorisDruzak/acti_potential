@@ -626,6 +626,15 @@ p {
 .process-facts dd { margin: 5px 0; overflow-wrap: anywhere; }
 .process-step-view .content-text { line-height: 1.65; }
 .process-basis { margin: 14px 0; }
+.knowledge-editor fieldset { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.knowledge-editor fieldset .compact-form { margin: 0; }
+.knowledge-detail, .related-knowledge { min-width: 0; margin-top: 20px; }
+.knowledge-detail h2, .knowledge-detail h3, .knowledge-cards h3 { overflow-wrap: anywhere; }
+.knowledge-detail .content-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.knowledge-cards .module-card > p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.knowledge-cards .module-card .match-reasons { display: block; font-size: 12px; color: #315b46; }
+.knowledge-basis, .knowledge-targets { margin: 18px 0; }
+.knowledge-detail button, .knowledge-editor button { white-space: normal; }
 .process-builder .button-row { flex-wrap: wrap; }
 .process-builder .button-row button, .process-view button { white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 700px) {

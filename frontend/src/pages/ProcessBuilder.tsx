@@ -8,6 +8,7 @@ import { useAction, useData } from "../engine/useData";
 import { ProcessConditionEditor } from "./ProcessConditions";
 import { ProcessSources } from "./ProcessSources";
 import { ProcessView } from "./ProcessView";
+import { ProcessTemplates } from "./ProcessTemplates";
 
 function StepProperties({step, onChange, types}: {step: ProcessStep; onChange: (step: ProcessStep) => void; types: DocumentType[]}) {
   const [typeId, setTypeId] = useState("");
@@ -35,6 +36,7 @@ function StepProperties({step, onChange, types}: {step: ProcessStep; onChange: (
     <Feedback error={schema.error || versions.error}/>
     <ProcessSources sources={step.sources} onChange={sources => patch({sources})}/>
     <ProcessSources sources={step.templates} onChange={templates => patch({templates})} template/>
+    <ProcessTemplates value={step.template_versions || []} onChange={template_versions => patch({template_versions})}/>
   </div>;
 }
 
