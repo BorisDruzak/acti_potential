@@ -7,6 +7,7 @@ import type { Card } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
 import type { RelationAnchor } from "../engine/relations";
 import { RelatedKnowledge } from "./Knowledge";
+import { ProcessExecutionStarter } from "./ExecutionStart";
 
 type Basis = {restricted: boolean; label?: string; document?: Card; anchor?: RelationAnchor & {version?: number}; files?: {id: string; name: string; version: number}[]; blocks?: {id: string; text: string}[]; note?: string; template?: {name: string; version: number; template_version_id: string}};
 function ProcessBasis({versionId, step, mode, templates = false}: {versionId: string; step: ProcessStep; mode: string; templates?: boolean}) {
@@ -38,7 +39,7 @@ export function ProcessView({process, version, readOnly, preview = false, select
   const metadata = version.metadata_snapshot || process;
   function select(key: string) {setCurrent(key); onSelect?.(key);}
   return <section className="process-view">
-    <div className="panel"><h2>{metadata.name || process.name} · версия {version.version}</h2><p>{metadata.purpose || metadata.description}</p><p className="muted">{metadata.department}{metadata.category ? " · " + metadata.category : ""} · действует с {version.effective_from}</p><p>Описание процесса помогает выполнить работу. Экземпляры выполнения и задачи здесь не создаются.</p></div>
+    <div className="panel"><h2>{metadata.name || process.name} · версия {version.version}</h2><p>{metadata.purpose || metadata.description}</p><p className="muted">{metadata.department}{metadata.category ? " · " + metadata.category : ""} · действует с {version.effective_from}</p><p>Описание процесса содержит инструкции, правила маршрута и закреплённые основания работы.</p>{!readOnly && !preview && version.state === "published" && <ProcessExecutionStarter versionId={version.id} processName={metadata.name || process.name} registryId={process.registry_id}/>}</div>
     <ProcessGraph steps={version.steps.map(item => ({...item, terminal: item.is_terminal}))} transitions={version.transitions.map(item => ({key: item.key, from: item.from_step, to: item.to_step, label: item.restricted ? "Условие ограничено" : item.label, otherwise: item.is_else, condition: item.condition}))} selected={selected} start={version.steps.find(item => item.is_start)?.key || ""} onSelect={select}/>
     <label>Шаг процесса<select value={selected} onChange={event => select(event.target.value)}>{version.steps.map((item, index) => <option key={item.key} value={item.key}>{index + 1}. {item.title}</option>)}</select></label>
     {step && <section className="panel process-step-view"><h3>{step.title}</h3><p className="content-text">{step.instruction}</p><dl className="process-facts"><div><dt>Исполнитель</dt><dd>{step.executor_role || "Не указан"}</dd></div><div><dt>Подразделение</dt><dd>{step.department || "Не указано"}</dd></div><div><dt>Длительность</dt><dd>{step.duration_hours === null || step.duration_hours === undefined ? "Не указана" : `${step.duration_hours} ч`}</dd></div><div><dt>Срок</dt><dd>{step.deadline || "Не указан"}</dd></div><div><dt>Информационная система</dt><dd>{step.system || "Не указана"}</dd></div></dl>

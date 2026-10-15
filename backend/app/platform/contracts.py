@@ -40,6 +40,8 @@ for _event in ("created", "updated", "version.created", "version.updated", "vers
     EVENT_FIELDS["process." + _event] = frozenset({"registry_id", "process_version_id"})
 for _event in ("template.created", "template.version.created", "template.version.updated", "template.version.published", "case.created", "case.updated", "case.published", "case.curated", "access.changed"):
     EVENT_FIELDS["knowledge." + _event] = frozenset({"registry_id"})
+for _event in ("started", "opened", "assigned", "checklist.saved", "result.saved", "advanced", "suspended", "resumed", "cancelled", "returned", "deadline.changed"):
+    EVENT_FIELDS["execution." + _event] = frozenset({"registry_id", "process_version_id", "step_execution_id"})
 
 
 def validate_payload(event_type, payload):

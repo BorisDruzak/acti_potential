@@ -635,6 +635,17 @@ p {
 .knowledge-cards .module-card .match-reasons { display: block; font-size: 12px; color: #315b46; }
 .knowledge-basis, .knowledge-targets { margin: 18px 0; }
 .knowledge-detail button, .knowledge-editor button { white-space: normal; }
+.execution-detail, .execution-current-step { min-width: 0; }
+.execution-detail .content-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.execution-detail button, .execution-cards button { white-space: normal; overflow-wrap: anywhere; }
+.execution-checklist { display: flex; flex-direction: column; gap: 12px; margin: 20px 0; }
+.execution-checklist .checkbox-label { align-items: flex-start; }
+.execution-basis { margin: 12px 0; }
+.execution-result-editor { max-width: 100%; border-top: 1px solid #dce6e2; padding-top: 20px; }
+.execution-result-editor fieldset { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.execution-history li, .execution-attempts li { margin: 12px 0; overflow-wrap: anywhere; }
+.execution-history p { margin: 6px 0; }
+.error-text { color: #a02a2a; }
 .process-builder .button-row { flex-wrap: wrap; }
 .process-builder .button-row button, .process-view button { white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 700px) {
