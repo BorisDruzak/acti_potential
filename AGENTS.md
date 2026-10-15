@@ -34,7 +34,10 @@
 ## Development workflow
 
 - The user uses the Codex Windows app and PowerShell. Do not assume a Codex CLI installation.
-- GitNexus is the canonical committed architecture index when this repository becomes registered. As checked on 2026-10-15, ACTI is not indexed; use source and tests, and do not substitute an unrelated repository's graph.
+- `acti_potential` is registered and indexed on the central GitNexus server. Use its repository-specific index as the canonical committed architecture baseline before broad source exploration.
+- Before relying on GitNexus results, check the indexed branch and commit against the current local branch/HEAD and the relevant remote branch. An index of `main` does not include unmerged feature-branch commits. Account for uncommitted local changes separately; verify important conclusions against source and tests.
+- Prefer `list_repos` and `gitnexus://repo/acti_potential/context` for index metadata, then the smallest appropriate `query`, `context`, `impact`, or `trace` operation. Do not substitute an unrelated repository's graph.
+- The central updater owns normal index refreshes. Do not trigger manual reindexing or synchronization merely because a different branch or commit is indexed; first verify the branch, commit, and updater state.
 - Before changing external-library behavior, inspect the pinned dependency version and consult Context7. Do not send private source or machine configuration to external documentation services.
 - Preserve the roadmap unless the user explicitly requests changes to it.
 - Write new text as UTF-8 without BOM. Preserve archived file contents and use Git's normal line-ending normalization when comparing blob hashes.
