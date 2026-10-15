@@ -12,6 +12,7 @@ import { Documents } from "./Documents";
 import { Password } from "./Password";
 import { NumberBook } from "./NumberBook";
 import { ContentErrorsAdmin } from "./DocumentContent";
+import { Processes } from "./Processes";
 export function Workspace() {
   const auth = useAuth();
   const roles = auth.user?.roles || [];
@@ -52,6 +53,8 @@ export function Workspace() {
   }, []);
   let content;
   if (section === "Мой пароль") content = <Password />;
+  else if (section === "Конструктор процессов" || section === "Процессы")
+    content = <Processes admin={space === "admin"} readOnly={space === "view"}/>;
   else if (section === "Серии номеров" || section === "Реестр номеров")
     content = <NumberBook admin={space === "admin"} readOnly={space === "view"} />;
   else if (space !== "admin")
