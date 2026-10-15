@@ -9,6 +9,7 @@ from app.identity import models as identity_models  # noqa: F401
 from app.numbering import models as numbering_models  # noqa: F401
 from app.platform import models as platform_models  # noqa: F401
 from app.registry import models as registry_models  # noqa: F401
+from app.relations import models as relation_models  # noqa: F401
 
 config = context.config
 

@@ -77,7 +77,7 @@ class PasswordChanged(BaseModel):
 
 class AccessEntry(StrictInput):
     user_id: UUID
-    permissions: list[str] = Field(max_length=6)
+    permissions: list[str] = Field(max_length=7)
 
 
 class AccessInput(StrictInput):

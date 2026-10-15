@@ -602,6 +602,25 @@ p {
 .content-block .toolbar { gap: 12px; }
 .content-block .toolbar a { overflow-wrap: anywhere; }
 .content-warnings { color: #76510b; }
+.relation-list { list-style: none; padding: 0; }
+.relation-endpoints { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.relation-endpoints > div { min-width: 0; }
+.relation-endpoints small, .graph-node small { display: block; margin: 6px 0; }
+.relation-row p, .relation-row blockquote, .graph-node, .graph-edge { overflow-wrap: anywhere; white-space: normal; }
+.relation-row blockquote { white-space: pre-wrap; margin: 12px 0; padding-left: 12px; border-left: 3px solid #e3e8ef; }
+.relation-graph { padding: 16px; background: #f7f9fc; border: 1px solid #e3e8ef; border-radius: 10px; }
+.relation-graph-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, 180px) minmax(0, 1fr); align-items: center; gap: 12px; margin: 14px 0; }
+.graph-node { min-width: 0; text-align: left; border: 1px solid #b9cce5; background: white; }
+.graph-edge { color: #345471; text-align: center; font-size: 12px; }
+.graph-edge svg { display: block; width: 100%; height: 24px; }
+.relation-rejected { opacity: .8; }
+.relation-bases, .relation-basis { margin: 14px 0; }
+@media (max-width: 700px) {
+  .relation-endpoints { grid-template-columns: minmax(0, 1fr); }
+  .relation-graph-row { grid-template-columns: minmax(0, 1fr); }
+  .graph-edge svg { width: 80px; margin: 0 auto; transform: rotate(90deg); }
+  .relation-graph { padding: 12px; }
+}
 .form-navigation a { color: var(--primary, #245ba8); }
 .form-section, .builder-section { scroll-margin-top: 24px; }
 .reference-list .reference-row { padding: 12px 0; border-bottom: 1px solid #e3e8ef; }

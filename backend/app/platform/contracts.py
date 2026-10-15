@@ -34,6 +34,8 @@ for _event in ("series.created", "series.updated", "grants.updated", "reserved",
     EVENT_FIELDS["number." + _event] = frozenset({"series_id"})
 for _event in ("requested", "completed", "status"):
     EVENT_FIELDS["content.extraction." + _event] = frozenset({"file_id"})
+for _event in ("proposed", "confirmed", "rejected"):
+    EVENT_FIELDS["relation." + _event] = frozenset({"source_document_id", "target_document_id"})
 
 
 def validate_payload(event_type, payload):
