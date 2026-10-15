@@ -85,6 +85,8 @@ it("creates a private descriptive case as a draft with no implicit publication o
   fireEvent.change(screen.getByLabelText(/^Описание выполненного случая/), {target: {value: "Собрали проверяемые материалы"}});
   fireEvent.change(screen.getByLabelText(/^Результат случая/), {target: {value: "Проект подготовлен"}});
   fireEvent.change(screen.getByLabelText("Видимость знания"), {target: {value: "private"}});
+  await screen.findByRole("option", {name: "Реестр"});
+  fireEvent.change(screen.getByLabelText("Реестр знания"), {target: {value: "registry"}});
   fireEvent.click(screen.getByRole("button", {name: "Сохранить случай"}));
   await waitFor(() => expect(saved).toHaveBeenCalledWith("new-case"));
   const request = fetch.mock.calls.find(([url, init]) => url.endsWith("/knowledge/cases") && init?.method === "POST")!;

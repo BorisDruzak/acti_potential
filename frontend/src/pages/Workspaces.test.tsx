@@ -168,7 +168,7 @@ it("viewer cannot open administration by typing its route", async () => {
   window.history.replaceState(null, "", "/admin");
   setup(["viewer"]);
   await screen.findByRole("heading", { name: "Мои реестры" });
-  expect(window.location.pathname).toBe("/view");
+  await waitFor(() => expect(window.location.pathname).toBe("/view"));
   expect(screen.queryByRole("button", { name: "Типы документов" })).toBeNull();
 });
 it("entering card edit mode never turns the clicked button into a submit button", async () => {
