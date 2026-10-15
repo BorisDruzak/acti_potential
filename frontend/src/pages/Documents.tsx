@@ -9,12 +9,37 @@ import {
   prunePendingFiles,
   type Card,
   type DocumentType,
+  type Field,
+  type FileVersion,
   type ReferenceSet,
   type Registry,
   type SchemaVersion,
   type Values,
 } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
+
+function filesInRevision(card: Card, values: Values): FileVersion[] {
+  if (!card.permissions.includes("download")) return [];
+  const ids = new Set<string>();
+  function collect(fields: Field[], current: Values) {
+    for (const field of fields) {
+      const value = current[field.key];
+      if (field.type === "file" && Array.isArray(value)) {
+        for (const id of value) if (typeof id === "string") ids.add(id);
+      } else if (field.type === "group" && Array.isArray(value)) {
+        for (const row of value)
+          if (row && typeof row === "object" && !Array.isArray(row))
+            collect(field.children || [], row as Values);
+      }
+    }
+  }
+  collect(card.schema.sections.flatMap((section) => section.fields), values);
+  // Historical row positions can differ from the current attachment field path.
+  // Match each historical field by its recorded IDs rather than that path.
+  return card.files
+    .filter((file) => ids.has(file.id))
+    .map((file) => ({ ...file, field_key: undefined }));
+}
 
 async function encodeAttachments(pending: Record<string, File>) {
   const total = Object.values(pending).reduce(
@@ -74,6 +99,10 @@ function DocumentCard({
   );
   const canEdit = !readOnly && card.permissions.includes("update");
   const canUpload = !readOnly && card.permissions.includes("upload");
+  const hasUnsavedChanges =
+    editing &&
+    (JSON.stringify(values) !== JSON.stringify(card.values) ||
+      Object.keys(pendingFiles).length > 0);
   function changeValues(next: Values) {
     setPendingFiles((current) =>
       prunePendingFiles(
@@ -124,6 +153,8 @@ function DocumentCard({
     }
   }
   async function upload(field: string, file: File) {
+    if (hasUnsavedChanges)
+      throw new Error("Сохраните или отмените изменения карточки перед загрузкой файла.");
     try {
       await apiUpload(
         "/documents/" +
@@ -290,7 +321,7 @@ function DocumentCard({
               Добавить файл или следующую версию
               <input
                 type="file"
-                disabled={action.busy || conflict}
+                disabled={action.busy || conflict || hasUnsavedChanges}
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file)
@@ -301,6 +332,11 @@ function DocumentCard({
               <small>
                 Каждая загрузка сохраняет отдельную неизменяемую версию.
               </small>
+              {hasUnsavedChanges && (
+                <small role="status">
+                  Сохраните или отмените изменения карточки перед загрузкой файла.
+                </small>
+              )}
             </label>
           )}
           <div className="file-list">
@@ -357,6 +393,7 @@ function DocumentCard({
                 roles={auth.user?.roles || []}
                 references={references}
                 registryId={card.registry_id}
+                files={filesInRevision(card, item.values)}
               />
             </details>
           ))}
@@ -538,6 +575,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
   const [number, setNumber] = useState("");
+  const [status, setStatus] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [typeId, setTypeId] = useState("");
@@ -588,6 +626,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (number) params.set("reg_number", number);
+    if (status) params.set("status", status);
     if (from) params.set("date_from", from);
     if (to) params.set("date_to", to);
     if (typeId) params.set("document_type_id", typeId);
@@ -671,8 +710,13 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 setSearch("");
                 setQ("");
                 setNumber("");
+                setStatus("");
+                setFrom("");
+                setTo("");
+                setSort("updated_at");
                 setTypeId("");
                 setFilterKey("");
+                setFilterValue(null);
               }}
             >
               {item.name}
@@ -709,6 +753,13 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               <input
                 value={number}
                 onChange={(event) => setNumber(event.target.value)}
+              />
+            </label>
+            <label>
+              Статус
+              <input
+                value={status}
+                onChange={(event) => setStatus(event.target.value)}
               />
             </label>
             <label>
