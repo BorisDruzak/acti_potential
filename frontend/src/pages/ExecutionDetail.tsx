@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
-import { DynamicForm } from "../engine/DynamicForm";
 import { executionState, localDeadline, utcDeadline, type ExecutionEvent, type ExecutionPage, type ProcessInstance, type StepExecution } from "../engine/execution";
 import type { ReferenceSet } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
 import { ExecutionBasis } from "./ExecutionBasis";
 import { ExecutionResultEditor } from "./ExecutionResult";
+import { ConfirmedExecutionResult } from "./ConfirmedExecutionResult";
 
 function dateText(value: string | null | undefined) {return value ? new Date(value).toLocaleString("ru-RU") : "Не указан";}
 function ExecutionHistory({instance, readOnly}: {instance: ProcessInstance; readOnly: boolean}) {
@@ -45,7 +44,6 @@ export function ExecutionDetail({id, readOnly, initial, onChanged}: {id: string;
   const [fresh, setFresh] = useState<ProcessInstance | null>(initial || null);
   const [selectedAttempt, setSelectedAttempt] = useState("");
   const instance = fresh || data.data;
-  const auth = useAuth();
   const action = useAction();
   const references = useData<ReferenceSet[]>(`/references?mode=${readOnly ? "viewer" : "editor"}`);
   async function mutate(operation: string, body: Record<string, unknown> = {}) {
@@ -72,7 +70,7 @@ export function ExecutionDetail({id, readOnly, initial, onChanged}: {id: string;
       {!readOnly && instance.permissions.work && current?.id === execution.id && execution.state === "pending" && ["pending", "active"].includes(instance.state) && <button type="button" className="primary" disabled={action.busy} onClick={() => void run("open").catch(() => {})}>Открыть текущий шаг</button>}
       <ExecutionChecklist key={execution.id} execution={execution} busy={action.busy} editable={editable} onSave={body => run("checklist", body)}/>
       <ExecutionBasis key={execution.id + ":basis"} instanceId={id} executionId={execution.id} readOnly={readOnly} kind="basis"/><ExecutionBasis key={execution.id + ":templates"} instanceId={id} executionId={execution.id} readOnly={readOnly} kind="templates"/>
-      {execution.result && <section className="confirmed-step-result"><h4>Подтверждённый результат</h4><p>{dateText(execution.result.created_at)}{execution.result.actor_name && ` · ${execution.result.actor_name}`}</p>{execution.result.result_document && <p>{execution.result.result_document.restricted ? "Документ результата ограничен" : `${execution.result.result_document.title || "Документ результата"} · редакция метаданных ${execution.result.result_document.revision || ""}`}</p>}{step.form_schema && <DynamicForm schema={step.form_schema} values={execution.result.values} mode="view" displayMode={readOnly ? "viewer" : "editor"} roles={auth.user?.roles || []} references={references.data || []} registryId={instance.registry_id}/>}<p className="content-text">{execution.result.comment}</p><ExecutionBasis key={execution.result.id} instanceId={id} executionId={execution.id} readOnly={readOnly} kind="results"/></section>}
+      {execution.result && <ConfirmedExecutionResult key={execution.result.id} instance={instance} executionId={execution.id} result={execution.result} step={step} readOnly={readOnly} references={references.data || []}/>}
       {editable && <><ExecutionResultEditor key={execution.id} instance={instance} execution={execution} step={step} busy={action.busy} onSave={body => run("result", body as Record<string, unknown>)}/><button type="button" className="primary" disabled={action.busy} onClick={() => void run("advance").catch(() => {})}>{step.is_terminal ? "Завершить дело" : "Завершить шаг"}</button><p className="muted">Сервер проверит подтверждённый результат, обязательные проверки и доступ к условиям маршрута.</p></>}
     </section>}
     <ExecutionHistory key={id + ":" + instance.revision} instance={instance} readOnly={readOnly}/>

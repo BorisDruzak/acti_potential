@@ -149,3 +149,31 @@ it("serializes authorized result references only and refuses restricted attachme
   expect(resultPayload({route: "standard"}, "Готово", [{document_id: "doc", version_id: "v1", file_id: "file", note: "Оригинал", restricted: false}])).toEqual({values: {route: "standard"}, comment: "Готово", attachments: [{document_id: "doc", version_id: "v1", block_id: null, file_id: "file", note: "Оригинал"}]});
   expect(() => resultPayload({}, "", [{restricted: true}])).toThrow(/недоступные документы/);
 });
+
+it("shows only pinned result file IDs and resolves references in the authorized source registry", async () => {
+  const fileSchema: FormSchema = {sections: [{key: "result", title: "Сохранённые сведения", fields: [{key: "title", label: "Заголовок результата", type: "text"}, {key: "original", label: "Оригинал результата", type: "file"}, {key: "department", label: "Отдел результата", type: "reference", reference_code: "departments"}]}]};
+  const result = {id: "saved-result", values: {title: "Исторический заголовок", original: ["old-file"], department: "source-choice"}, comment: "Подтверждено", attachments: [], created_at: "2026-01-01T00:00:00Z", result_document: {document_id: "result-doc", revision: 1}};
+  const instance: ProcessInstance = {...initial, state: "completed", process_snapshot: {...initial.process_snapshot, steps: [{...step, form_schema: fileSchema}]}, steps: [{...initial.steps[0], state: "completed", result}]};
+  const fetch = setup(<ExecutionDetail id="instance" readOnly/>, {instance, viewer: true, handler: url => {
+    if (url.endsWith("/references?mode=viewer")) return [{id: "instance-departments", code: "departments", registry_id: "registry"}, {id: "source-departments", code: "departments", registry_id: "source-registry"}];
+    if (url.includes("/references/source-departments/items")) return [{id: "source-choice", label: "Отдел исходного реестра", active: true}];
+    if (url.includes("/documents/result-doc?")) return {id: "result-doc", registry_id: "source-registry", values: {title: "Текущий другой заголовок", original: ["new-file"]}, permissions: ["read", "download"], files: [{id: "old-file", name: "old.docx", version: 1, field_key: "original"}, {id: "new-file", name: "new.docx", version: 2, field_key: "original"}]};
+  }});
+  await screen.findByRole("button", {name: "old.docx · версия 1"});
+  await screen.findByText("Отдел исходного реестра");
+  expect(screen.getByText("Исторический заголовок")).toBeTruthy();
+  expect(screen.queryByText("Текущий другой заголовок")).toBeNull();
+  expect(screen.queryByText("Файлы не добавлены")).toBeNull();
+  expect(screen.queryByRole("button", {name: /new.docx/})).toBeNull();
+  expect(fetch.mock.calls.some(([url]) => url.includes("/references/instance-departments/items"))).toBe(false);
+});
+
+it("does not fetch a restricted result document or render its file IDs and filenames", async () => {
+  const result = {id: "closed-result", values: {original: ["hidden-file"]}, comment: "Результат", attachments: [], created_at: "2026-01-01T00:00:00Z", result_document: {restricted: true, label: "Документ результата ограничен", document_id: "closed-document", title: "Закрытый оригинал"}};
+  const instance: ProcessInstance = {...initial, state: "completed", process_snapshot: {...initial.process_snapshot, steps: [{...step, form_schema: {sections: [{key: "result", title: "Результат", fields: [{key: "original", label: "Оригинал результата", type: "file"}]}]}}]}, steps: [{...initial.steps[0], state: "completed", result}]};
+  const fetch = setup(<ExecutionDetail id="instance" readOnly/>, {instance, viewer: true});
+  await screen.findByText("Документ результата ограничен");
+  expect(screen.getByText(/Оригиналы — в документах подтверждённого результата/)).toBeTruthy();
+  for (const text of ["closed-document", "hidden-file", "Закрытый оригинал", "Файлы не добавлены"]) expect(document.body.textContent).not.toContain(text);
+  expect(fetch.mock.calls.some(([url]) => url.includes("/documents/closed-document"))).toBe(false);
+});
