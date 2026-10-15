@@ -1,0 +1,37 @@
+# Shared project metadata and infrastructure contract, not application runtime config.
+# Machine-specific overrides and connection facts belong in ignored project.local.toml.
+[repository]
+url = "https://github.com/BorisDruzak/acti_potential.git"
+default_branch = "main"
+
+[layout]
+vision = "docs/ACTI_V3_VISION_AND_ROADMAP.md"
+legacy = "legacy/v2"
+rules = "AGENTS.md"
+local_context = "PROJECT_CONTEXT.local.md"
+
+[infrastructure]
+primary_ssh_alias = "acti-v3"
+local_settings = "project.local.toml"
+application_deployed = false
+
+[storage.system]
+capacity_gib = 50
+
+[storage.postgresql]
+capacity_gib = 100
+mount = "/srv/acti/postgresql"
+filesystem = "ext4"
+label = "acti-postgresql"
+mount_options = ["defaults", "noatime", "nodev", "nosuid"]
+reserved_percent = 1
+require_mount = true
+
+[storage.documents]
+capacity_gib = 400
+mount = "/srv/acti/documents"
+filesystem = "ext4"
+label = "acti-documents"
+mount_options = ["defaults", "noatime", "nodev", "nosuid", "noexec"]
+reserved_percent = 0
+require_mount = true
