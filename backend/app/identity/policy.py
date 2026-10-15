@@ -8,6 +8,8 @@ class Actor:
     display_name: str
     roles: frozenset[str]
     must_change_password: bool = False
+    scoped_registry_ids: frozenset[str] | None = None
+    scoped_operations: frozenset[str] | None = None
 
 
 class PermissionDenied(Exception):

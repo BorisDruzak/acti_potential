@@ -44,6 +44,8 @@ def register_middleware(app):
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
+        if response.status_code == 401 and request.url.path.startswith("/api/service/v1/"):
+            response.headers["WWW-Authenticate"] = "Bearer"
         route = request.scope.get("route")
         logger.info(
             json.dumps(

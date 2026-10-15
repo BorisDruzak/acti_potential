@@ -28,24 +28,28 @@ function BlockList({extraction, target, mode, documentId}: {extraction: ContentE
 
 export function DocumentContent({card, readOnly, target}: {card: Card; readOnly: boolean; target?: ContentTarget}) {
   const mode = readOnly ? "viewer" : "editor";
-  const content = useData<{items: ContentExtraction[]}>(`/documents/${card.id}/content?mode=${mode}`);
+  const [page, setPage] = useState(1);
+  const [fileId, setFileId] = useState(target?.fileId || "");
+  const content = useData<{items: ContentExtraction[]; total: number; page: number; page_size: number}>(`/documents/${card.id}/content?${new URLSearchParams({mode, page: String(page), page_size: "20", ...(fileId ? {file_id: fileId} : {})})}`);
   const action = useAction();
   const polls = useRef(0);
   const pending = !!content.data?.items.some(item => ["pending", "running"].includes(item.state));
-  const waitingForQueue = !!content.data && card.files.some(file => !content.data?.items.some(item => item.file_id === file.id));
+  const canIdentifyMissing = !!content.data && (!!fileId || (page === 1 && content.data.total <= content.data.items.length));
+  const missing = canIdentifyMissing ? card.files.filter(file => (!fileId || file.id === fileId) && !content.data?.items.some(item => item.file_id === file.id)) : [];
+  const waitingForQueue = missing.length > 0;
   useEffect(() => {
     if ((!pending && !waitingForQueue) || polls.current >= 60) return;
     const timer = window.setTimeout(() => {polls.current += 1; content.reload();}, 4000);
     return () => window.clearTimeout(timer);
   }, [pending, waitingForQueue, content.data, content.reload]);
   const canExtract = !readOnly && card.permissions.includes("upload");
-  const missing = card.files.filter(file => !content.data?.items.some(item => item.file_id === file.id));
   async function extract(fileId: string) {
     await action.request(`/files/${fileId}/extract`, "POST", {});
     content.reload();
   }
   return <section className="panel document-content">
     <div className="toolbar"><div><h2>Содержание и источники</h2><p>Цифровой текст связан с точной версией оригинала. Результат обработки не изменяет файл.</p></div><button type="button" onClick={() => {polls.current = 0; content.reload();}}>Обновить содержание</button></div>
+    <label>Файл для просмотра содержания<select value={fileId} onChange={event => {setFileId(event.target.value); setPage(1); polls.current = 0;}}><option value="">Все разрешённые оригиналы</option>{card.files.map(file => <option key={file.id} value={file.id}>{file.name} · версия {file.version}</option>)}</select></label>
     <Feedback error={content.error || action.error} message={action.message} loading={content.loading}/>
     {(pending || waitingForQueue) && <p role="status">{polls.current < 60 ? "Обработка выполняется в фоне. Состояние обновляется автоматически." : "Обработка ещё не завершена. Нажмите «Обновить содержание», чтобы проверить состояние."}</p>}
     {content.data?.items.map(extraction => <details key={extraction.id} className="extraction" open={target?.fileId === extraction.file_id || content.data?.items.length === 1}>
@@ -60,9 +64,10 @@ export function DocumentContent({card, readOnly, target}: {card: Card; readOnly:
       {extraction.state === "failed" && <p className="error" role="alert">{extractionErrors[extraction.error_code || ""] || "Не удалось обработать файл. Карточка и оригинал сохранены."}</p>}
       {canExtract && extraction.state === "failed" && extraction.attempts >= 3 && <p className="muted">Достигнут предел попыток обработки. Проверьте оригинал и при необходимости загрузите исправленную версию.</p>}
       {!!extraction.warnings.length && <ul className="content-warnings">{extraction.warnings.map((warning, index) => <li key={index}>{extractionWarnings[warning] || "При извлечении возникло предупреждение. Сверьте содержание с оригиналом."}</li>)}</ul>}
-      {extraction.state === "completed" && <BlockList extraction={extraction} target={target} mode={mode} documentId={card.id}/>}
+      {extraction.state === "completed" && <BlockList extraction={extraction} target={target?.fileId === fileId ? target : undefined} mode={mode} documentId={card.id}/>}
     </details>)}
     {!content.loading && !content.error && missing.map(file => <div className="file-line" key={file.id}><span>{file.name} · версия {file.version}<small>Содержание ещё не обработано</small></span>{canExtract && <button type="button" disabled={action.busy} onClick={() => void action.run(() => extract(file.id), "Файл поставлен в очередь обработки")}>Извлечь содержание</button>}</div>)}
+    {content.data && <div className="pagination"><span>Результатов обработки: {content.data.total} · страница {page}</span><button type="button" disabled={page <= 1 || content.loading} onClick={() => {polls.current = 0; setPage(value => value - 1);}}>Предыдущее содержание</button><button type="button" disabled={page * content.data.page_size >= content.data.total || content.loading} onClick={() => {polls.current = 0; setPage(value => value + 1);}}>Следующее содержание</button></div>}
     {!card.files.length && <p className="empty-state">Загрузите оригинал документа, чтобы увидеть его содержание.</p>}
   </section>;
 }

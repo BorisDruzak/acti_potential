@@ -2,6 +2,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.api.dependencies import current_actor, current_admin, db_session
@@ -17,11 +18,28 @@ from app.content.search import (
 from app.registry.documents import file_visible, get_document, get_schema, raw_values
 from app.registry.events import emit
 from app.registry.models import DocumentFile, DocumentVersion
+from app.service_api.contracts import ExtractionRead, Page
 
 router = APIRouter()
 Db = Annotated[object, Depends(db_session, scope="function")]
 Actor = Annotated[object, Depends(current_actor)]
 Mode = Literal["editor", "viewer"]
+
+
+class ContentBlockRead(BaseModel):
+    id: UUID
+    kind: str
+    ordinal: int
+    parent_id: UUID | None
+    page: int | None
+    anchor: str
+    text: str
+    table: list[list[str]] | None
+
+
+class ExtractionWithBlocks(ExtractionRead):
+    blocks: list[ContentBlockRead]
+    truncated: bool
 
 
 def authorize_file(session, actor, file, mode=None, *, action="download"):
@@ -87,21 +105,41 @@ def extraction_output(session, row, file, version, *, include_blocks=True):
     }
 
 
-@router.get("/documents/{document_id}/content")
-def document_content(document_id: UUID, session: Db, actor: Actor, mode: Mode | None = None):
+@router.get("/documents/{document_id}/content", response_model=Page[ExtractionWithBlocks])
+def document_content(
+    document_id: UUID,
+    session: Db,
+    actor: Actor,
+    mode: Mode | None = None,
+    file_id: UUID | None = None,
+    page: int = Query(1, ge=1, le=1000000),
+    page_size: int = Query(20, ge=1, le=100),
+):
     document = get_document(session, actor, document_id, "download")
     schema, items = get_schema(session, document), []
-    values = raw_values(document, schema)
-    for row, file, version in session.execute(
+    values, total = raw_values(document, schema), 0
+    query = (
         select(ContentExtraction, DocumentFile, DocumentVersion.version)
         .join(DocumentFile, DocumentFile.id == ContentExtraction.file_id)
         .join(DocumentVersion, DocumentVersion.id == ContentExtraction.version_id)
         .where(ContentExtraction.document_id == document_id)
-        .order_by(DocumentVersion.version, ContentExtraction.created_at)
+    )
+    if file_id:
+        file = session.get(DocumentFile, file_id)
+        if file is None or file.document_id != document.id:
+            fail(404, "content_not_found", "Файл не найден")
+        authorize_file(session, actor, file, mode)
+        query = query.where(ContentExtraction.file_id == file_id)
+    for row, file, version in session.execute(
+        query.order_by(
+            DocumentVersion.version, ContentExtraction.created_at, ContentExtraction.id
+        ).execution_options(yield_per=100)
     ):
         if file_visible(schema, actor, file, values, mode):
-            items.append(extraction_output(session, row, file, version))
-    return {"items": items}
+            if (page - 1) * page_size <= total < page * page_size:
+                items.append(extraction_output(session, row, file, version))
+            total += 1
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/files/{file_id}/extract", status_code=202)

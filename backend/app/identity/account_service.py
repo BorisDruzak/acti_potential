@@ -34,6 +34,7 @@ def user_roles(session, user_id):
 
 
 def serialize_user(session, user):
+    from app.service_api.models import ServiceAccount
     credential = session.get(LocalCredential, user.id)
     return {
         "id": user.id,
@@ -43,6 +44,7 @@ def serialize_user(session, user):
         "login": credential.login if credential else None,
         "roles": user_roles(session, user.id),
         "must_change_password": bool(credential and credential.must_change_password),
+        "kind": "service" if session.scalar(select(ServiceAccount.id).where(ServiceAccount.user_id == user.id)) else "local",
     }
 
 
@@ -105,6 +107,7 @@ def revoke_user_sessions(session, user_id):
 def update_account(session, user_id, changes):
     lock_accounts(session)
     user = get_user(session, user_id)
+    deny_service_edit(session, user_id)
     existing_roles = user_roles(session, user_id)
     new_roles = changes.get("roles", existing_roles)
     assigned = validate_roles(session, new_roles) if "roles" in changes else None
@@ -145,6 +148,7 @@ def update_account(session, user_id, changes):
 def reset_password(session, user_id, password):
     lock_accounts(session)
     get_user(session, user_id)
+    deny_service_edit(session, user_id)
     credential = session.get(LocalCredential, user_id)
     if credential is None:
         fail(409, "local_account_required", "Для пользователя не настроен локальный вход")
@@ -169,3 +173,9 @@ def change_password(session, user_id, current_password, new_password):
     credential.must_change_password = False
     revoke_user_sessions(session, user_id)
     session.flush()
+
+
+def deny_service_edit(session, user_id):
+    from app.service_api.models import ServiceAccount
+    if session.scalar(select(ServiceAccount.id).where(ServiceAccount.user_id == user_id)):
+        fail(403, "service_identity_noninteractive", "Сервисная учётная запись управляется в разделе API")

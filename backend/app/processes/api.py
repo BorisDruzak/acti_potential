@@ -2,8 +2,8 @@ from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy import case, false, func, or_, select
 
 from app.api.dependencies import current_actor, db_session
 from app.api.errors import fail
@@ -18,11 +18,21 @@ from app.processes.contracts import (
 from app.processes.models import Process, ProcessVersion
 from app.registry.events import emit
 from app.registry.models import Registry, RegistryAccess
+from app.service_api.contracts import Page, ProcessVersionRead
 
 router = APIRouter()
 Db = Annotated[object, Depends(db_session, scope="function")]
 Actor = Annotated[object, Depends(current_actor)]
 Mode = Literal["editor", "viewer"]
+
+
+class CatalogItem(ProcessInput):
+    id: UUID
+    created_at: datetime
+
+
+class CatalogVersion(ProcessVersionRead):
+    effective_from: date
 
 
 def event(session, request, actor, action, process, version=None):
@@ -49,6 +59,8 @@ def listing(session: Db, actor: Actor, registry_id: UUID | None = None):
     )
     if registry_id:
         query = query.where(Process.registry_id == registry_id)
+    if actor.scoped_registry_ids is not None:
+        query = query.where(Process.registry_id.in_(actor.scoped_registry_ids))
     from app.registry.policy import role_actions
 
     if "read" not in role_actions(actor):
@@ -71,6 +83,77 @@ def listing(session: Db, actor: Actor, registry_id: UUID | None = None):
         if current:
             result.append({**service.process_output(row), **current.metadata_snapshot})
     return result
+
+
+@router.get("/processes/catalog", response_model=Page[CatalogItem])
+def catalog(
+    session: Db,
+    actor: Actor,
+    registry_id: UUID | None = None,
+    q: str = Query("", max_length=300),
+    mode: Mode | None = None,
+    page: int = Query(1, ge=1, le=1000000),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    from app.registry.policy import role_actions
+
+    if "read" not in role_actions(actor):
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
+    current = (
+        select(ProcessVersion.id)
+        .where(
+            ProcessVersion.process_id == Process.id,
+            ProcessVersion.state == "published",
+            ProcessVersion.effective_from <= date.today(),
+        )
+        .order_by(ProcessVersion.effective_from.desc(), ProcessVersion.version.desc())
+        .limit(1)
+        .correlate(Process)
+        .scalar_subquery()
+    )
+    configured = (
+        RegistryAccess.permissions.contains(["update"]) if "admin" in actor.roles else false()
+    )
+    query = (
+        select(Process, ProcessVersion)
+        .join(RegistryAccess, RegistryAccess.registry_id == Process.registry_id)
+        .outerjoin(ProcessVersion, ProcessVersion.id == current)
+        .where(
+            RegistryAccess.user_id == actor.id,
+            RegistryAccess.permissions.contains(["read"]),
+            or_(configured, ProcessVersion.id.is_not(None)),
+        )
+    )
+    if registry_id:
+        query = query.where(Process.registry_id == registry_id)
+    if actor.scoped_registry_ids is not None:
+        query = query.where(Process.registry_id.in_(actor.scoped_registry_ids))
+    if q.strip():
+        pattern = (
+            "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        )
+        visible_name = case(
+            (configured, Process.metadata_data["name"].astext),
+            else_=ProcessVersion.metadata_snapshot["name"].astext,
+        )
+        visible_code = case(
+            (configured, Process.code), else_=ProcessVersion.metadata_snapshot["code"].astext
+        )
+        query = query.where(
+            or_(visible_name.ilike(pattern, escape="\\"), visible_code.ilike(pattern, escape="\\"))
+        )
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
+    items = []
+    for process, version in session.execute(
+        query.order_by(Process.created_at, Process.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ):
+        item = service.process_output(process)
+        if not service.can_configure(session, actor, process):
+            item.update(version.metadata_snapshot)
+        items.append(item)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/processes", status_code=201)
@@ -156,6 +239,35 @@ def create_version(process_id: UUID, request: Request, session: Db, actor: Actor
     return service.version_output(session, actor, process, version)
 
 
+@router.get("/processes/{process_id}/version-catalog", response_model=Page[CatalogVersion])
+def version_catalog(
+    process_id: UUID,
+    session: Db,
+    actor: Actor,
+    mode: Mode | None = None,
+    page: int = Query(1, ge=1, le=1000000),
+    page_size: int = Query(20, ge=1, le=50),
+):
+    process = service.get_process(session, actor, process_id)
+    query = select(ProcessVersion).where(ProcessVersion.process_id == process.id)
+    if not service.can_configure(session, actor, process):
+        query = query.where(
+            ProcessVersion.state == "published", ProcessVersion.effective_from <= date.today()
+        )
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
+    rows = session.scalars(
+        query.order_by(ProcessVersion.version.desc(), ProcessVersion.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return {
+        "items": [service.version_output(session, actor, process, row, mode) for row in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
 @router.get("/processes/{process_id}")
 def detail(
     process_id: UUID,
@@ -187,6 +299,9 @@ def detail(
     result = service.process_output(process)
     if version and version.state == "published":
         result.update(version.metadata_snapshot)
+    from app.service_api.admin import usage
+
+    usage(session, process.registry_id, "process_open", 0)
     return {
         **result,
         "version": service.version_output(session, actor, process, version, mode)
@@ -198,6 +313,9 @@ def detail(
 @router.get("/process-versions/{version_id}")
 def version_detail(version_id: UUID, session: Db, actor: Actor, mode: Mode | None = None):
     process, version = service.get_version(session, actor, version_id)
+    from app.service_api.admin import usage
+
+    usage(session, process.registry_id, "process_open", 0)
     return service.version_output(session, actor, process, version, mode)
 
 

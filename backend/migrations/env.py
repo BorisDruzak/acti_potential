@@ -13,6 +13,7 @@ from app.platform import models as platform_models  # noqa: F401
 from app.processes import models as process_models  # noqa: F401
 from app.registry import models as registry_models  # noqa: F401
 from app.relations import models as relation_models  # noqa: F401
+from app.service_api import models as service_models  # noqa: F401
 
 config = context.config
 

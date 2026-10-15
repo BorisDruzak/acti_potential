@@ -6,7 +6,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from redis import Redis
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
@@ -18,6 +18,8 @@ CONSUMER = "platform-receipt-v1"
 
 
 def process_event(session, event):
+    if event.payload_version != 1:
+        raise ValueError("Unsupported event payload version")
     validate_payload(event.event_type, event.payload)
     if session.get(ProcessedEvent, (CONSUMER, event.id)) is None:
         from app.content.indexing import handle_event
@@ -30,6 +32,8 @@ def process_event(session, event):
 def process_batch(factory, limit: int) -> int:
     completed = 0
     with factory.begin() as session:
+        # Serialize publication through commit. Producer timestamps are not commit order.
+        session.execute(text("SELECT pg_advisory_xact_lock(731010)"))
         now = datetime.now(UTC)
         events = list(
             session.scalars(
@@ -51,6 +55,10 @@ def process_batch(factory, limit: int) -> int:
                 if event.attempts >= 5:
                     event.state = "failed"
             else:
+                if event.delivery_ordinal is None:
+                    event.delivery_ordinal = session.scalar(
+                        text("SELECT nextval('outbox_delivery_ordinal_seq')")
+                    )
                 event.processed_at = now
                 event.state = "processed"
                 event.error_code = None
@@ -73,6 +81,9 @@ def main():
         while not stop.is_set():
             try:
                 process_batch(factory, 50)
+                from app.service_api.events import cleanup_cursors
+
+                cleanup_cursors(factory)
                 redis.set("worker:heartbeat", str(time.time()), ex=30)
                 from app.content.worker import process_backlog, process_extractions
 

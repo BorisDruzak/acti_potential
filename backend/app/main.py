@@ -20,6 +20,9 @@ from app.numbering import api as numbering_api
 from app.processes import api as processes_api
 from app.registry import config_api, document_api, file_api
 from app.relations import api as relations_api
+from app.service_api import admin as service_admin
+from app.service_api import api as service_api
+from app.service_api import operations as service_operations
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -57,11 +60,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(auth.public, prefix="/api/v1")
     protected = APIRouter(dependencies=[Depends(current_actor)])
-    for router in (auth.protected, users.router, admin.router, account_admin.router,
-                   config_api.router, document_api.router, file_api.router, numbering_api.router, content_api.router, relations_api.router, processes_api.router, knowledge_api.router, execution_api.router):
+    for router in (
+        auth.protected,
+        users.router,
+        admin.router,
+        account_admin.router,
+        config_api.router,
+        document_api.router,
+        file_api.router,
+        numbering_api.router,
+        content_api.router,
+        relations_api.router,
+        processes_api.router,
+        knowledge_api.router,
+        execution_api.router,
+        service_admin.router,
+        service_operations.router,
+    ):
         protected.include_router(router)
     app.state.protected_router = protected
     app.include_router(protected, prefix="/api/v1")
+    app.include_router(service_api.router, prefix="/api/service/v1")
 
     @app.get("/api/v1/openapi.json", dependencies=[Depends(current_admin)], include_in_schema=False)
     def openapi():
