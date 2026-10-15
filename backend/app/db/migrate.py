@@ -39,7 +39,7 @@ def upgrade_database(engine):
             connection.execute(text("GRANT UPDATE (state, decided_by, decided_at, effective_date, reason) ON document_relations TO acti_app"))
             connection.execute(
                 text(
-                    "GRANT DELETE ON user_roles, registry_access, document_acl, number_grants, content_metadata_fragments TO acti_app"
+                    "GRANT DELETE ON user_roles, registry_access, document_acl, number_grants, content_metadata_fragments, process_steps, process_transitions, process_step_sources, process_step_templates TO acti_app"
                 )
             )
 

@@ -25,7 +25,7 @@ export type Field = {
   description?: string;
   required?: boolean;
   default?: unknown;
-  constraints?: Record<string, number | string | boolean>;
+  constraints?: Record<string, number | string | boolean | (string | number | boolean | null)[]>;
   reference_set_id?: string | null;
   reference_code?: string;
   system?: string | null;
