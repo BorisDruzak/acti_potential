@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Feedback } from "../components/Feedback";
 import { DynamicForm } from "./DynamicForm";
+import type { NumberSeries } from "./numbering";
 import {
   fieldTypes,
   initialValues,
@@ -10,10 +11,11 @@ import {
   type FieldType,
   type FormSchema,
   type ReferenceSet,
+  type Registry,
   type SchemaVersion,
   type Values,
 } from "./schema";
-import { useAction } from "./useData";
+import { useAction, useData } from "./useData";
 
 function validDefault(field: Field): boolean {
   const value = field.default;
@@ -60,6 +62,7 @@ function changeFieldType(field: Field, type: FieldType): Field {
     reg_number: "text", reg_date: "date", title: "text", status: "text",
   };
   if (next.system && systemTypes[next.system] !== type) delete next.system;
+  if (next.system !== "reg_number") delete next.number_series_id;
   const allowed = type === "group"
     ? ["min_items", "max_items"]
     : ["integer", "decimal"].includes(type)
@@ -170,12 +173,14 @@ function PropertyEditor({
   field,
   fields,
   references,
+  series,
   onChange,
   child,
 }: {
   field: Field;
   fields: Field[];
   references: ReferenceSet[];
+  series: NumberSeries[];
   onChange: (field: Field) => void;
   child?: boolean;
 }) {
@@ -289,7 +294,7 @@ function PropertyEditor({
         Системный реквизит
         <select
           value={field.system || ""}
-          onChange={(event) => change({ system: event.target.value || null })}
+          onChange={(event) => change({ system: event.target.value || null, ...(event.target.value !== "reg_number" ? {number_series_id: null} : {}) })}
         >
           <option value="">Дополнительное поле</option>
           {["reg_number", "reg_date", "title", "status"].map((key) => (
@@ -299,6 +304,14 @@ function PropertyEditor({
           ))}
         </select>
       </label>
+      {field.system === "reg_number" && <label>
+        Серия регистрационных номеров
+        <select value={field.number_series_id || ""} onChange={event => change({number_series_id: event.target.value || null})}>
+          <option value="">Обычный ввод номера</option>
+          {series.map(item => <option key={item.id} value={item.id}>{item.name} · {item.code}{item.state === "blocked" ? " · заблокирована" : ""}</option>)}
+        </select>
+        <small>Сначала назначьте тип реестру. Для подключённой серии номер присваивается из резерва после создания карточки.</small>
+      </label>}
       <div className="check-list">
         {[
           ["required", "Обязательное"],
@@ -461,6 +474,11 @@ export function SchemaBuilder({
     initialValues(version.schema),
   );
   const action = useAction();
+  const numberSeries = useData<NumberSeries[]>("/number-series");
+  const registries = useData<Registry[]>("/registries");
+  const compatibleSeries = (Array.isArray(numberSeries.data) ? numberSeries.data : []).filter(item =>
+    (item.document_type_ids.length ? item.document_type_ids.includes(version.document_type_id) : Array.isArray(registries.data) && registries.data.some(registry => registry.id === item.registry_id && registry.document_type_ids.includes(version.document_type_id))),
+  );
   const published = version.state === "published";
   const allFields = schema.sections.flatMap((section) => section.fields);
   const selectedParent = selection
@@ -908,6 +926,7 @@ export function SchemaBuilder({
                 field={selected}
                 fields={allFields}
                 references={references}
+                series={compatibleSeries}
                 onChange={updateField}
                 child={selection?.child !== undefined}
               />

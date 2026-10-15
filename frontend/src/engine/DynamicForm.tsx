@@ -353,7 +353,7 @@ function FieldControl({
     control = (
       <div className="field-value" id={id}>
         {value === null || value === undefined || value === ""
-          ? "Не указано"
+          ? field.number_series_id ? "Номер присваивается из резерва после создания карточки" : "Не указано"
           : typeof value === "boolean"
             ? value
               ? "Да"

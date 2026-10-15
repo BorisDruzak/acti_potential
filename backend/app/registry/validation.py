@@ -36,6 +36,7 @@ FIELD_KEYS = frozenset(
         "constraints",
         "reference_set_id",
         "reference_code",
+        "number_series_id",
         "system",
         "editable",
         "modes",
@@ -244,6 +245,15 @@ def validate_schema(value: dict, previous: dict | None = None) -> dict:
             ):
                 raise ValueError("Unknown role or display mode")
         system = field.get("system")
+        if field.get("number_series_id") is not None:
+            if depth or kind != "text" or system != "reg_number":
+                raise ValueError("Number series binds only a top-level registration-number field")
+            try:
+                UUID(str(field["number_series_id"]))
+            except (ValueError, TypeError):
+                raise ValueError("Invalid number series UUID") from None
+            if field.get("default") is not None:
+                raise ValueError("A numbered field cannot have a literal default")
         if system is not None:
             if (
                 depth
