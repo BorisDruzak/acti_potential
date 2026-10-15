@@ -1,0 +1,19 @@
+[Unit]
+Description=ACTI v3 platform
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/acti/postgresql /srv/acti/documents
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=ACTI_ENV_FILE=/etc/acti-v3/runtime.env
+ExecStartPre=/usr/local/sbin/acti-v3-stack preflight
+ExecStart=/usr/local/sbin/acti-v3-stack up
+ExecStop=/usr/local/sbin/acti-v3-stack down
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

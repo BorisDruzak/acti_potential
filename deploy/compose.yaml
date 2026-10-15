@@ -1,19 +1,53 @@
 name: acti-v3
+x-app: &app
+  image: acti-backend:${ACTI_SOURCE_SHA:?Set source SHA}
+  build:
+    context: ../backend
+    args:
+      SOURCE_SHA: ${ACTI_SOURCE_SHA}
+  environment: &app-env
+    ACTI_DATABASE_URL: ${ACTI_DATABASE_URL:?Set app database URL}
+    ACTI_REDIS_URL: redis://redis:6379/0
+    ACTI_SESSION_SECRET: ${ACTI_SESSION_SECRET:?Set a random session secret}
+    ACTI_ORIGIN: ${ACTI_ORIGIN:?Set HTTPS origin}
+    ACTI_STORAGE_ROOT: /documents
+    ACTI_SOURCE_SHA: ${ACTI_SOURCE_SHA}
+    ACTI_TRUSTED_PROXY_CIDRS: ${ACTI_TRUSTED_PROXY_CIDRS:-}
+  volumes:
+    - type: bind
+      source: /srv/acti/documents/objects
+      target: /documents
+      bind:
+        create_host_path: false
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: "no"
+  networks: [internal]
 services:
   postgres:
     image: ${POSTGRES_IMAGE:?Set a pinned PostgreSQL image}
     environment:
-      POSTGRES_USER: acti
+      POSTGRES_USER: postgres
       POSTGRES_DB: acti
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set an external password}
+      ACTI_APP_PASSWORD: ${ACTI_APP_PASSWORD:?Set app role password}
+      ACTI_OWNER_PASSWORD: ${ACTI_OWNER_PASSWORD:?Set migration role password}
     volumes:
       - type: bind
         source: /srv/acti/postgresql/data
         target: /var/lib/postgresql/data
         bind:
           create_host_path: false
+      - type: bind
+        source: ./postgres-init.sql
+        target: /docker-entrypoint-initdb.d/001-roles.sql
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U acti -d acti"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d acti"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -29,6 +63,71 @@ services:
       retries: 10
     restart: "no"
     networks: [internal]
+    read_only: true
+    tmpfs: [/data]
+  migrate:
+    <<: *app
+    command: ["python", "-m", "app.db.migrate"]
+    environment:
+      <<: *app-env
+      ACTI_DATABASE_URL: ${ACTI_MIGRATION_DATABASE_URL:?Set migration database URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.jobs.worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis,time; r=redis.Redis(host='redis'); assert time.time()-float(r.get('worker:heartbeat') or 0)<30"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  frontend:
+    image: acti-frontend:${ACTI_SOURCE_SHA}
+    build:
+      context: ..
+      dockerfile: deploy/frontend.Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:?Set pinned Node image}
+        NGINX_IMAGE: ${NGINX_IMAGE:?Set pinned Nginx image}
+        SOURCE_SHA: ${ACTI_SOURCE_SHA}
+    ports: ["443:443", "80:80"]
+    volumes:
+      - type: bind
+        source: /etc/acti-v3/tls
+        target: /etc/nginx/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/etc/nginx/tls/ca.crt", "https://localhost/api/v1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+    networks: [internal, edge]
 networks:
   internal:
     internal: true
+  edge: {}

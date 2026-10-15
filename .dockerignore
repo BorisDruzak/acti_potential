@@ -1,0 +1,10 @@
+.git
+.local
+legacy
+**/.venv
+**/node_modules
+**/__pycache__
+**/dist
+PROJECT_CONTEXT.local.md
+project.local.toml
+**/.env

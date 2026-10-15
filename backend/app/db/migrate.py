@@ -14,6 +14,14 @@ def upgrade_database(engine):
         config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
+        if connection.scalar(
+            text("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='acti_app')")
+        ):
+            connection.execute(text("GRANT USAGE ON SCHEMA public TO acti_app"))
+            connection.execute(
+                text("GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO acti_app")
+            )
+            connection.execute(text("REVOKE UPDATE ON audit_events FROM acti_app"))
 
 
 if __name__ == "__main__":

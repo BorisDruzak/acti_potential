@@ -1,0 +1,131 @@
+# ACTI v3: развёртывание платформенного ядра
+
+## Контракт среды
+
+Основная машина и UUID заданы только в `project.local.toml` и локальном контексте.
+Все команды этого документа выполняются на предназначенной для ACTI Ubuntu VM.
+SQL Server и источники документов не используются при запуске платформы.
+
+Нужны Docker Engine/Compose, Python 3 для preflight и два подтверждённых тома:
+`/srv/acti/postgresql` и `/srv/acti/documents`. Не использовать `nofail`, fallback
+на ОС, `0777`, форматирование или reboot. Перед любым запуском сравнить UUID с
+локальным контрактом, а не просто проверить наличие каталога.
+
+## Подготовка
+
+1. Установить Docker и Compose из согласованного источника пакетов Ubuntu,
+   проверить `docker version`, `docker compose version`. Не переносить настройки
+   или адреса другой машины. Установка сервиса не требует reboot этой задачи.
+2. Выбрать committed release; `git archive <SHA>` передать на ВМ и распаковать
+   в отдельный root-owned release directory. Сохранить предыдущий release.
+   Не включать `.local`, `.env`, local context, ключи и документы в archive.
+3. Из выбранных images проверить UID/GID PostgreSQL (`id postgres`) и ACTI
+   (`id` backend image; задан 10001:10001). После проверки UUID создать только
+   назначенные подкаталоги: `postgresql/data`, `postgresql/test` (если нужны tests)
+   и `documents/objects`, назначить им фактического владельца сервиса.
+4. Создать root-owned `/etc/acti-v3/runtime.env`, mode 0600, по
+   `deploy/.env.example`. Пароли и session secret генерировать случайно и хранить
+   вне checkout. Указать полный release path, его source SHA, действительный
+   HTTPS origin и UUID обоих томов. Никаких встроенных рабочих секретов нет.
+5. Для production PostgreSQL задать разные случайные `POSTGRES_PASSWORD`,
+   `ACTI_OWNER_PASSWORD`, `ACTI_APP_PASSWORD`. Migration URL использует
+   `acti_owner`, app URL — `acti_app`. Init SQL создаёт роли только на чистой БД.
+   Существующая БД не переинициализируется при restart; смена env-пароля сама
+   по себе не изменяет пароль уже существующей роли.
+6. Разместить server.crt, server.key и ca.crt в `/etc/acti-v3/tls`; ключ mode
+   0600, каталог 0700. SAN должен включать фактическое имя/адрес и localhost
+   для внутреннего TLS healthcheck. Для первого запуска допустим локальный CA:
+   доверять только проверенному публичному сертификату CA на нужных клиентах.
+   CA private key остаётся закрытым на ВМ. Не использовать отключение TLS
+   проверки в качестве приёмки. Следить за сроком сертификата, автоматическое
+   продление пока не настроено.
+7. Поддерживать `deploy/images.lock.env`: зафиксированы публичные digest images.
+   Backend base также закреплён digest, Python/npm зависимости — lockfiles.
+
+## Build и запуск
+
+```sh
+sudo sh -c 'set -a; . /etc/acti-v3/runtime.env; set +a; python3 "$ACTI_RELEASE_DIR/deploy/preflight.py"; docker compose --env-file "$ACTI_RELEASE_DIR/deploy/images.lock.env" --env-file /etc/acti-v3/runtime.env -f "$ACTI_RELEASE_DIR/deploy/compose.yaml" config --quiet; docker compose --env-file "$ACTI_RELEASE_DIR/deploy/images.lock.env" --env-file /etc/acti-v3/runtime.env -f "$ACTI_RELEASE_DIR/deploy/compose.yaml" build'
+```
+
+Установить `deploy/stack.sh` в `/usr/local/sbin/acti-v3-stack` root:root 0755,
+а `deploy/acti-v3.service` — в `/etc/systemd/system/` root:root 0644.
+Затем `sudo systemctl daemon-reload` и `sudo systemctl enable --now acti-v3`.
+Сервис требует оба mount unit и выполняет UUID preflight до Compose.
+Самостоятельный Docker restart контейнеров отключён, чтобы не обойти проверку
+при старте Docker. После аварийного завершения контейнера оператор проверяет
+причину и выполняет `sudo systemctl restart acti-v3`; постоянного внешнего
+мониторинга и high availability Task 001 не добавляет.
+
+Порядок: PostgreSQL ready -> migration success -> API/worker -> frontend.
+Мигратор сериализуется advisory lock, выполняет Alembic upgrade и выдаёт app
+роль только DML-права, без superuser/DDL. Audit допускает INSERT/SELECT,
+но не UPDATE/DELETE ролью приложения. Ошибка migration блокирует API/worker.
+Compose не публикует PostgreSQL, Redis или API; доступны только HTTPS и HTTP
+redirect Nginx. Проверить внутреннюю Docker subnet и задать её в закрытом
+`ACTI_TRUSTED_PROXY_CIDRS`, затем пересоздать API. Nginx заменяет X-Real-IP,
+а backend принимает его только от настроенного proxy; заголовок внешнего
+клиента сам по себе не меняет адрес rate limiter.
+
+## Первоначальный администратор
+
+Выполнить bootstrap в API-контейнере через интерактивный terminal:
+
+```sh
+sudo sh -c 'set -a; . /etc/acti-v3/runtime.env; set +a; docker compose --env-file "$ACTI_RELEASE_DIR/deploy/images.lock.env" --env-file /etc/acti-v3/runtime.env -f "$ACTI_RELEASE_DIR/deploy/compose.yaml" exec api python -m app.identity.bootstrap'
+```
+
+Команда спрашивает login, имя и пароль (не менее 14 символов), подтверждение
+скрыто. Не передавать пароль argv, не записывать его в shell history или Git.
+Bootstrap атомарен и не сбрасывает существующую учётную запись при повторе.
+AD/OIDC, self-registration и интерфейс управления пользователями пока отсутствуют.
+
+## Проверка и перезапуск
+
+- `sudo /usr/local/sbin/acti-v3-stack status`: PostgreSQL/Redis/API/worker/frontend
+  здоровы, migrate завершился с кодом 0.
+- Через HTTPS проверить `/api/v1/health/live` и `/api/v1/health/ready` (200),
+  а `/api/v1/users/me` без сессии (401). Live не доказывает готовность БД.
+- В браузере войти, проверить пользователя, навигацию, admin status и выйти.
+  Не реализованные разделы показывают «В разработке».
+- Перед `sudo systemctl restart acti-v3` записать контрольный user ID и счётчики
+  аудита без credential material, затем сравнить их и повторить вход.
+- Данные находятся в bind mounts, `down --volumes` и удаление data path не нужны.
+- Health/логи/request ID не должны раскрывать credentials, cookie, SQL или paths.
+  Не выгружать полные `docker inspect`/`compose config` с секретами в отчёты.
+
+## Backup и restore test
+
+`sudo sh <release>/deploy/backup.sh` проверяет UUID и создаёт custom-format dump
+в закрытом backup-подкаталоге PostgreSQL-тома. `restore-test.sh <dump>` создаёт
+только фиксированную БД `acti_restore_test`, отказывается использовать уже
+существующую БД с этим именем, восстанавливает dump и выводит revision, digest
+набора user IDs и число audit rows для live/test БД. После проверки удаляет
+только созданную им disposable БД; рабочая БД не перезаписывается.
+Выводы должны совпасть при отсутствии новых audit-записей в это время.
+Скрипт требует доступного свободного места под вторую БД на том же томе.
+
+Два тома одной ВМ и backup на той же ВМ не являются независимой резервной копией.
+До загрузки реальных документов назначить внешний backup destination,
+retention, расписание и регулярно проверяемое восстановление. Версии оригиналов
+потребуют согласованной копии document storage вместе с БД на этапе реестра.
+
+## Обновление и откат
+
+Сделать backup, подготовить новый root-owned committed release и images,
+проверить его конфигурацию, обновить закрытые release path/source SHA и
+перезапустить systemd. Записать фактический image/source SHA и health/browser
+результаты. При сбое сохранить логи с redaction, исправить причину и повторить
+проверку. Откат image не выполняет schema downgrade: совместимость миграции
+и старого кода проверяется до выбора такого отката. Нельзя восстанавливать
+поверх рабочей БД без отдельного контролируемого плана восстановления.
+
+## Разработка и tests
+
+Backend: `uv sync --frozen`; отдельная PostgreSQL БД с суффиксом `_test` на
+выделенном томе и отдельная Redis DB. `uv run pytest -q`,
+`uv run ruff check app tests`, `uv run alembic check`.
+Destructive fixture отказывается работать с именем без `_test`.
+Frontend: `npm ci`, `npm test -- --run`, `npm run typecheck`, `npm run build`.
+Фактическая приёмка хранится отдельно в `docs/architecture/TASK_001_ACCEPTANCE.md`;
+команды этого runbook сами по себе не означают выполненную приёмку.
