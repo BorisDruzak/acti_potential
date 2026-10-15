@@ -282,3 +282,11 @@ The existing upstream Starlette warning remains. Full-tree Ruff additionally
 reports a pre-existing import-order issue in migration `0001_platform.py`, which
 this correction does not modify. Native browser retesting of the committed pilot
 release is recorded in its pull request and completion report.
+
+The follow-up activation exposed a separate proxy defect: Nginx retained a stale
+API container address after Compose recreated the backend. Reloading Nginx
+restored access; the durable configuration uses Docker DNS with a dynamically
+resolved shared upstream. An isolated pinned-image regression forced a different
+API address: the original configuration remained at HTTP 502, while the corrected
+configuration recovered automatically in 5.18 seconds. HTTP methods, request path,
+query and body were preserved, and temporary test containers/networks were removed.
