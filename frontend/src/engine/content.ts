@@ -38,8 +38,10 @@ export const extractionErrors: Record<string, string> = {
   limit_exceeded: "Сложность или размер файла превышают допустимые ограничения обработки.",
   storage_unavailable: "Оригинал временно недоступен. Обработка будет повторена.",
   worker_interrupted: "Обработка была прервана. Повторите попытку.",
+  legacy_doc_short_stream: "Этот вариант DOC не поддерживается. Для извлечения содержания загрузите DOCX или цифровой PDF новой версией; оригинал сохранён.",
 };
 export const extractionWarnings: Record<string, string> = {
+  legacy_doc_short_stream_unsupported: "Оригинал DOC сохранён. Для извлечения содержания используйте DOCX или цифровой PDF.",
   external_relationships_ignored: "Внешние ссылки не загружались при обработке документа.",
   nested_table_omitted: "Вложенная таблица не включена в извлечённое содержание. Проверьте оригинал.",
   legacy_doc_layout_flattened: "Содержание DOC извлечено как текст; оформление доступно в оригинале.",

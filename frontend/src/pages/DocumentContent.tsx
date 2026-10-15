@@ -56,7 +56,7 @@ export function DocumentContent({card, readOnly, target}: {card: Card; readOnly:
       </div></div>
       {extraction.state === "no_text" && <p>Нет цифрового текстового слоя. Распознавание сканов пока не подключено.</p>}
       {extraction.state === "encrypted" && <p>Файл защищён паролем. Для извлечения загрузите доступный оригинал новой версией.</p>}
-      {extraction.state === "unsupported" && <p>Формат не поддерживается. Оригинал остаётся доступен по вашим правам.</p>}
+      {extraction.state === "unsupported" && <p>{extractionErrors[extraction.error_code || ""] || "Формат не поддерживается. Оригинал остаётся доступен по вашим правам."}</p>}
       {extraction.state === "failed" && <p className="error" role="alert">{extractionErrors[extraction.error_code || ""] || "Не удалось обработать файл. Карточка и оригинал сохранены."}</p>}
       {canExtract && extraction.state === "failed" && extraction.attempts >= 3 && <p className="muted">Достигнут предел попыток обработки. Проверьте оригинал и при необходимости загрузите исправленную версию.</p>}
       {!!extraction.warnings.length && <ul className="content-warnings">{extraction.warnings.map((warning, index) => <li key={index}>{extractionWarnings[warning] || "При извлечении возникло предупреждение. Сверьте содержание с оригиналом."}</li>)}</ul>}

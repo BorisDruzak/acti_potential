@@ -246,3 +246,25 @@ def test_old_doc_encryption_is_explicit_and_numbered_docx_points_are_structural(
         "",
     )
     assert result["blocks"][0]["kind"] == "point"
+
+
+def test_valid_short_old_doc_is_explicit_converter_limitation(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.content import parsers
+
+    monkeypatch.setattr(
+        parsers.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1,
+            stdout=b"\n",
+            stderr=b"I'm afraid the text stream of this file is too small to handle.\n",
+        ),
+    )
+    result = parsers.parse_bytes(bytes.fromhex("D0CF11E0A1B11AE1") + b"\0" * 64, "short.doc", "")
+    assert result["state"] == "unsupported"
+    assert result["error_code"] == "legacy_doc_short_stream"
+    assert result["warnings"] == ["legacy_doc_short_stream_unsupported"]
+    assert result["full_text"] == "" and result["blocks"] == []
+    assert result["parser_version"] == "acti-2+antiword-0.37-16"

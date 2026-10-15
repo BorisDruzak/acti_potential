@@ -44,7 +44,7 @@ def parser_identity(name: str, mime: str = "") -> tuple[str, str]:
     if suffix == ".docx":
         return "docx", "acti-ooxml-1"
     if suffix == ".doc":
-        return "doc", "acti-1+antiword-0.37-16"
+        return "doc", "acti-2+antiword-0.37-16"
     return "unsupported", "acti-1"
 
 
@@ -246,7 +246,10 @@ def parse_doc(data):
         except subprocess.TimeoutExpired:
             raise ParseFailure("timeout") from None
         if result.returncode:
-            if b"encrypt" in getattr(result, "stderr", b"").lower():
+            diagnostic = getattr(result, "stderr", b"").lower()
+            if b"the text stream of this file is too small to handle." in diagnostic:
+                raise ParseFailure("legacy_doc_short_stream", "unsupported")
+            if b"encrypt" in diagnostic:
                 raise ParseFailure("encrypted_doc", "encrypted")
             raise ParseFailure("malformed_doc")
         if len(result.stdout) > MAX_TEXT_BYTES:
@@ -279,7 +282,10 @@ def parse_bytes(data: bytes, name: str, mime: str = "") -> dict:
             error_code=None,
         )
     except ParseFailure as failure:
-        return empty_result(name, mime, failure.state, failure.code)
+        result = empty_result(name, mime, failure.state, failure.code)
+        if failure.code == "legacy_doc_short_stream":
+            result["warnings"] = ["legacy_doc_short_stream_unsupported"]
+        return result
     except (MemoryError, RecursionError):
         return empty_result(name, mime, "failed", "limit_exceeded")
     except Exception:

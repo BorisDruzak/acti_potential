@@ -19,7 +19,7 @@ const card = {
   files: [{id: "file", version: 2, name: "Постановление.docx", size: 100, created_at: "2026-10-15T00:00:00Z", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}],
 } as Card;
 
-function setup({reader = false, state = "completed", search = false, blockPage = false, initialMissing = false} = {}) {
+function setup({reader = false, state = "completed", search = false, blockPage = false, initialMissing = false, errorCode = ""} = {}) {
   let firstContent = true;
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     let data: unknown = [];
@@ -29,7 +29,7 @@ function setup({reader = false, state = "completed", search = false, blockPage =
     else if (url.includes("/content/search?")) data = {items: [{document: card, matches: [{source: "file", file_id: "file", version: 2, block_id: "target", block_ordinal: 200, snippet: "Порядок подачи заявления", rank: 0.9, label: "Постановление.docx"}]}], total: 1, page: 1, page_size: 20};
     else if (url.includes("/content/search/export?")) return new Response("Current authorized search results");
     else if (url.includes("/documents?")) data = {items: [], total: 0, page: 1, page_size: 20};
-    else if (url.includes("/documents/document/content")) {data = {items: firstContent && initialMissing ? [] : [{...extraction, state, error_code: state === "failed" ? "parse_failed" : null, ...(blockPage ? {block_count: 201, truncated: true} : {})}]}; firstContent = false;}
+    else if (url.includes("/documents/document/content")) {data = {items: firstContent && initialMissing ? [] : [{...extraction, state, error_code: errorCode || (state === "failed" ? "parse_failed" : null), ...(blockPage ? {block_count: 201, truncated: true} : {})}]}; firstContent = false;}
     else if (url.includes("/content/extractions/extraction/blocks?")) data = {items: [{...extraction.blocks[0], id: "target", ordinal: 200, text: "Целевой блок страницы 2"}], total: 201, page: 2, page_size: 200};
     else if (url.includes("/documents/document?")) data = card;
     else if (url.endsWith("/files/file/extract") && init?.method === "POST") return new Response(JSON.stringify({id: "extraction", state: "pending"}), {status: 202});
@@ -62,6 +62,13 @@ it("makes missing digital text explicit without offering unsupported OCR actions
   setup({reader: true, state: "no_text"});
   await screen.findByText("Нет цифрового текстового слоя. Распознавание сканов пока не подключено.");
   expect(screen.queryByRole("button", {name: /извлечение/})).toBeNull();
+});
+
+it("explains an unsupported DOC variant while preserving the authorized original download", async () => {
+  setup({reader: true, state: "unsupported", errorCode: "legacy_doc_short_stream"});
+  await screen.findByText("Этот вариант DOC не поддерживается. Для извлечения содержания загрузите DOCX или цифровой PDF новой версией; оригинал сохранён.");
+  expect(screen.getByRole("button", {name: "Скачать оригинал версии 2"})).toBeTruthy();
+  expect(screen.queryByRole("button", {name: /извлечение|Извлечь|OCR|Распознать/})).toBeNull();
 });
 
 it("uses real search API shape and opens a precise source block beyond the first page", async () => {
