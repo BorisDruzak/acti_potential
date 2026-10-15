@@ -228,12 +228,15 @@ function DocumentCard({
               {editing ? (
                 <>
                   <button
+                    key="save-card"
+                    type="submit"
                     className="primary"
                     disabled={action.busy || conflict}
                   >
                     Сохранить карточку
                   </button>
                   <button
+                    key="cancel-card-edit"
                     type="button"
                     onClick={() => {
                       setValues(card.values);
@@ -246,6 +249,7 @@ function DocumentCard({
                 </>
               ) : (
                 <button
+                  key="edit-card"
                   type="button"
                   className="primary"
                   onClick={() => setEditing(true)}

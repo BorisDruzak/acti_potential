@@ -171,6 +171,43 @@ it("viewer cannot open administration by typing its route", async () => {
   expect(window.location.pathname).toBe("/view");
   expect(screen.queryByRole("button", { name: "Типы документов" })).toBeNull();
 });
+it("entering card edit mode never turns the clicked button into a submit button", async () => {
+  window.history.replaceState(null, "", "/work");
+  const fetch = setup(["editor"]);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Тестовый реестр" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Открыть карточку" }),
+  );
+  const editButton = (await screen.findByRole("button", {
+    name: "Редактировать карточку",
+  })) as HTMLButtonElement;
+  expect(editButton.type).toBe("button");
+  fireEvent.click(editButton);
+  const saveButton = screen.getByRole("button", {
+    name: "Сохранить карточку",
+  }) as HTMLButtonElement;
+  // Reusing the click target here lets the browser's pending native default
+  // action submit the form after React commits the new state.
+  expect(editButton.type).toBe("button");
+  expect(editButton.isConnected).toBe(false);
+  expect(saveButton).not.toBe(editButton);
+  expect(saveButton.type).toBe("submit");
+  expect((screen.getByLabelText("Название") as HTMLInputElement).value).toBe(
+    "Тестовый документ",
+  );
+  expect(
+    fetch.mock.calls.filter(([, init]) => init?.method === "PUT"),
+  ).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Отмена изменений" }));
+  expect(
+    screen.getByRole("button", { name: "Редактировать карточку" }),
+  ).toBeTruthy();
+  expect(
+    fetch.mock.calls.filter(([, init]) => init?.method === "PUT"),
+  ).toHaveLength(0);
+});
 it("atomically saves a file selected during editing with the updated card values", async () => {
   window.history.replaceState(null, "", "/work");
   const fetch = setup(["editor"]);
