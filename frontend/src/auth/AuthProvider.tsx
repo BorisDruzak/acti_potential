@@ -13,6 +13,7 @@ export type CurrentUser = {
   display_name: string;
   roles: string[];
   csrf_token: string;
+  must_change_password?: boolean;
 };
 type Status = "loading" | "anonymous" | "authenticated" | "unavailable";
 type Auth = {

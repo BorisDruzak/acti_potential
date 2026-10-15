@@ -27,6 +27,7 @@ class CurrentUserResponse(BaseModel):
     display_name: str
     roles: list[str]
     csrf_token: str
+    must_change_password: bool = False
 
 
 class LiveResponse(BaseModel):

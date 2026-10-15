@@ -8,10 +8,10 @@ from app.platform.models import OutboxEvent
 
 def test_failed_handler_retries_and_preserves_terminal_diagnostics(factory):
     from app.jobs.worker import process_batch
-    from app.platform.outbox import enqueue_event
-
     with factory.begin() as db:
-        enqueue_event(db, "unknown.event", uuid4(), {})
+        # Corrupt/external events still receive bounded retries and diagnostics;
+        # the supported enqueue boundary now rejects unknown producer contracts.
+        db.add(OutboxEvent(event_type="unknown.event", object_id=uuid4(), payload={}))
     for attempt in range(5):
         assert process_batch(factory, 10) == 0
         with factory.begin() as db:

@@ -22,13 +22,17 @@ def test_ready_rejects_schema_mismatch(client, factory):
 
     engine = factory.kw["bind"]
     with engine.begin() as conn:
+        original_revision = conn.scalar(text("SELECT version_num FROM alembic_version"))
         conn.execute(text("UPDATE alembic_version SET version_num='unexpected_revision'"))
     try:
         assert client.get("/api/v1/health/ready").status_code == 503
         assert client.get("/api/v1/health/live").status_code == 200
     finally:
         with engine.begin() as conn:
-            conn.execute(text("UPDATE alembic_version SET version_num='0001_platform'"))
+            conn.execute(
+                text("UPDATE alembic_version SET version_num=:revision"),
+                {"revision": original_revision},
+            )
 
 
 def test_ready_rejects_unreachable_database(client):

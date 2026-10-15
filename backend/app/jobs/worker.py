@@ -11,14 +11,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
 from app.db.session import build_engine
+from app.platform.contracts import validate_payload
 from app.platform.models import OutboxEvent, ProcessedEvent
 
 CONSUMER = "platform-receipt-v1"
 
 
 def process_event(session, event):
-    if event.event_type != "platform.admin_created":
-        raise ValueError("Unsupported event type")
+    validate_payload(event.event_type, event.payload)
     if session.get(ProcessedEvent, (CONSUMER, event.id)) is None:
         session.add(ProcessedEvent(consumer=CONSUMER, event_id=event.id))
         session.flush()

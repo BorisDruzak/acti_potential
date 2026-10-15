@@ -15,7 +15,8 @@ def factory():
     engine = create_engine(url, hide_parameters=True)
     upgrade_database(engine)
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE users, outbox_events RESTART IDENTITY CASCADE"))
+        conn.execute(text('TRUNCATE users, outbox_events, registries, document_types, '
+                          'reference_sets RESTART IDENTITY CASCADE'))
     yield sessionmaker(engine, expire_on_commit=False)
     engine.dispose()
 

@@ -1,6 +1,7 @@
 import { useAuth } from "./auth/AuthProvider";
 import { Login } from "./pages/Login";
 import { Workspace } from "./pages/Workspace";
+import { Password } from "./pages/Password";
 
 export function App() {
   const auth = useAuth();
@@ -26,5 +27,13 @@ export function App() {
         </button>
       </main>
     );
-  return auth.status === "authenticated" ? <Workspace /> : <Login />;
+  return auth.status === "authenticated" ? (
+    auth.user?.must_change_password ? (
+      <Password required />
+    ) : (
+      <Workspace />
+    )
+  ) : (
+    <Login />
+  );
 }

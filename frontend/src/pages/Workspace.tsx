@@ -1,125 +1,116 @@
 import { useEffect, useState } from "react";
-import { apiRequest } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
-import { Layout } from "../components/Layout";
-import { SectionNotice } from "../components/SectionNotice";
-
-function PlatformStatus() {
-  const [data, setData] = useState<{ version: string; worker: string } | null>(
-    null,
-  );
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const abort = new AbortController();
-    apiRequest<{ version: string; worker: string }>("/admin/platform", {
-      signal: abort.signal,
-    })
-      .then(setData)
-      .catch((e) => {
-        if (!abort.signal.aborted) setError(e.message);
-      });
-    return () => abort.abort();
-  }, []);
-  return (
-    <>
-      <div className="page-heading">
-        <span className="eyebrow">УПРАВЛЕНИЕ ПЛАТФОРМОЙ</span>
-        <h1>Администрирование</h1>
-        <p>Текущее состояние платформенного ядра.</p>
-      </div>
-      <section className="panel">
-        <h2>Состояние сервисов</h2>
-        {error ? (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        ) : !data ? (
-          <p role="status">Загрузка состояния…</p>
-        ) : (
-          <dl>
-            <div>
-              <dt>Версия платформы</dt>
-              <dd>{data.version}</dd>
-            </div>
-            <div>
-              <dt>Фоновый обработчик</dt>
-              <dd>{data.worker === "available" ? "Работает" : "Недоступен"}</dd>
-            </div>
-            <div>
-              <dt>Способ входа</dt>
-              <dd>Локальная учётная запись</dd>
-            </div>
-          </dl>
-        )}
-        <p className="muted">
-          Управление пользователями и настройками появится на следующих этапах.
-        </p>
-      </section>
-    </>
-  );
-}
-
+import { Layout, type Space } from "../components/Layout";
+import { RegistriesAdmin, ReferencesAdmin, TypesAdmin } from "./Admin";
+import {
+  AccessAdmin,
+  AuditAdmin,
+  PlatformStatus,
+  UsersAdmin,
+} from "./AdminIdentity";
+import { Documents } from "./Documents";
+import { Password } from "./Password";
 export function Workspace() {
   const auth = useAuth();
-  const [section, setSection] = useState("Моя работа");
+  const roles = auth.user?.roles || [];
+  const defaultSpace: Space = roles.includes("admin")
+    ? "admin"
+    : roles.some((role) => ["editor", "user"].includes(role))
+      ? "work"
+      : "view";
+  function resolve(): Space {
+    const path = window.location.pathname.split("/")[1];
+    return path === "admin" && roles.includes("admin")
+      ? "admin"
+      : path === "work" &&
+          roles.some((role) => ["admin", "editor", "user"].includes(role))
+        ? "work"
+        : path === "view"
+          ? "view"
+          : defaultSpace;
+  }
+  const [space, setSpaceState] = useState<Space>(resolve);
+  const [section, setSection] = useState(
+    space === "admin" ? "Обзор системы" : "Мои реестры",
+  );
+  function setSpace(next: Space) {
+    setSpaceState(next);
+    setSection(next === "admin" ? "Обзор системы" : "Мои реестры");
+    window.history.pushState(null, "", "/" + next);
+  }
+  useEffect(() => {
+    window.history.replaceState(null, "", "/" + space);
+    const pop = () => {
+      const next = resolve();
+      setSpaceState(next);
+      setSection(next === "admin" ? "Обзор системы" : "Мои реестры");
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
   let content;
-  if (section === "Моя работа")
+  if (section === "Мой пароль") content = <Password />;
+  else if (space !== "admin")
+    content = <Documents key={space} readOnly={space === "view"} />;
+  else if (section === "Реестры") content = <RegistriesAdmin />;
+  else if (section === "Типы документов" || section === "Конструктор форм")
+    content = <TypesAdmin />;
+  else if (section === "Справочники") content = <ReferencesAdmin />;
+  else if (section === "Пользователи") content = <UsersAdmin />;
+  else if (section === "Роли и доступ") content = <AccessAdmin />;
+  else if (section === "История и аудит") content = <AuditAdmin />;
+  else if (section === "Состояние платформы") content = <PlatformStatus />;
+  else
     content = (
       <>
         <div className="page-heading">
-          <span className="eyebrow">МОЯ РАБОТА</span>
-          <h1>Рабочее пространство</h1>
+          <span className="eyebrow">УПРАВЛЕНИЕ ПЛАТФОРМОЙ</span>
+          <h1>Обзор системы</h1>
           <p>Добро пожаловать, {auth.user?.display_name}.</p>
         </div>
         <section className="welcome-panel">
-          <span className="badge green">Платформенное ядро</span>
-          <h2>Основа для совместной работы</h2>
+          <span className="badge green">Конструктор и реестры</span>
+          <h2>Структура документов под вашу работу</h2>
           <p>
-            Вход выполнен. Ваше рабочее пространство готово к подключению
-            модулей документов и процессов.
+            Создайте тип, настройте и опубликуйте форму. Назначьте её реестру и
+            предоставьте сотрудникам доступ.
           </p>
-          <div className="session-note">
-            <i /> Защищённая серверная сессия
-          </div>
         </section>
-        <div className="section-title">
-          <h2>Разделы системы</h2>
-          <span className="muted">Следующие этапы развития</span>
-        </div>
-        <div className="module-grid">
+        <div className="module-grid admin-shortcuts">
           {[
-            ["Документы", "Карточки, версии и оригиналы документов."],
-            ["Процессы", "Последовательности действий и их основания."],
-            ["Поиск", "Поиск по реквизитам и содержанию."],
+            ["Реестры", "Логические коллекции и доступные типы."],
+            ["Типы документов", "Визуальный конструктор и версии форм."],
+            ["Справочники", "Значения и связи полей."],
+            ["Пользователи", "Локальные учётные записи и роли."],
+            ["Роли и доступ", "Права на реестры и отдельные документы."],
+            ["История и аудит", "События конфигурации и изменений."],
           ].map(([title, text]) => (
             <button
-              className="module-card"
               key={title}
+              className="module-card"
               onClick={() => setSection(title)}
             >
-              <span className="badge">В разработке</span>
               <h3>
                 {title}
-                <span aria-hidden="true">↗</span>
+                <span>↗</span>
               </h3>
               <p>{text}</p>
             </button>
           ))}
         </div>
         <p className="foundation-note">
-          На этом этапе доступны вход, выход и базовая навигация. Документы и
-          рабочие процессы будут подключаться последовательно.
+          Для просмотра содержимого переключитесь в рабочее пространство
+          редактора или читателя. Доступ определяется разрешениями реестров.
         </p>
       </>
     );
-  else if (
-    section === "Администрирование" &&
-    auth.user?.roles.includes("admin")
-  )
-    content = <PlatformStatus />;
-  else content = <SectionNotice title={section} />;
   return (
-    <Layout section={section} setSection={setSection}>
+    <Layout
+      section={section}
+      setSection={setSection}
+      space={space}
+      setSpace={setSpace}
+    >
       {content}
     </Layout>
   );

@@ -6,13 +6,14 @@ from fastapi.openapi.utils import get_openapi
 from redis import Redis
 from sqlalchemy.orm import sessionmaker
 
-from app.api import admin, auth, health, users
+from app.api import account_admin, admin, auth, health, users
 from app.api.dependencies import current_actor, current_admin
 from app.api.errors import register_errors
 from app.api.middleware import register_middleware
 from app.api.schemas import ERROR_RESPONSES
 from app.core.config import Settings
 from app.db.session import build_engine
+from app.registry import config_api, document_api, file_api
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -50,7 +51,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(auth.public, prefix="/api/v1")
     protected = APIRouter(dependencies=[Depends(current_actor)])
-    for router in (auth.protected, users.router, admin.router):
+    for router in (auth.protected, users.router, admin.router, account_admin.router,
+                   config_api.router, document_api.router, file_api.router):
         protected.include_router(router)
     app.state.protected_router = protected
     app.include_router(protected, prefix="/api/v1")

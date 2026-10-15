@@ -14,6 +14,12 @@ def upgrade_database(engine):
         config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
+        from sqlalchemy.orm import Session
+
+        from app.registry.builtin import seed_builtin
+        with Session(bind=connection, join_transaction_mode='create_savepoint') as seed_session:
+            with seed_session.begin():
+                seed_builtin(seed_session)
         if connection.scalar(
             text("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='acti_app')")
         ):
@@ -22,6 +28,9 @@ def upgrade_database(engine):
                 text("GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO acti_app")
             )
             connection.execute(text("REVOKE UPDATE ON audit_events FROM acti_app"))
+            connection.execute(
+                text('GRANT DELETE ON user_roles, registry_access, document_acl TO acti_app')
+            )
 
 
 if __name__ == "__main__":

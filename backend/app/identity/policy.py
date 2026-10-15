@@ -7,6 +7,7 @@ class Actor:
     id: UUID
     display_name: str
     roles: frozenset[str]
+    must_change_password: bool = False
 
 
 class PermissionDenied(Exception):
