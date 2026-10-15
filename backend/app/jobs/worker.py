@@ -20,6 +20,9 @@ CONSUMER = "platform-receipt-v1"
 def process_event(session, event):
     validate_payload(event.event_type, event.payload)
     if session.get(ProcessedEvent, (CONSUMER, event.id)) is None:
+        from app.content.indexing import handle_event
+
+        handle_event(session, event)
         session.add(ProcessedEvent(consumer=CONSUMER, event_id=event.id))
         session.flush()
 
@@ -70,6 +73,12 @@ def main():
         while not stop.is_set():
             try:
                 process_batch(factory, 50)
+                redis.set("worker:heartbeat", str(time.time()), ex=30)
+                from app.content.worker import process_backlog, process_extractions
+
+                process_backlog(factory, limit=5)
+                redis.set("worker:heartbeat", str(time.time()), ex=30)
+                process_extractions(factory, settings.storage_root, limit=1)
                 redis.set("worker:heartbeat", str(time.time()), ex=30)
             except Exception as error:
                 logging.error(

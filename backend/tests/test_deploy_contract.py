@@ -50,6 +50,16 @@ def test_compose_is_private_and_migration_gated():
     # Compose omits a normalized false value; short-syntax binds emit true.
     assert volume.get("bind", {}).get("create_host_path", False) is False
     assert "create_host_path: false" in (ROOT / "deploy/compose.yaml").read_text()
+    worker = services["worker"]
+    originals = next(v for v in worker["volumes"] if v["target"] == "/documents")
+    assert originals["source"] == "/srv/acti/documents/objects"
+    assert originals["read_only"] is True
+    assert originals.get("bind", {}).get("create_host_path", False) is False
+    assert worker["read_only"] is True
+    assert "ALL" in worker["cap_drop"]
+    assert int(worker["mem_limit"]) <= 768 * 1024 * 1024
+    assert float(worker["cpus"]) <= 1
+    assert worker["pids_limit"] <= 64
 
 
 def test_systemd_and_restore_guards_are_present():

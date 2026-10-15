@@ -18,6 +18,9 @@ import {
 } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
 import { CardNumberAssignment } from "./NumberBook";
+import { DocumentContent } from "./DocumentContent";
+import { ContentMatches } from "../components/ContentMatches";
+import type { ContentHit, ContentTarget } from "../engine/content";
 
 function filesInRevision(card: Card, values: Values): FileVersion[] {
   const ids = new Set<string>();
@@ -66,19 +69,21 @@ function DocumentCard({
   references,
   onSaved,
   onClose,
+  contentTarget,
 }: {
   card: Card;
   readOnly: boolean;
   references: ReferenceSet[];
   onSaved: () => void;
   onClose: () => void;
+  contentTarget?: ContentTarget;
 }) {
   const auth = useAuth();
   const action = useAction();
   const [editing, setEditing] = useState(false);
   const [values, setValues] = useState<Values>(card.values);
   const [conflict, setConflict] = useState(false);
-  const [tab, setTab] = useState("card");
+  const [tab, setTab] = useState(contentTarget ? "content" : "card");
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
   const [revision, setRevision] = useState(card.revision);
   const history = useData<
@@ -208,6 +213,7 @@ function DocumentCard({
         >
           История изменений
         </button>
+        <button className={tab === "content" ? "active" : ""} onClick={() => setTab("content")}>Содержание</button>
       </div>
       <Feedback {...action} />
       {!readOnly && card.schema.sections.some(section => section.fields.some(field => field.number_series_id && !card.values[field.key])) && <CardNumberAssignment card={card} onSaved={onSaved}/>}
@@ -402,6 +408,7 @@ function DocumentCard({
           ))}
         </section>
       )}
+      {tab === "content" && <DocumentContent card={card} readOnly={readOnly} target={contentTarget}/>}
     </section>
   );
 }
@@ -577,6 +584,12 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const [documentId, setDocumentId] = useState(() => new URLSearchParams(window.location.search).get("document") || "");
   const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
+  const [contentQ, setContentQ] = useState("");
+  const [fuzzy, setFuzzy] = useState(true);
+  const [contentTarget, setContentTarget] = useState<ContentTarget | undefined>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("tab") === "content" ? {fileId: params.get("file") || undefined, blockId: params.get("block") || undefined, ordinal: params.has("ordinal") ? Number(params.get("ordinal")) : undefined} : undefined;
+  });
   const [number, setNumber] = useState("");
   const [status, setStatus] = useState("");
   const [from, setFrom] = useState("");
@@ -614,13 +627,13 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       ) || [];
   const filterField = filterFields.find((field) => field.key === filterKey);
   const list = useData<{
-    items: Card[];
+    items: (Card | ContentHit)[];
     total: number;
     page: number;
     page_size: number;
   }>(
     registryId && !documentId && !creating
-      ? "/documents?registry_id=" +
+      ? (new URLSearchParams(search).has("text") ? "/content/search?registry_id=" : "/documents?registry_id=") +
           registryId +
           "&page=" +
           page +
@@ -637,6 +650,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   function applySearch() {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
+    if (contentQ.trim()) {params.set("text", contentQ.trim()); params.set("fuzzy", String(fuzzy));}
     if (number) params.set("reg_number", number);
     if (status) params.set("status", status);
     if (from) params.set("date_from", from);
@@ -663,11 +677,13 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   function loadView(query: string) {
     const params = new URLSearchParams(query);
     setQ(params.get("q") || ""); setNumber(params.get("reg_number") || ""); setStatus(params.get("status") || ""); setFrom(params.get("date_from") || ""); setTo(params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "updated_at"); setDirection(params.get("direction") || "desc");
+    setContentQ(params.get("text") || ""); setFuzzy(params.get("fuzzy") !== "false");
     try { const [key, value] = Object.entries(JSON.parse(params.get("filters") || "{}"))[0] || ["", null]; setFilterKey(key); const typed = value as {op?: string; value?: unknown} | null; setFilterOp(typed && typeof typed === "object" ? typed.op || "eq" : "eq"); setFilterValue(typed && typeof typed === "object" ? (Array.isArray(typed.value) && typed.op === "between" ? typed.value[0] : typed.value) : value); setFilterEnd(typed?.op === "between" && Array.isArray(typed.value) ? String(typed.value[1]) : ""); } catch { setFilterKey(""); setFilterValue(null); }
     setPage(1); setSearch("&" + query);
   }
   const close = () => {
     setDocumentId("");
+    setContentTarget(undefined);
     setCreating(false);
     list.reload();
   };
@@ -684,6 +700,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             references={references.data || []}
             onSaved={card.reload}
             onClose={close}
+            contentTarget={contentTarget}
           />
         )}
       </>
@@ -732,6 +749,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 setPage(1);
                 setSearch("");
                 setQ("");
+                setContentQ(""); setFuzzy(true); setContentTarget(undefined);
                 setNumber("");
                 setStatus("");
                 setFrom("");
@@ -776,6 +794,8 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 onChange={(event) => setQ(event.target.value)}
               />
             </label>
+            <label>Поиск по содержанию<input type="search" maxLength={255} value={contentQ} placeholder="Фраза из документа" onChange={event => setContentQ(event.target.value)} /></label>
+            <label className="checkbox-label"><input type="checkbox" checked={fuzzy} onChange={event => setFuzzy(event.target.checked)}/>Учитывать опечатки</label>
             <label>
               Регистрационный номер
               <input
@@ -831,6 +851,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               Сортировка
               <select
                 value={sort}
+                disabled={!!contentQ.trim()}
                 onChange={(event) => setSort(event.target.value)}
               >
                 <option value="updated_at">Последние изменения</option>
@@ -840,7 +861,8 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 {filterFields.filter(field => !field.system && field.type !== "multi_reference").map(field => <option key={field.key} value={`custom:${field.key}`}>{field.label}</option>)}
               </select>
             </label>
-            <label>Направление сортировки<select value={direction} onChange={event => setDirection(event.target.value)}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
+            <label>Направление сортировки<select value={direction} disabled={!!contentQ.trim()} onChange={event => setDirection(event.target.value)}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
+            {!!contentQ.trim() && <p className="muted">Результаты поиска по содержанию упорядочены по релевантности.</p>}
             {filterFields.length > 0 && (
               <>
                 <label>
@@ -904,8 +926,9 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             <button className="primary">Найти</button>
           </form>
           <Feedback {...list} />
+          {new URLSearchParams(search).has("text") && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
           <Feedback {...exportAction} />
-          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/documents/export?registry_id=${encodeURIComponent(registryId)}&format=${format}&mode=${readOnly ? "viewer" : "editor"}${search}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
+          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`${new URLSearchParams(search).has("text") ? "/content/search/export" : "/documents/export"}?registry_id=${encodeURIComponent(registryId)}&format=${format}&mode=${readOnly ? "viewer" : "editor"}${search}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
           {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
           <div className="toolbar">
             <h2>Документы</h2>
@@ -917,21 +940,23 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 <tr>
                   {configuredColumns.length ? configuredColumns.map(column => <th key={column.key}>{column.label}</th>) : <><th>Номер</th><th>Дата</th><th>Название</th></>}
                   <th>Редакция</th>
+                  {new URLSearchParams(search).has("text") && <th>Найденные фрагменты</th>}
                   <th>Действия</th>
                 </tr>
               </thead>
               <tbody>
-                {list.data?.items.map((item) => (
+                {list.data?.items.map((result) => {const item = "document" in result ? result.document : result; return (
                   <tr key={item.id}>
                     {configuredColumns.length ? configuredColumns.map(column => <td key={column.key}>{displayListValue(item.display_values?.[column.key] ?? item.values?.[column.key])}</td>) : <><td>{item.reg_number || "—"}</td><td>{item.reg_date || "—"}</td><td>{item.title || "Документ"}</td></>}
                     <td>{item.revision}</td>
+                    {"document" in result && <td><ContentMatches matches={result.matches} query={new URLSearchParams(search).get("text") || ""} onOpen={target => {setContentTarget(target); setDocumentId(item.id);}}/></td>}
                     <td>
                       <button onClick={() => setDocumentId(item.id)}>
                         Открыть карточку
                       </button>
                     </td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
