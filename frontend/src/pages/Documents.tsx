@@ -17,6 +17,7 @@ import {
   type Values,
 } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
+import { CardNumberAssignment } from "./NumberBook";
 
 function filesInRevision(card: Card, values: Values): FileVersion[] {
   const ids = new Set<string>();
@@ -209,6 +210,7 @@ function DocumentCard({
         </button>
       </div>
       <Feedback {...action} />
+      {!readOnly && card.schema.sections.some(section => section.fields.some(field => field.number_series_id && !card.values[field.key])) && <CardNumberAssignment card={card} onSaved={onSaved}/>}
       {conflict && (
         <div className="error" role="alert">
           <p>
@@ -572,7 +574,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     "/references?mode=" + (readOnly ? "viewer" : "editor"),
   );
   const [registryId, setRegistryId] = useState("");
-  const [documentId, setDocumentId] = useState("");
+  const [documentId, setDocumentId] = useState(() => new URLSearchParams(window.location.search).get("document") || "");
   const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
   const [number, setNumber] = useState("");

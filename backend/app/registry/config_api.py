@@ -301,13 +301,16 @@ def _validate_type_assignment(session, type_ids, registry_id=None):
                 )
             ):
                 try:
-                    _check_bindings(session, schema.schema_data, [registry_id])
+                    _check_bindings(session, schema.schema_data, [registry_id], schema.document_type_id)
                 except ValueError as error:
                     fail(422, "invalid_reference_scope", str(error))
     return result
 
 
-def _check_bindings(session, schema, registry_ids):
+def _check_bindings(session, schema, registry_ids, document_type_id=None):
+    from app.registry.number_binding import validate_number_bindings
+
+    validate_number_bindings(session, schema, registry_ids, document_type_id)
     for field in field_map(schema).values():
         if field["type"] not in {"reference", "multi_reference", "department"}:
             continue
@@ -352,7 +355,7 @@ def _validated(session, row, value, publishing=False, actor=None):
             )
         )
         if publishing:
-            _check_bindings(session, result, registry_ids)
+            _check_bindings(session, result, registry_ids, row.document_type_id)
         for field in field_map(result).values():
             if (
                 publishing

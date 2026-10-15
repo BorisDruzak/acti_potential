@@ -29,6 +29,9 @@ EVENT_FIELDS = {
 EVENT_FIELDS["platform.admin_created"] = frozenset({"user_id"})
 for _event in ("reference.item.created", "reference.item.updated"):
     EVENT_FIELDS[_event] = EVENT_FIELDS[_event] | {"reference_set_id"}
+for _event in ("series.created", "series.updated", "grants.updated", "reserved", "assigned",
+               "cancelled", "expired", "void", "exported"):
+    EVENT_FIELDS["number." + _event] = frozenset({"series_id"})
 
 
 def validate_payload(event_type, payload):

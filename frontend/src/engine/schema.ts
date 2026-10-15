@@ -29,6 +29,7 @@ export type Field = {
   reference_set_id?: string | null;
   reference_code?: string;
   system?: string | null;
+  number_series_id?: string | null;
   editable?: boolean;
   modes?: string[];
   read_roles?: string[];
@@ -207,6 +208,7 @@ export function canWrite(field: Field, mode: string, roles: string[]) {
   const effectiveRoles = roles.includes("user") ? [...roles, "editor"] : roles;
   return (
     mode !== "view" &&
+    !field.number_series_id &&
     field.editable !== false &&
     (!field.write_roles?.length ||
       field.write_roles.some((role) => effectiveRoles.includes(role)))

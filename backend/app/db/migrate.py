@@ -17,7 +17,8 @@ def upgrade_database(engine):
         from sqlalchemy.orm import Session
 
         from app.registry.builtin import seed_builtin
-        with Session(bind=connection, join_transaction_mode='create_savepoint') as seed_session:
+
+        with Session(bind=connection, join_transaction_mode="create_savepoint") as seed_session:
             with seed_session.begin():
                 seed_builtin(seed_session)
         if connection.scalar(
@@ -27,9 +28,18 @@ def upgrade_database(engine):
             connection.execute(
                 text("GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO acti_app")
             )
-            connection.execute(text("REVOKE UPDATE ON audit_events FROM acti_app"))
             connection.execute(
-                text('GRANT DELETE ON user_roles, registry_access, document_acl TO acti_app')
+                text(
+                    "REVOKE UPDATE ON audit_events, number_operations, number_requests, number_entries FROM acti_app"
+                )
+            )
+            connection.execute(
+                text("GRANT UPDATE (state, document_id) ON number_entries TO acti_app")
+            )
+            connection.execute(
+                text(
+                    "GRANT DELETE ON user_roles, registry_access, document_acl, number_grants TO acti_app"
+                )
             )
 
 

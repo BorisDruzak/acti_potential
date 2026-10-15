@@ -76,6 +76,12 @@ def create_document(data: DocumentCreate, request: Request, session: Db, actor: 
     schema = session.scalar(query.order_by(FormSchema.version.desc()).limit(1))
     if schema is None:
         fail(422, "schema_unavailable", "Нет опубликованной формы")
+    from app.registry.number_binding import validate_number_bindings
+
+    try:
+        validate_number_bindings(session, schema.schema_data, [registry.id], data.document_type_id)
+    except ValueError as error:
+        fail(422, "number_series_unavailable", str(error))
     document = Document(
         registry_id=registry.id,
         document_type_id=data.document_type_id,

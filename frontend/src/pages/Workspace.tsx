@@ -10,6 +10,7 @@ import {
 } from "./AdminIdentity";
 import { Documents } from "./Documents";
 import { Password } from "./Password";
+import { NumberBook } from "./NumberBook";
 export function Workspace() {
   const auth = useAuth();
   const roles = auth.user?.roles || [];
@@ -50,6 +51,8 @@ export function Workspace() {
   }, []);
   let content;
   if (section === "Мой пароль") content = <Password />;
+  else if (section === "Серии номеров" || section === "Реестр номеров")
+    content = <NumberBook admin={space === "admin"} readOnly={space === "view"} />;
   else if (space !== "admin")
     content = <Documents key={space} readOnly={space === "view"} />;
   else if (section === "Реестры") content = <RegistriesAdmin />;

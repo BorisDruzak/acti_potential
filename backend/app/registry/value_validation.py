@@ -255,6 +255,15 @@ def validate_values(
         field = fields[key]
         if not field_writable(field, actor):
             fail(403, "field_forbidden", "Изменение поля не разрешено")
+        if field.get("number_series_id") and value != (previous or {}).get(key):
+            fail(403, "number_assignment_required", "Номер присваивается через реестр номеров")
+        if (
+            field.get("system") == "reg_number" and document_id is not None
+            and value != (previous or {}).get(key)
+        ):
+            from app.registry.number_binding import protect_registered_number
+
+            protect_registered_number(session, document_id)
         required_condition = field.get("required_when")
         required_dependency = (
             root_fields.get(required_condition["field"]) if required_condition else None
@@ -305,6 +314,10 @@ def validate_values(
             bool(field.get("required_when"))
             and condition_matches(field["required_when"], root_values, root_fields)
         )
+        if field.get("number_series_id"):
+            # An unregistered card may be saved before a separately authorized
+            # atomic assignment; a reservation itself is not a document.
+            required = False
         if required and condition_matches(field.get("visible_when"), root_values, root_fields):
             if (
                 result.get(key) is None
