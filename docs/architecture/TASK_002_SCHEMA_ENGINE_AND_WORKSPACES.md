@@ -9,7 +9,8 @@ document migration, identity-provider integration, OCR, BPM or AI is included.
 The roadmap and the user's uncommitted `AGENTS.md` are preserved.
 
 Registries select document types and grant user actions. Document types own
-versioned schemas. A schema contains ordered sections and ordered stable-key
+versioned schemas. FormSchema rows also implement the logical DocumentTypeVersion.
+A schema contains ordered sections and ordered stable-key
 field definitions in JSONB; these are the logical FormSchema, FormSection and
 FieldDefinition entities. Published snapshots are immutable. Documents keep
 their original schema version. A changed schema creates a new version; existing
@@ -94,11 +95,11 @@ document values. Empty ACL restores registry permissions.
 - [x] Frontend: three workspaces, visual schema builder, shared renderer,
   reference/user/access administration, paginated lists and version workflows.
   Test dynamic fields, modes, conditions and builder actions; build/typecheck.
-- [ ] Integrate and independently review task requirements and security edges;
+- [x] Integrate and independently review task requirements and security edges;
   run complete v3 backend/frontend suites, Ruff, Alembic check and diff checks.
-- [ ] Commit task files only, complete Git publication workflow, back up the
+- [x] Commit task files only, back up the
   existing pilot PostgreSQL, deploy through mount-guarded systemd/Compose.
-- [ ] Browser acceptance A-E: built-in ACTI v2, new type authored through UI,
+- [x] Browser acceptance A-E: built-in ACTI v2, new type authored through UI,
   role boundaries, file/schema versions, authentication/health/persistence.
 
 Review focus: hidden system fields must not leak in list headings or histories;
@@ -176,5 +177,75 @@ cross-repository contract was introduced.
 
 ## Executed verification and pilot acceptance
 
-Runtime/browser results are recorded here after deployment of a committed release.
-Private values, credentials and machine inventories are excluded.
+Date: 2026-10-15, Asia/Yekaterinburg. **Application acceptance: PASS.**
+Git publication uses the task branch and a draft pull request against main;
+the PR records the final source SHA and verification results.
+Implementation: `674d0016840bb8ba8e5edb4432f38cdc4468b7cb`; browser corrections:
+`8ee5ebe3aa3dfab106dfc435766dbe23ba9e064e` and
+`cad1414f6a74e6d0b72f054b83db0de3ec3c3843`. Browser signoff uses the latter
+code tree on the primary pilot VM; subsequent documentation-only release does
+not change application behavior. The authoritative deployed source revision is
+returned by the administrative platform API and container image labels.
+
+| Verification | Result |
+| --- | --- |
+| `uv run pytest -q` in isolated PostgreSQL `_test` and Redis | 97 passed |
+| `uv run ruff check app tests` | PASS |
+| `uv run alembic check` | No new upgrade operations detected |
+| Clean/repeated/concurrent Alembic upgrade | PASS, head 0002_schema_engine |
+| `npm test -- --run` | 26 passed, seven test files |
+| `npm run typecheck` / `npm run build` | PASS / PASS |
+| `git diff --check` | PASS |
+| Independent scoped code review | No remaining Important/Critical findings |
+| UUID/mount preflight, pinned image build, systemd/Compose activation | PASS |
+| Fresh pre-migration PostgreSQL backup | Nonempty/private, pg_restore TOC validated |
+| Strict HTTPS live/ready and source image labels | PASS; database/Redis/storage ready |
+| Existing users, session IDs, secrets and audit preservation | PASS across activation |
+| Registry/schema/reference/card/file/history IDs and row digests across recreation | Preserved |
+
+The backend suite retains the existing upstream Starlette/httpx deprecation
+warning. It does not represent a failed test. Production restore, reboot and
+load testing at 113,000+ cards were not performed or claimed.
+
+### Browser scenarios
+
+Existing Playwright MCP was used in separate authenticated contexts with strict
+TLS; no user-owned unsaved tab was changed. Desktop 1440px and reader viewport
+390px were inspected, with screenshots outside the repository. Mobile document
+width was 390px at a 390px viewport. No uncaught application JavaScript errors
+were observed. Intentional authorization/conflict requests returned the expected
+401/403/404/409/422 responses; the draft-preview loading error discovered during
+initial testing was fixed.
+
+| Scenario | Observed result |
+| --- | --- |
+| A: built-in ACTI v2 | Administrator opened immutable published configuration: all 25 fields, six sections, two registries and 20 scoped reference sets. Synthetic choices were created through the reference UI. Editor filled all business sections, selected two signers and two approvers, saved, reopened and changed a PostgreSQL card. Reader saw the current values. NULL publication state and textual volume/sheet ranges survived. |
+| B: new form without programming | Administrator created an inspection type, two sections, six fields, its own reference set and visibility/required conditions entirely in the UI. Shared editor preview showed the conditional field only when enabled. The type was published and assigned through UI. Editor saved a card; reader opened the same generated form. No type-specific code/model/component was added. |
+| C: access | Viewer has no mutation buttons; direct update/admin API calls return 403. Editor schema mutation returns 403. A real synthetic raion card returns 404 to the viewer and is absent from its registry list/search/counts. Hidden values are absent from card/history/schema; hidden filtering returns 422. Individual ACL was set and cleared in UI: viewer detail changed 200 → 404 → 200. |
+| D: versions | Editor saved a second immutable original atomically with changed metadata. Viewer downloaded both files through UI; both SHA-256 values matched. Administrator published schema version 2 through UI; the older inspection card retained schema version 1 and its values, without the new field. |
+| E: platform | Existing administrator session survived migrations/recreation. New editor/viewer accounts were created through UI, blocked from content until password change, then routed to /work and /view. Strict health and persistent database/configuration/content snapshots passed. SQL Server and source originals were not accessed. |
+| Concurrent edits | Two real browser tabs used the same revision. First save succeeded; stale save returned 409. Unsaved text remained visible and the refresh action loaded current data. |
+| Search | A UI query produced one server result and rendered count 1; pagination remains server-side. |
+
+Native browser validation found React reusing the edit button as a submit button
+within the same click. Distinct button identities fixed premature submissions;
+the final native probe observed zero requests when entering edit mode and exactly
+one atomic metadata/file save. The separate correction enables administrator
+reference previews before draft publication/registry assignment while preserving
+non-administrator access and metadata redaction. Both defects have regressions.
+
+Acceptance data is explicitly synthetic: three cards, one additional document
+type/reference set, and two acceptance accounts. No original source records were
+imported. Screenshots, private credentials, connection details and database backup
+paths are excluded from Git and this report.
+
+### Remaining scope limits
+
+- No bulk transfer of the 113,074 source cards or originals; live dictionary
+  values were not imported. Future import must preserve complete provenance.
+- No AD/OIDC, OCR, file-content full-text search, RAG/LLM, BPM or organizational
+  permission hierarchy.
+- One-level repeating groups; declarative safe conditions only. Conditional
+  fields are not server-filterable, as documented above.
+- Production backup restore/reboot/load acceptance and independent off-VM backup
+  remain separate operational work; no acceptance is inferred for them.
