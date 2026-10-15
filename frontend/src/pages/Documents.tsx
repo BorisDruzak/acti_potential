@@ -21,6 +21,8 @@ import { CardNumberAssignment } from "./NumberBook";
 import { DocumentContent } from "./DocumentContent";
 import { ContentMatches } from "../components/ContentMatches";
 import type { ContentHit, ContentTarget } from "../engine/content";
+import { DocumentRelations, RelationStatusHistory } from "./DocumentRelations";
+import type { RelationNavigation } from "../engine/relations";
 
 function filesInRevision(card: Card, values: Values): FileVersion[] {
   const ids = new Set<string>();
@@ -70,6 +72,7 @@ function DocumentCard({
   onSaved,
   onClose,
   contentTarget,
+  onNavigate,
 }: {
   card: Card;
   readOnly: boolean;
@@ -77,6 +80,7 @@ function DocumentCard({
   onSaved: () => void;
   onClose: () => void;
   contentTarget?: ContentTarget;
+  onNavigate: (value: RelationNavigation) => void;
 }) {
   const auth = useAuth();
   const action = useAction();
@@ -214,6 +218,9 @@ function DocumentCard({
           История изменений
         </button>
         <button className={tab === "content" ? "active" : ""} onClick={() => setTab("content")}>Содержание</button>
+        <button className={tab === "relations" ? "active" : ""} onClick={() => setTab("relations")}>Связанные акты</button>
+        <button className={tab === "basis" ? "active" : ""} onClick={() => setTab("basis")}>Основания и изменения</button>
+        <button className={tab === "status-history" ? "active" : ""} onClick={() => setTab("status-history")}>История статуса</button>
       </div>
       <Feedback {...action} />
       {!readOnly && card.schema.sections.some(section => section.fields.some(field => field.number_series_id && !card.values[field.key])) && <CardNumberAssignment card={card} onSaved={onSaved}/>}
@@ -409,6 +416,8 @@ function DocumentCard({
         </section>
       )}
       {tab === "content" && <DocumentContent card={card} readOnly={readOnly} target={contentTarget}/>}
+      {(tab === "relations" || tab === "basis") && <DocumentRelations key={tab} card={card} readOnly={readOnly} basis={tab === "basis"} onNavigate={onNavigate}/>}
+      {tab === "status-history" && <RelationStatusHistory card={card} readOnly={readOnly} onNavigate={onNavigate}/>}
     </section>
   );
 }
@@ -582,6 +591,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   );
   const [registryId, setRegistryId] = useState("");
   const [documentId, setDocumentId] = useState(() => new URLSearchParams(window.location.search).get("document") || "");
+  const [navigationRevision, setNavigationRevision] = useState(0);
   const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
   const [contentQ, setContentQ] = useState("");
@@ -694,13 +704,14 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
         {card.error && <button onClick={close}>К реестрам</button>}
         {card.data && (
           <DocumentCard
-            key={card.data.id + ":" + card.data.revision}
+            key={card.data.id + ":" + card.data.revision + ":" + navigationRevision}
             card={card.data}
             readOnly={readOnly}
             references={references.data || []}
             onSaved={card.reload}
             onClose={close}
             contentTarget={contentTarget}
+            onNavigate={value => {setContentTarget(value.contentTarget); setDocumentId(value.documentId); setNavigationRevision(current => current + 1);}}
           />
         )}
       </>

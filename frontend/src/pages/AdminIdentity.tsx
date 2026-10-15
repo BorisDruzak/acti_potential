@@ -23,6 +23,7 @@ const actions: Record<string, string> = {
   upload: "Загрузка файлов",
   download: "Скачивание файлов",
   manage: "Управление документами",
+  confirm_relations: "Подтверждение связей документов",
 };
 function RolePicker({
   roles,

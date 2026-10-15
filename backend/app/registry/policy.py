@@ -5,7 +5,7 @@ from sqlalchemy import and_, exists, or_, select
 
 from app.registry.models import Document, DocumentACL, RegistryAccess
 
-CONTENT_ACTIONS = frozenset({"read", "create", "update", "upload", "download"})
+CONTENT_ACTIONS = frozenset({"read", "create", "update", "upload", "download", "confirm_relations"})
 ACTIONS = CONTENT_ACTIONS | {"manage"}
 
 

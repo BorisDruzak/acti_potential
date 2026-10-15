@@ -30,12 +30,13 @@ def upgrade_database(engine):
             )
             connection.execute(
                 text(
-                    "REVOKE UPDATE ON audit_events, number_operations, number_requests, number_entries, document_blocks FROM acti_app"
+                    "REVOKE UPDATE ON audit_events, number_operations, number_requests, number_entries, document_blocks, relation_events, document_relations FROM acti_app"
                 )
             )
             connection.execute(
                 text("GRANT UPDATE (state, document_id) ON number_entries TO acti_app")
             )
+            connection.execute(text("GRANT UPDATE (state, decided_by, decided_at, effective_date, reason) ON document_relations TO acti_app"))
             connection.execute(
                 text(
                     "GRANT DELETE ON user_roles, registry_access, document_acl, number_grants, content_metadata_fragments TO acti_app"
