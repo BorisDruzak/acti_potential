@@ -22,6 +22,7 @@ type Props = {
   registryId?: string;
   references?: ReferenceSet[];
   files?: FileVersion[];
+  canDownload?: boolean;
   onFile?: (field: string, file: File) => void;
   prefix?: string;
   conditionValues?: Values;
@@ -308,6 +309,9 @@ function FieldControl({
       <div>
         {selectedFiles.map((file) => (
           <div className="file-line" key={file.id}>
+            {props.canDownload === false ? (
+              <span>{file.name} · версия {file.version}</span>
+            ) : (
             <button
               type="button"
               className="text-button"
@@ -322,6 +326,7 @@ function FieldControl({
             >
               {file.name} · версия {file.version}
             </button>
+            )}
           </div>
         ))}
         {writable && props.onFile && (

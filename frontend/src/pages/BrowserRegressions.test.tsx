@@ -83,6 +83,7 @@ it("does not expose historical file downloads without download permission", asyn
   fireEvent.click(screen.getByRole("button", { name: "История изменений" }));
   const first = (await screen.findByText(/Редакция 1 ·/)).closest("details")!;
   expect(within(first).queryByRole("button")).toBeNull();
+  expect(within(first).getByText("old.txt · версия 1")).toBeTruthy();
 });
 
 it("renders the object type returned by the audit API", async () => {

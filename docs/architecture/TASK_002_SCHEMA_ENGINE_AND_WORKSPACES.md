@@ -276,7 +276,7 @@ comparisons, resets registry filters consistently and exposes the required statu
 filter. No database migration or new dependency is required.
 
 Verification before pilot activation: 113 backend tests on isolated PostgreSQL
-and Redis; 41 frontend tests; TypeScript and production build; Ruff for app/tests;
+and Redis; 42 frontend tests; TypeScript and production build; Ruff for app/tests;
 Alembic check with no new operations; and a scoped independent integration review.
 The existing upstream Starlette warning remains. Full-tree Ruff additionally
 reports a pre-existing import-order issue in migration `0001_platform.py`, which
@@ -290,3 +290,8 @@ resolved shared upstream. An isolated pinned-image regression forced a different
 API address: the original configuration remained at HTTP 502, while the corrected
 configuration recovered automatically in 5.18 seconds. HTTP methods, request path,
 query and body were preserved, and temporary test containers/networks were removed.
+
+A final download-permission check found misleading empty-attachment text when
+metadata was readable but downloading was forbidden. Card/history now retain
+permitted attachment names and versions while omitting download actions; direct
+downloads still require the backend permission check.

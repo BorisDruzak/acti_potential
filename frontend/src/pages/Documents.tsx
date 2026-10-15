@@ -19,7 +19,6 @@ import {
 import { useAction, useData } from "../engine/useData";
 
 function filesInRevision(card: Card, values: Values): FileVersion[] {
-  if (!card.permissions.includes("download")) return [];
   const ids = new Set<string>();
   function collect(fields: Field[], current: Values) {
     for (const field of fields) {
@@ -243,7 +242,8 @@ function DocumentCard({
             roles={auth.user?.roles || []}
             references={references}
             registryId={card.registry_id}
-            files={card.permissions.includes("download") ? card.files : []}
+            files={card.files}
+            canDownload={card.permissions.includes("download")}
             onFile={
               canUpload
                 ? (field, file) =>
@@ -394,6 +394,7 @@ function DocumentCard({
                 references={references}
                 registryId={card.registry_id}
                 files={filesInRevision(card, item.values)}
+                canDownload={card.permissions.includes("download")}
               />
             </details>
           ))}

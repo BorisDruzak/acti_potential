@@ -40,3 +40,14 @@ it("preserves editor display mode in readonly groups and their root conditions",
   expect(screen.queryByText("Не в этом режиме")).toBeNull();
   expect(screen.queryByRole("textbox", { name: "Пояснение" })).toBeNull();
 });
+
+it("shows known attachment metadata without a download action when permission is absent", () => {
+  render(<DynamicForm
+    schema={{ sections: [{ key: "main", title: "", fields: [{ key: "file", label: "Файл", type: "file" }] }] }}
+    values={{ file: ["original"] }} mode="view" roles={["viewer"]} canDownload={false}
+    files={[{ id: "original", name: "original.txt", version: 1, size: 1, mime: "text/plain", created_at: "2026-10-15T00:00:00Z" }]}
+  />);
+  expect(screen.getByText("original.txt · версия 1")).toBeTruthy();
+  expect(screen.queryByText("Файлы не добавлены")).toBeNull();
+  expect(screen.queryByRole("button")).toBeNull();
+});
