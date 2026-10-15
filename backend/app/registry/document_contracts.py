@@ -83,7 +83,7 @@ class HistoryOutput(BaseModel):
 
 class ACLEntry(Input):
     user_id: UUID
-    permissions: list[Literal["read", "create", "update", "upload", "download", "manage", "confirm_relations"]]
+    permissions: list[Literal["read", "create", "update", "upload", "download", "manage", "confirm_relations", "curate_knowledge"]]
 
 
 class ACLInput(Input):

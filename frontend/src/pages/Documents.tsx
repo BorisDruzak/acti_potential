@@ -23,6 +23,7 @@ import { ContentMatches } from "../components/ContentMatches";
 import type { ContentHit, ContentTarget } from "../engine/content";
 import { DocumentRelations, RelationStatusHistory } from "./DocumentRelations";
 import type { RelationNavigation } from "../engine/relations";
+import { knowledgeTabs, RelatedKnowledge, type KnowledgeTab } from "./Knowledge";
 
 function filesInRevision(card: Card, values: Values): FileVersion[] {
   const ids = new Set<string>();
@@ -221,6 +222,7 @@ function DocumentCard({
         <button className={tab === "relations" ? "active" : ""} onClick={() => setTab("relations")}>Связанные акты</button>
         <button className={tab === "basis" ? "active" : ""} onClick={() => setTab("basis")}>Основания и изменения</button>
         <button className={tab === "status-history" ? "active" : ""} onClick={() => setTab("status-history")}>История статуса</button>
+        {knowledgeTabs.map(name => <button key={name} className={tab === name ? "active" : ""} onClick={() => setTab(name)}>{name}</button>)}
       </div>
       <Feedback {...action} />
       {!readOnly && card.schema.sections.some(section => section.fields.some(field => field.number_series_id && !card.values[field.key])) && <CardNumberAssignment card={card} onSaved={onSaved}/>}
@@ -416,6 +418,7 @@ function DocumentCard({
         </section>
       )}
       {tab === "content" && <DocumentContent card={card} readOnly={readOnly} target={contentTarget}/>}
+      {knowledgeTabs.includes(tab as KnowledgeTab) && <RelatedKnowledge key={tab} documentId={card.id} readOnly={readOnly} activeTab={tab as KnowledgeTab}/>}
       {(tab === "relations" || tab === "basis") && <DocumentRelations key={tab} card={card} readOnly={readOnly} basis={tab === "basis"} onNavigate={onNavigate}/>}
       {tab === "status-history" && <RelationStatusHistory card={card} readOnly={readOnly} onNavigate={onNavigate}/>}
     </section>

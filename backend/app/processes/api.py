@@ -267,9 +267,34 @@ def step_basis(
     step = next((step for step in steps if step["key"] == step_key), None)
     if step is None:
         fail(404, "process_step_not_found", "Шаг не найден")
-    return {
+    result = {
         "items": [
             service.safe_basis(session, actor, item, mode)
             for item in step["sources" if kind == "basis" else "templates"]
         ]
     }
+    if kind == "templates":
+        from fastapi import HTTPException
+
+        from app.knowledge.service import get_version as template_version
+        from app.knowledge.service import original_basis
+
+        for identity in step.get("template_versions", []):
+            try:
+                _, pinned = template_version(session, actor, UUID(str(identity)))
+                if pinned.state != "published":
+                    raise HTTPException(404)
+                resolved, _ = original_basis(session, actor, pinned.data["original"], mode)
+                result["items"].append(
+                    {
+                        **resolved,
+                        "template": {
+                            "name": pinned.data["name"],
+                            "version": pinned.version,
+                            "template_version_id": pinned.id,
+                        },
+                    }
+                )
+            except HTTPException:
+                result["items"].append({"restricted": True, "label": "Шаблон ограничен"})
+    return result

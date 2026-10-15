@@ -63,6 +63,7 @@ class Step(Strict):
     form_schema_id: UUID | None = None
     sources: list[Source] = Field(default_factory=list, max_length=50)
     templates: list[Template] = Field(default_factory=list, max_length=50)
+    template_versions: list[UUID] = Field(default_factory=list, max_length=50)
 
 
 class Transition(Strict):
