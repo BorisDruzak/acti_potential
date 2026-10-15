@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:acti:import-record:v1",
+  "title": "ACTI source-qualified import record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "source_database", "source_entity", "source_id", "target_id", "source_fields", "source_fingerprint", "observed_at", "run_id", "file_state", "issues"],
+  "properties": {
+    "contract_version": {"const": 1},
+    "source_database": {"enum": ["okrug", "raion"]},
+    "source_entity": {"const": "documents"},
+    "source_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 128},
+    "target_id": {"type": "string", "format": "uuid"},
+    "source_fields": {"type": "object"},
+    "source_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "run_id": {"type": "string", "format": "uuid"},
+    "file_state": {"enum": ["present", "missing", "no_path", "inaccessible", "invalid_path", "unknown"]},
+    "issues": {"type": "array", "items": {"type": "string", "maxLength": 200}}
+  }
+}

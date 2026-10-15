@@ -1,0 +1,13 @@
+{
+  "contract_version": 1,
+  "source_database": "okrug",
+  "source_entity": "documents",
+  "source_id": "42",
+  "target_id": "fb4731cb-4622-49a9-80d0-d6442fcceca3",
+  "source_fields": {"title": "Synthetic example only", "reg_number": "TEST-42", "reg_date": "2026-01-01"},
+  "source_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+  "observed_at": "2026-10-15T00:00:00Z",
+  "run_id": "f021a16e-66c1-447c-9e70-959a9c9e1341",
+  "file_state": "unknown",
+  "issues": ["synthetic-not-inspected"]
+}
