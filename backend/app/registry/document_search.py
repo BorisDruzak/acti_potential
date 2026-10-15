@@ -90,7 +90,9 @@ def custom_filter(session, actor, schema_id, field, value):
         if set(value) - {"op", "value"} or "op" not in value:
             fail(422, "invalid_filter", "Неверный фильтр")
         operator, value = value["op"], value.get("value")
-    if operator not in {"eq", "ne", "contains", "lt", "lte", "gt", "gte", "between", "in", "present", "absent"}:
+    if not isinstance(operator, str) or operator not in {
+        "eq", "ne", "contains", "lt", "lte", "gt", "gte", "between", "in", "present", "absent"
+    }:
         fail(422, "invalid_filter", "Неизвестный оператор фильтра")
     if operator in {"lt", "lte", "gt", "gte", "between"} and kind not in {
         "integer", "decimal", "date", "datetime"
@@ -194,7 +196,7 @@ def search_query(session, actor, params):
     if params.filters:
         try:
             extra = json.loads(params.filters)
-        except ValueError:
+        except (ValueError, RecursionError):
             fail(422, "invalid_filter", "Неверный фильтр")
         if not isinstance(extra, dict) or len(extra) > 20:
             fail(422, "invalid_filter", "Неверный фильтр")

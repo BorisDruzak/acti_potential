@@ -165,3 +165,19 @@ def test_numeric_and_date_presence_filters_do_not_cast_empty_text(client, factor
         "quantity": {"op": "between", "value": [1, "6"]}
     })})
     assert result.status_code == 200 and result.json()["total"] == 1, result.text
+
+
+def test_malformed_filter_operators_and_deep_json_return_validation_errors(client, factory):
+    import json
+
+    from tests.test_content_security import actors_and_document, sign_in_as
+
+    sample = actors_and_document(factory, fields=[
+        {"key": "public", "type": "text", "filterable": True}
+    ])
+    sign_in_as(client, factory, sample["viewer"])
+    for value in [json.dumps({"public": {"op": [], "value": "x"}}),
+                  json.dumps({"public": {"op": {}, "value": "x"}}),
+                  "[" * 1100 + "0" + "]" * 1100]:
+        result = client.get("/api/v1/documents", params={"filters": value})
+        assert result.status_code == 422
