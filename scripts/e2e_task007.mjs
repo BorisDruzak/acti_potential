@@ -142,7 +142,7 @@ export async function runTask007({browser,origin,admin,outputDir,fixturesDir}) {
       await ap.getByRole('button',{name:'+ Добавить шаг',exact:true}).click();
       const properties=ap.locator('.process-builder .property-panel');
       await properties.getByLabel('Название шага',{exact:true}).fill(name);
-      await properties.getByLabel('Инструкция шага',{exact:true}).fill(`Task007 инструкция ${index+1}: ${name}. Используйте только разрешённое синтетическое основание.`);
+      await properties.getByLabel(/^Инструкция шага/).fill(`Task007 инструкция ${index+1}: ${name}. Используйте только разрешённое синтетическое основание.`);
       await properties.getByLabel('Исполнитель шага',{exact:true}).fill('Ответственный сотрудник');
       await properties.getByLabel('Входные данные',{exact:true}).fill('Исходные сведения');await properties.getByLabel('Результаты шага',{exact:true}).fill('Результат подготовки');
       await properties.getByLabel('Срок шага',{exact:true}).fill('1 рабочий день');await properties.getByLabel('Информационная система',{exact:true}).fill('ACTI');
@@ -191,7 +191,7 @@ export async function runTask007({browser,origin,admin,outputDir,fixturesDir}) {
     pass('real declarative preview selects both typed conditional routes and the explicit else without process execution');
     const v2=await mutation(ap,`/processes/${process.id}/versions`,()=>ap.getByRole('button',{name:'Новая версия процесса',exact:true}).click(),'POST',201);
     await ap.getByLabel('Перейти к шагу',{exact:false}).selectOption(steps[1].key);
-    await ap.locator('.process-builder .property-panel').getByLabel('Инструкция шага',{exact:true}).fill('Task007 инструкция редакции 2: уточнённый синтетический порядок подготовки документа.');
+    await ap.locator('.process-builder .property-panel').getByLabel(/^Инструкция шага/).fill('Task007 инструкция редакции 2: уточнённый синтетический порядок подготовки документа.');
     await ap.getByLabel('Дата начала действия версии',{exact:true}).fill('2026-02-01');
     await mutation(ap,`/process-versions/${v2.id}/publish`,()=>ap.getByRole('button',{name:'Опубликовать процесс',exact:true}).click(),'POST',200);
     const published2=await json(ap,`/process-versions/${v2.id}`);assert.equal(published2.state,'published');
