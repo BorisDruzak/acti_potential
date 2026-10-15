@@ -113,6 +113,14 @@ export async function saveDownload(
   const blob = await apiDownload(
     `/files/${id}/download${mode ? "?mode=" + mode : ""}`,
   );
+  saveBlob(blob, name);
+}
+
+export async function saveExport(path: string, name: string) {
+  saveBlob(await apiDownload(path), name);
+}
+
+function saveBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

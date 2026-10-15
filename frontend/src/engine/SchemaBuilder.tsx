@@ -65,7 +65,7 @@ function changeFieldType(field: Field, type: FieldType): Field {
     : ["integer", "decimal"].includes(type)
       ? ["min", "max"]
       : ["text", "textarea"].includes(type)
-        ? ["min_length", "max_length", "choices"]
+        ? ["min_length", "max_length", "choices", "pattern"]
         : [];
   next.constraints = Object.fromEntries(
     Object.entries(next.constraints || {}).filter(([key]) => allowed.includes(key)),
@@ -96,7 +96,8 @@ function ConditionEditor({
         <select
           value={value?.field || ""}
           onChange={(event) => {
-            const comparison = value?.value === undefined ? true : value.value;
+            const dependency = fields.find(field => field.key === event.target.value);
+            const comparison = dependency?.type === "boolean" ? true : dependency?.type === "integer" ? 0 : dependency?.type === "decimal" ? "0" : dependency?.type === "multi_reference" ? [] : "";
             setLiteral(event.target.value ? JSON.stringify(comparison) : "");
             onChange(
               event.target.value
@@ -123,36 +124,41 @@ function ConditionEditor({
             Оператор
             <select
               value={value.op}
-              onChange={(event) =>
-                onChange({
-                  ...value,
-                  op: event.target.value as Condition["op"],
-                })
-              }
+              onChange={(event) => {
+                const op = event.target.value as Condition["op"];
+                onChange(["present", "absent"].includes(op)
+                  ? {field: value.field, op}
+                  : {...value, op, value: value.value ?? true});
+                if (value.value === undefined) setLiteral("true");
+              }}
             >
               <option value="eq">Равно</option>
               <option value="ne">Не равно</option>
               <option value="in">В списке</option>
+              <option value="not_in">Вне списка</option>
               <option value="present">Заполнено</option>
+              <option value="absent">Не заполнено</option>
             </select>
           </label>
-          {value.op !== "present" && (
+          {!["present", "absent"].includes(value.op) && (
             <label>
               Значение
               <input
                 value={literal}
                 onChange={(event) => {
                   setLiteral(event.target.value);
-                  let parsed: unknown;
-                  try {
-                    parsed = JSON.parse(event.target.value);
-                  } catch {
-                    parsed = event.target.value;
+                  let parsed: unknown = event.target.value;
+                  const type = fields.find(field => field.key === value.field)?.type;
+                  const membership = ["in", "not_in"].includes(value.op);
+                  if (membership || ["integer", "boolean", "multi_reference"].includes(type || "") || event.target.value.startsWith('"')) {
+                    try { parsed = JSON.parse(event.target.value); } catch { /* Server validates typed operands. */ }
                   }
                   onChange({ ...value, value: parsed });
                 }}
               />
-              <small>Текст, число, true / false или список [1,2].</small>
+              <small>{fields.find(field => field.key === value.field)?.type === "decimal"
+                ? 'Десятичные значения задавайте строками: "1.20" или ["1.20","2.50"], чтобы сохранить точность.'
+                : "Текст, число, true / false или список [1,2]."}</small>
             </label>
           )}
         </>
@@ -190,6 +196,7 @@ function PropertyEditor({
       <label>
         Системный ключ
         <input
+          aria-label="Системный ключ"
           value={field.key}
           pattern="[a-z][a-z0-9_]*"
           onChange={(event) => change({ key: event.target.value })}
@@ -235,7 +242,6 @@ function PropertyEditor({
             else if (
               [
                 "integer",
-                "decimal",
                 "boolean",
                 "multi_reference",
                 "group",
@@ -316,6 +322,16 @@ function PropertyEditor({
       </div>
       <fieldset>
         <legend>Ограничения</legend>
+        {["text", "textarea"].includes(field.type) && <label>
+          Регулярное выражение
+          <input aria-label="Регулярное выражение" value={String(constraints.pattern || "")} onChange={event => {
+            const next = { ...constraints };
+            if (event.target.value) next.pattern = event.target.value;
+            else delete next.pattern;
+            change({ constraints: next });
+          }} />
+          <small>До 256 символов; без групп и альтернатив. Не более одного переменного повторения, фиксированные повторы до 1000. Шаблон проверяет сервер.</small>
+        </label>}
         {(field.type === "group"
           ? ["min_items", "max_items"]
           : ["integer", "decimal"].includes(field.type)
@@ -339,11 +355,12 @@ function PropertyEditor({
             }
             <input
               type="number"
+              step={field.type === "decimal" ? "any" : "1"}
               value={String(constraints[key] ?? "")}
               onChange={(event) => {
                 const next = { ...constraints };
                 if (event.target.value === "") delete next[key];
-                else next[key] = Number(event.target.value);
+                else next[key] = field.type === "decimal" ? event.target.value : Number(event.target.value);
                 change({ constraints: next });
               }}
             />
@@ -458,6 +475,7 @@ export function SchemaBuilder({
     transform: (fields: Field[]) => Field[],
   ) {
     setSchema((current) => ({
+      ...current,
       sections: current.sections.map((section, index) =>
         index === sectionIndex
           ? { ...section, fields: transform(section.fields) }
@@ -496,7 +514,12 @@ export function SchemaBuilder({
         throw new Error(`${field.label}: значение по умолчанию не соответствует типу поля.`);
       }
     }
-    await action.request("/form-schemas/" + version.id, "PUT", { schema });
+    const payload = structuredClone(schema);
+    if (payload.list_view) {
+      payload.list_view.columns = payload.list_view.columns.filter(column => allFields.some(field => field.key === column.key));
+      if (!payload.list_view.columns.length) delete payload.list_view;
+    }
+    await action.request("/form-schemas/" + version.id, "PUT", { schema: payload });
     if (publish)
       await action.request(
         "/form-schemas/" + version.id + "/publish",
@@ -547,9 +570,9 @@ export function SchemaBuilder({
         </div>
       </div>
       <Feedback {...action} />
-      {published && (
+      {(
         <label>
-          Свойства опубликованного поля
+          {published ? "Свойства опубликованного поля" : "Перейти к полю"}
           <select
             value={selection
               ? `${selection.section}:${selection.field}${selection.child === undefined ? "" : ":" + selection.child}`
@@ -596,8 +619,23 @@ export function SchemaBuilder({
           />
         </div>
       )}
+      <details className="panel">
+        <summary>Представление списка документов</summary>
+        <fieldset disabled={published || action.busy}>
+          <p>Выберите колонки, задайте заголовки и порядок. Права на значения проверяются для каждой карточки.</p>
+          <div className="check-list">{allFields.map(field => <label key={field.key}>
+            <input type="checkbox" checked={!!schema.list_view?.columns.some(column => column.key === field.key)} onChange={event => setSchema(current => ({ ...current, list_view: { columns: event.target.checked ? [...(current.list_view?.columns || []), {key: field.key, label: field.label}] : (current.list_view?.columns || []).filter(column => column.key !== field.key) } }))} />{field.label}
+          </label>)}</div>
+          {schema.list_view?.columns.map((column, index) => <div className="button-row" key={column.key}>
+            <label>Заголовок: {column.key}<input value={column.label} onChange={event => setSchema(current => ({...current, list_view: { columns: (current.list_view?.columns || []).map(item => item.key === column.key ? {...item, label: event.target.value} : item) }}))}/></label>
+            <button aria-label={`Колонка выше: ${column.label}`} disabled={index === 0} onClick={() => setSchema(current => ({...current, list_view: { columns: moveItem(current.list_view?.columns || [], index, -1) }}))}>↑</button>
+            <button aria-label={`Колонка ниже: ${column.label}`} disabled={index === schema.list_view!.columns.length - 1} onClick={() => setSchema(current => ({...current, list_view: { columns: moveItem(current.list_view?.columns || [], index, 1) }}))}>↓</button>
+          </div>)}
+        </fieldset>
+      </details>
       <div className="builder-grid">
         <div className="builder-canvas">
+          <nav className="form-navigation" aria-label="Разделы конструктора">{schema.sections.map(section => <a key={section.key} href={`#builder-${section.key}`}>{section.title}</a>)}</nav>
           <fieldset disabled={published || action.busy}>
             <div className="toolbar">
               <label>
@@ -619,6 +657,7 @@ export function SchemaBuilder({
                 type="button"
                 onClick={() =>
                   setSchema((current) => ({
+                    ...current,
                     sections: [
                       ...current.sections,
                       {
@@ -639,7 +678,7 @@ export function SchemaBuilder({
               </div>
             )}
             {schema.sections.map((section, sectionIndex) => (
-              <section className="builder-section" key={section.key}>
+              <section className="builder-section" key={section.key} id={`builder-${section.key}`}>
                 <div className="toolbar">
                   <label>
                     Название раздела
@@ -647,6 +686,7 @@ export function SchemaBuilder({
                       value={section.title}
                       onChange={(event) =>
                         setSchema((current) => ({
+                          ...current,
                           sections: current.sections.map((item, index) =>
                             index === sectionIndex
                               ? { ...item, title: event.target.value }
@@ -662,6 +702,7 @@ export function SchemaBuilder({
                       disabled={sectionIndex === 0}
                       onClick={() => {
                         setSchema((current) => ({
+                          ...current,
                           sections: moveItem(
                             current.sections,
                             sectionIndex,
@@ -678,6 +719,7 @@ export function SchemaBuilder({
                       disabled={sectionIndex === schema.sections.length - 1}
                       onClick={() => {
                         setSchema((current) => ({
+                          ...current,
                           sections: moveItem(current.sections, sectionIndex, 1),
                         }));
                         setSelection(null);
@@ -689,6 +731,7 @@ export function SchemaBuilder({
                       className="danger-link"
                       onClick={() => {
                         setSchema((current) => ({
+                          ...current,
                           sections: current.sections.filter(
                             (_, index) => index !== sectionIndex,
                           ),
@@ -782,6 +825,10 @@ export function SchemaBuilder({
                             >
                               {child.label} · {child.key}
                             </button>
+                            {([-1, 1] as const).map(direction => <button key={direction} aria-label={`${direction === -1 ? "Дочернее поле выше" : "Дочернее поле ниже"}: ${child.label}`} disabled={direction === -1 ? index === 0 : index === (field.children?.length || 0) - 1} onClick={() => {
+                              updateFields(sectionIndex, fields => fields.map((item, position) => position === fieldIndex ? {...item, children: moveItem(item.children || [], index, direction)} : item));
+                              setSelection(null);
+                            }}>{direction === -1 ? "↑" : "↓"}</button>)}
                             <button
                               aria-label={
                                 "Удалить дочернее поле: " + child.label

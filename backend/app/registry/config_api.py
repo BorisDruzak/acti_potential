@@ -1,10 +1,13 @@
 """Configuration endpoints for the shared schema renderer and administration."""
 
+import base64
+import binascii
 from copy import deepcopy
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -84,18 +87,21 @@ class SchemaOutput(BaseModel):
 class ReferenceInput(Input):
     code: Code
     name: Name
+    description: str = Field(default="", max_length=5000)
     registry_id: UUID | None = None
 
 
 class ReferencePatch(Input):
     code: Code | None = None
     name: Name | None = None
+    description: str | None = Field(default=None, max_length=5000)
 
 
 class ReferenceOutput(BaseModel):
     id: UUID
     code: str
     name: str
+    description: str
     registry_id: UUID | None
 
 
@@ -103,12 +109,24 @@ class ItemInput(Input):
     label: Name
     active: StrictBool = True
     metadata: dict = Field(default_factory=dict)
+    code: str = Field(default="", max_length=100)
+    description: str = Field(default="", max_length=5000)
+    sort_order: int = Field(default=0, ge=-1000000, le=1000000)
+    parent_id: UUID | None = None
+    valid_from: date | None = None
+    valid_until: date | None = None
 
 
 class ItemPatch(Input):
     label: Name | None = None
     active: StrictBool | None = None
     metadata: dict | None = None
+    code: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=5000)
+    sort_order: int | None = Field(default=None, ge=-1000000, le=1000000)
+    parent_id: UUID | None = None
+    valid_from: date | None = None
+    valid_until: date | None = None
 
 
 class ItemOutput(BaseModel):
@@ -116,6 +134,13 @@ class ItemOutput(BaseModel):
     reference_set_id: UUID
     label: str
     active: bool
+    code: str
+    description: str
+    sort_order: int
+    parent_id: UUID | None
+    valid_from: date | None
+    valid_until: date | None
+    selectable: bool
     metadata: dict
     source_database: str | None = None
     source_entity: str | None = None
@@ -198,7 +223,13 @@ def _type_output(row):
 
 
 def _reference_output(row):
-    return {"id": row.id, "code": row.code, "name": row.name, "registry_id": row.registry_id}
+    return {
+        "id": row.id,
+        "code": row.code,
+        "name": row.name,
+        "registry_id": row.registry_id,
+        "description": row.description,
+    }
 
 
 def _readable_reference_ids(session, actor, mode=None):
@@ -646,12 +677,26 @@ def update_reference(
 
 
 def _item_output(row, actor, mode=None):
+    from app.registry.references import selectable
+
     configuration = _is_admin(actor) and mode is None
     return {
         "id": row.id,
         "reference_set_id": row.reference_set_id,
         "label": row.label,
         "active": row.active,
+        **{
+            key: getattr(row, key)
+            for key in (
+                "code",
+                "description",
+                "sort_order",
+                "parent_id",
+                "valid_from",
+                "valid_until",
+            )
+        },
+        "selectable": selectable(row),
         "metadata": row.item_metadata if configuration else {},
         "source_database": row.source_database if configuration else None,
         "source_entity": row.source_entity if configuration else None,
@@ -673,7 +718,7 @@ def list_items(
         for row in session.scalars(
             select(ReferenceItem)
             .where(ReferenceItem.reference_set_id == reference_id)
-            .order_by(ReferenceItem.label, ReferenceItem.id)
+            .order_by(ReferenceItem.sort_order, ReferenceItem.label, ReferenceItem.id)
         )
     ]
 
@@ -686,15 +731,28 @@ def create_item(
     session=Depends(db_session, scope="function"),
     actor=Depends(current_admin),
 ):
-    _get(session, ReferenceSet, reference_id)
+    _get(session, ReferenceSet, reference_id, lock=True)
     row = ReferenceItem(
         reference_set_id=reference_id,
-        label=data.label,
-        active=data.active,
-        item_metadata=data.metadata,
+        **{
+            ("item_metadata" if key == "metadata" else key): value
+            for key, value in data.model_dump().items()
+        },
     )
+    from app.registry.references import validate_item
+
+    validate_item(session, row)
     session.add(row)
-    _emit(session, request, actor, "reference.item.created", "reference_item", row)
+    _flush(session)
+    emit(
+        session,
+        request,
+        actor,
+        "reference.item.created",
+        "reference_item",
+        row.id,
+        {"reference_set_id": str(reference_id)},
+    )
     return _item_output(row, actor)
 
 
@@ -707,12 +765,196 @@ def update_item(
     session=Depends(db_session, scope="function"),
     actor=Depends(current_admin),
 ):
+    _get(session, ReferenceSet, reference_id, lock=True)
     row = _get(session, ReferenceItem, item_id, lock=True)
     if row.reference_set_id != reference_id:
         fail(404, "not_found", "Объект не найден")
     for key, value in data.model_dump(exclude_unset=True).items():
-        if value is None:
+        if value is None and key not in {"parent_id", "valid_from", "valid_until"}:
             fail(422, "invalid_configuration", "Значение не может быть пустым")
         setattr(row, "item_metadata" if key == "metadata" else key, value)
-    _emit(session, request, actor, "reference.item.updated", "reference_item", row)
+    from app.registry.references import validate_item
+
+    validate_item(session, row)
+    _flush(session)
+    emit(
+        session,
+        request,
+        actor,
+        "reference.item.updated",
+        "reference_item",
+        row.id,
+        {"reference_set_id": str(reference_id)},
+    )
     return _item_output(row, actor)
+
+
+class ReferenceImport(Input):
+    format: Literal["csv", "xlsx"]
+    content: str = Field(max_length=2800000)
+
+
+REFERENCE_COLUMNS = [
+    "id",
+    "code",
+    "label",
+    "description",
+    "sort_order",
+    "active",
+    "parent_id",
+    "valid_from",
+    "valid_until",
+]
+
+
+@router.post("/references/{reference_id}/import")
+def import_reference(
+    reference_id: UUID,
+    data: ReferenceImport,
+    request: Request,
+    session=Depends(db_session, scope="function"),
+    actor=Depends(current_admin),
+):
+    from pydantic import ValidationError
+
+    from app.registry.references import validate_item
+    from app.registry.tabular import read_tabular
+
+    _get(session, ReferenceSet, reference_id, lock=True)
+    try:
+        content = base64.b64decode(data.content, validate=True)
+        rows = read_tabular(data.format, content)
+        if any(set(row) - set(REFERENCE_COLUMNS) for row in rows):
+            raise ValueError("Unknown columns; provenance cannot be imported")
+        created, updated, seen, pending = 0, 0, set(), []
+        for values in rows:
+            values = dict(values)
+            item_id = values.pop("id", None)
+            # Empty cells represent absent optional values, never source identifiers.
+            for key in ("parent_id", "valid_from", "valid_until"):
+                if key in values and values[key] in (None, ""):
+                    values[key] = None
+            if "sort_order" in values:
+                values["sort_order"] = int(values["sort_order"] or 0)
+            if "active" in values:
+                boolean = str(values["active"]).lower()
+                if boolean not in {"true", "false", "1", "0"}:
+                    raise ValueError("Active must be true or false")
+                values["active"] = boolean in {"true", "1"}
+            values = {
+                key: ("" if value is None and key in {"code", "description"} else value)
+                for key, value in values.items()
+            }
+            parsed = ItemInput.model_validate(values)
+            if item_id:
+                identity = UUID(str(item_id))
+                if identity in seen:
+                    raise ValueError("Duplicate row identity")
+                seen.add(identity)
+                with session.no_autoflush:
+                    row = _get(session, ReferenceItem, identity)
+                if row.reference_set_id != reference_id:
+                    raise ValueError("Item identity is outside this reference set")
+                updated += 1
+            else:
+                row = ReferenceItem(id=uuid4(), reference_set_id=reference_id)
+                session.add(row)
+                created += 1
+            for key, value in parsed.model_dump().items():
+                if key == "metadata" and item_id:
+                    continue
+                setattr(row, "item_metadata" if key == "metadata" else key, value)
+            pending.append(row)
+        for row in pending:
+            validate_item(session, row)
+        _flush(session)
+        for row in pending:
+            emit(
+                session,
+                request,
+                actor,
+                "reference.item.updated" if row.id in seen else "reference.item.created",
+                "reference_item",
+                row.id,
+                {"reference_set_id": str(reference_id)},
+            )
+        emit(session, request, actor, "reference.imported", "reference", reference_id)
+        return {"created": created, "updated": updated}
+    except (ValueError, ValidationError, binascii.Error):
+        fail(422, "invalid_reference_import", "Некорректный файл справочника или значения строк")
+
+
+@router.get("/references/{reference_id}/export")
+def export_reference(
+    reference_id: UUID,
+    request: Request,
+    format: Literal["csv", "xlsx"] = "csv",
+    session=Depends(db_session, scope="function"),
+    actor=Depends(current_admin),
+):
+    from app.registry.tabular import export_file
+
+    _get(session, ReferenceSet, reference_id)
+    rows = list(
+        session.scalars(
+            select(ReferenceItem)
+            .where(ReferenceItem.reference_set_id == reference_id)
+            .order_by(ReferenceItem.sort_order, ReferenceItem.label, ReferenceItem.id)
+            .limit(2001)
+        )
+    )
+    if len(rows) > 2000:
+        fail(422, "reference_export_limit", "Экспорт ограничен 2000 строками")
+    content = export_file(
+        format,
+        REFERENCE_COLUMNS,
+        ([getattr(row, key) for key in REFERENCE_COLUMNS] for row in rows),
+    )
+    emit(session, request, actor, "reference.exported", "reference", reference_id)
+    return Response(
+        content,
+        media_type="text/csv"
+        if format == "csv"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="reference.{format}"'},
+    )
+
+
+@router.get("/references/{reference_id}/history")
+def reference_history(
+    reference_id: UUID,
+    limit: int = 100,
+    session=Depends(db_session, scope="function"),
+    actor=Depends(current_admin),
+):
+    from sqlalchemy import or_
+
+    from app.platform.models import AuditEvent
+
+    _get(session, ReferenceSet, reference_id)
+    if not 1 <= limit <= 200:
+        fail(422, "invalid_limit", "Размер страницы от 1 до 200")
+    rows = session.scalars(
+        select(AuditEvent)
+        .where(
+            or_(
+                AuditEvent.object_id == reference_id,
+                AuditEvent.details["reference_set_id"].astext == str(reference_id),
+            )
+        )
+        .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
+        .limit(limit)
+    )
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "action": row.action,
+                "occurred_at": row.created_at,
+                "actor_id": row.actor_id,
+                "object_id": row.object_id,
+                "details": row.details,
+            }
+            for row in rows
+        ]
+    }

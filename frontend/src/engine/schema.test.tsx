@@ -60,6 +60,22 @@ it("evaluates only declarative condition operators", () => {
     conditionMatches({ field: "n", op: "unknown" as "eq", value: 1 }, { n: 1 }),
   ).toBe(false);
 });
+
+it("matches server null, membership, and decimal condition semantics", () => {
+  expect(conditionMatches({field: "n", op: "eq", value: null}, {})).toBe(true);
+  expect(conditionMatches({field: "n", op: "absent"}, {n: []})).toBe(true);
+  expect(conditionMatches({field: "n", op: "not_in", value: [1, 2]}, {n: 3})).toBe(true);
+  expect(conditionMatches({field: "n", op: "in", value: [["a", "b"]]}, {n: ["a", "b"]})).toBe(true);
+  expect(conditionMatches({field: "n", op: "ne", value: "1.200"}, {n: "1.2"}, [{key: "n", label: "n", type: "decimal"}])).toBe(false);
+});
+
+it("does not display dependent fields when their condition source is hidden from the role", () => {
+  render(<DynamicForm schema={{sections: [{key: "main", title: "Форма", fields: [
+    {key: "private", label: "Закрытое условие", type: "text", read_roles: ["admin"]},
+    {key: "dependent", label: "Зависимое поле", type: "text", visible_when: {field: "private", op: "ne", value: "no"}},
+  ]}]}} values={{}} mode="view" roles={["viewer"]} />);
+  expect(screen.queryByText("Зависимое поле")).toBeNull();
+});
 it("renders role, mode and conditional restrictions and a nullable boolean", () => {
   render(
     <DynamicForm

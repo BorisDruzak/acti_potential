@@ -11,6 +11,9 @@ SCHEMA_EVENTS = frozenset(
         "reference.updated",
         "reference.item.created",
         "reference.item.updated",
+        "reference.imported",
+        "reference.exported",
+        "document.exported",
         "document.created",
         "document.metadata.updated",
         "document.version.created",
@@ -24,6 +27,8 @@ EVENT_FIELDS = {
     for name in SCHEMA_EVENTS
 }
 EVENT_FIELDS["platform.admin_created"] = frozenset({"user_id"})
+for _event in ("reference.item.created", "reference.item.updated"):
+    EVENT_FIELDS[_event] = EVENT_FIELDS[_event] | {"reference_set_id"}
 
 
 def validate_payload(event_type, payload):

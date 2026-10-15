@@ -72,6 +72,7 @@ class ReferenceSet(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     code: Mapped[str] = mapped_column(String(100))
     name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
     registry_id: Mapped[UUID | None] = mapped_column(ForeignKey("registries.id"), index=True)
 
 
@@ -80,10 +81,27 @@ class ReferenceItem(Base):
     __table_args__ = (
         UniqueConstraint("reference_set_id", "label"),
         UniqueConstraint("source_database", "source_entity", "source_id"),
+        Index(
+            "uq_reference_item_code",
+            "reference_set_id",
+            "code",
+            unique=True,
+            postgresql_where=text("code <> ''"),
+        ),
+        CheckConstraint(
+            "valid_from IS NULL OR valid_until IS NULL OR valid_from <= valid_until",
+            name="reference_validity",
+        ),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     reference_set_id: Mapped[UUID] = mapped_column(ForeignKey("reference_sets.id"), index=True)
     label: Mapped[str] = mapped_column(String(255))
+    code: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    parent_id: Mapped[UUID | None] = mapped_column(ForeignKey("reference_items.id"), index=True)
+    valid_from: Mapped[date | None] = mapped_column(Date)
+    valid_until: Mapped[date | None] = mapped_column(Date)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     item_metadata: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
     source_database: Mapped[str | None] = mapped_column(String(100))

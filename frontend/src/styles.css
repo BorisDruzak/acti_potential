@@ -584,6 +584,15 @@ p {
     margin: 0 25px;
   }
 }
+.form-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 12px 0;
+}
+.form-navigation a { color: var(--primary, #245ba8); }
+.form-section, .builder-section { scroll-margin-top: 24px; }
+.reference-list .reference-row { padding: 12px 0; border-bottom: 1px solid #e3e8ef; }
 @media (max-width: 700px) {
   h1 {
     font-size: 28px;

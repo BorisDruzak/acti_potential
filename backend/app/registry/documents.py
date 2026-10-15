@@ -116,6 +116,10 @@ def document_summary(session, document, actor, schema=None, mode=None):
         if f.get("system") in SYSTEM_KEYS
     }
     result.update({k: systems.get(k) for k in SYSTEM_KEYS})
+    result["values"] = visible
+    from app.registry.document_export import display_values
+
+    result["display_values"] = display_values(session, schema, visible, actor, mode)
     result["permissions"] = sorted(document_permissions(session, actor, document))
     return result
 
