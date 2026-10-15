@@ -590,6 +590,18 @@ p {
   gap: 8px 18px;
   padding: 12px 0;
 }
+.content-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.content-matches { min-width: 240px; max-width: 560px; }
+.content-matches article + article { border-top: 1px solid #e3e8ef; margin-top: 12px; padding-top: 12px; }
+.match-source { font-size: 12px; color: #53647b; margin-bottom: 6px; }
+.content-matches mark { background: #fff0b3; color: inherit; }
+.extraction { padding: 14px 0; border-bottom: 1px solid #e3e8ef; }
+.extraction summary { overflow-wrap: anywhere; }
+.content-block { border-left: 3px solid #e3e8ef; padding: 12px 16px; margin: 12px 0; scroll-margin-top: 24px; }
+.content-block.selected { border-left-color: #245ba8; background: #f2f6fd; }
+.content-block .toolbar { gap: 12px; }
+.content-block .toolbar a { overflow-wrap: anywhere; }
+.content-warnings { color: #76510b; }
 .form-navigation a { color: var(--primary, #245ba8); }
 .form-section, .builder-section { scroll-margin-top: 24px; }
 .reference-list .reference-row { padding: 12px 0; border-bottom: 1px solid #e3e8ef; }

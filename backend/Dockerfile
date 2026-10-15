@@ -1,5 +1,7 @@
 FROM python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends antiword=0.37-16 \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv==0.13.1
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev

@@ -11,6 +11,7 @@ from app.api.dependencies import current_actor, current_admin
 from app.api.errors import register_errors
 from app.api.middleware import register_middleware
 from app.api.schemas import ERROR_RESPONSES
+from app.content import api as content_api
 from app.core.config import Settings
 from app.db.session import build_engine
 from app.numbering import api as numbering_api
@@ -53,7 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.public, prefix="/api/v1")
     protected = APIRouter(dependencies=[Depends(current_actor)])
     for router in (auth.protected, users.router, admin.router, account_admin.router,
-                   config_api.router, document_api.router, file_api.router, numbering_api.router):
+                   config_api.router, document_api.router, file_api.router, numbering_api.router, content_api.router):
         protected.include_router(router)
     app.state.protected_router = protected
     app.include_router(protected, prefix="/api/v1")

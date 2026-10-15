@@ -9,7 +9,7 @@ from app.api.errors import fail
 from app.registry.document_search import count_rows, search_query
 from app.registry.documents import get_document, get_schema, raw_values
 from app.registry.events import emit
-from app.registry.models import DocumentFile, FormSchema, ReferenceItem
+from app.registry.models import Document, DocumentFile, FormSchema, ReferenceItem
 from app.registry.policy import field_readable, redact_values
 from app.registry.tabular import export_file
 
@@ -65,8 +65,10 @@ def display_values(session, schema, values, actor, mode=None, *, exporting=False
     }
 
 
-def export_documents_response(request, session, actor, params):
+def export_documents_response(request, session, actor, params, *, document_ids=None):
     query, fields = search_query(session, actor, params)
+    if document_ids is not None:
+        query = query.where(Document.id.in_(document_ids))
     total = count_rows(session, query)
     if total > MAX_EXPORT_ROWS:
         fail(422, "export_limit", "Экспорт ограничен 10000 строками. Уточните фильтры.")

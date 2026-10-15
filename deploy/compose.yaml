@@ -89,6 +89,16 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "app.jobs.worker"]
+    volumes:
+      - type: bind
+        source: /srv/acti/documents/objects
+        target: /documents
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 64
     depends_on:
       migrate:
         condition: service_completed_successfully
