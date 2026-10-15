@@ -213,7 +213,7 @@ export async function runTask010({browser,request,origin,admin,outputDir,fixture
     const grants=await json(ap,`/admin/access/${registry.id}`);
     await json(ap,`/admin/access/${registry.id}`,'PUT',{entries:grants.entries.map(entry=>[service.user_id,roles.viewer.account.id].includes(entry.user_id)?{...entry,permissions:['read']}:entry)});
     await call(credential.client,`/documents/${source.id}`);for(const path of [`/blocks/${block.id}`,`/files/${extraction.file_id}/download`])await call(credential.client,path,{expected:404});
-    await json(vp,`/content/extractions/${extraction.id}/blocks`,'GET',undefined,404);
+    await json(vp,`/content/extractions/${extraction.id}/blocks`,'GET',undefined,403);
     const redactedProcess=await call(credential.client,`/process-versions/${processVersion.id}`);assert.equal(redactedProcess.steps[0].sources[0].restricted,true);
     await json(ap,`/admin/access/${registry.id}`,'PUT',{entries:grants.entries.map(entry=>[service.user_id,roles.viewer.account.id].includes(entry.user_id)?{...entry,permissions:[]}:entry)});
     for(const path of [`/documents/${source.id}`,`/blocks/${block.id}`,`/process-versions/${processVersion.id}`,`/template-versions/${templateVersion.id}`])await call(credential.client,path,{expected:404});
