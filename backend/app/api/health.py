@@ -7,21 +7,27 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.api.schemas import LiveResponse, ReadyResponse
+
 router = APIRouter()
 
 
-@router.get("/health/live")
+@router.get("/health/live", response_model=LiveResponse)
 def live():
     return {"status": "live"}
 
 
-@router.get("/health/ready", responses={503: {"description": "Dependencies unavailable"}})
+@router.get(
+    "/health/ready",
+    response_model=ReadyResponse,
+    responses={503: {"model": ReadyResponse, "description": "Dependencies unavailable"}},
+)
 def ready(request: Request):
     checks = {}
     try:
         config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
         head = ScriptDirectory.from_config(config).get_current_head()
-        with request.app.state.engine.connect() as conn:
+        with request.app.state.readiness_engine.connect() as conn:
             checks["database"] = (
                 conn.scalar(text("SELECT version_num FROM alembic_version")) == head
             )

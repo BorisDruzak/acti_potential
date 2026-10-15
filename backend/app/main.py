@@ -10,6 +10,7 @@ from app.api import admin, auth, health, users
 from app.api.dependencies import current_actor, current_admin
 from app.api.errors import register_errors
 from app.api.middleware import register_middleware
+from app.api.schemas import ERROR_RESPONSES
 from app.core.config import Settings
 from app.db.session import build_engine
 
@@ -22,6 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         app.state.redis.close()
         app.state.engine.dispose()
+        app.state.readiness_engine.dispose()
 
     app = FastAPI(
         title="ACTI v3 API",
@@ -30,10 +32,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url=None,
         lifespan=lifespan,
+        responses=ERROR_RESPONSES,
     )
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     app.state.settings = settings
     app.state.engine = build_engine(settings)
+    app.state.readiness_engine = build_engine(settings, readiness=True)
     app.state.factory = sessionmaker(app.state.engine, expire_on_commit=False)
     app.state.redis = Redis.from_url(
         settings.redis_url.get_secret_value(),

@@ -9,6 +9,7 @@ from redis.exceptions import RedisError
 from app.api.dependencies import COOKIE_NAME, check_origin, current_actor, db_session
 from app.api.errors import fail
 from app.api.middleware import source_address
+from app.api.schemas import ERROR_RESPONSES, LoginResponse
 from app.identity.service import AuthenticationError, authenticate_local
 from app.identity.sessions import issue_session, revoke_session
 from app.platform.audit import AuditInput, record_audit
@@ -37,7 +38,7 @@ def limit_login(request):
         fail(429, "too_many_attempts", "Слишком много попыток. Повторите через минуту")
 
 
-@public.post("/auth/login")
+@public.post("/auth/login", response_model=LoginResponse, responses=ERROR_RESPONSES)
 def login(
     data: LoginInput,
     request: Request,
@@ -49,6 +50,8 @@ def login(
     try:
         user = authenticate_local(session, data.login, data.password)
     except AuthenticationError:
+        # Release the rejected transaction before acquiring an audit connection.
+        session.rollback()
         with request.app.state.factory.begin() as audit_session:
             record_audit(
                 audit_session,
