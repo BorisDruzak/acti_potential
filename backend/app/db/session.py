@@ -6,7 +6,9 @@ from sqlalchemy.engine import make_url
 
 def build_engine(settings, *, readiness: bool = False):
     connection_args = {"connect_timeout": 3}
-    pool_args = {"pool_timeout": 2}
+    # Keep the finite default capacity (5 pooled + 10 overflow connections),
+    # but allow a bounded queue for several waves of concurrent API requests.
+    pool_args = {"pool_timeout": 10}
     if readiness:
         connection_args = {
             "connect_timeout": 1,
