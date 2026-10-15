@@ -9,8 +9,9 @@ from redis.exceptions import RedisError
 from app.api.dependencies import COOKIE_NAME, check_origin, current_actor, db_session
 from app.api.errors import fail
 from app.api.middleware import source_address
-from app.identity.service import authenticate_local
+from app.identity.service import AuthenticationError, authenticate_local
 from app.identity.sessions import issue_session, revoke_session
+from app.platform.audit import AuditInput, record_audit
 
 public = APIRouter()
 protected = APIRouter()
@@ -45,8 +46,36 @@ def login(
     origin=Depends(check_origin),
 ):
     limit_login(request)
-    user = authenticate_local(session, data.login, data.password)
+    try:
+        user = authenticate_local(session, data.login, data.password)
+    except AuthenticationError:
+        with request.app.state.factory.begin() as audit_session:
+            record_audit(
+                audit_session,
+                AuditInput(
+                    None,
+                    "auth.login_failed",
+                    "user",
+                    None,
+                    {"reason_code": "credentials_rejected"},
+                    request.state.request_id,
+                    source_address(request),
+                ),
+            )
+        raise
     issued = issue_session(session, user.id, datetime.now(UTC))
+    record_audit(
+        session,
+        AuditInput(
+            user.id,
+            "auth.login",
+            "session",
+            None,
+            {},
+            request.state.request_id,
+            source_address(request),
+        ),
+    )
     response.set_cookie(
         COOKIE_NAME,
         issued.token,
@@ -65,6 +94,18 @@ def logout(
     request: Request, actor=Depends(current_actor), session=Depends(db_session, scope="function")
 ):
     revoke_session(session, request.cookies.get(COOKIE_NAME, ""))
+    record_audit(
+        session,
+        AuditInput(
+            actor.id,
+            "auth.logout",
+            "session",
+            None,
+            {},
+            request.state.request_id,
+            source_address(request),
+        ),
+    )
     response = Response(status_code=204)
     response.delete_cookie(
         COOKIE_NAME,

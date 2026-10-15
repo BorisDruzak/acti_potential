@@ -5,6 +5,8 @@ from sqlalchemy import select, text
 
 from app.identity.credentials import hash_password, normalize_login
 from app.identity.models import LocalCredential, Role, User, UserRole
+from app.platform.audit import AuditInput, record_audit
+from app.platform.outbox import enqueue_event
 
 
 class BootstrapExists(Exception):
@@ -26,6 +28,21 @@ def bootstrap_admin(session, login: str, display_name: str, password: str) -> UU
     role = session.scalar(select(Role).where(Role.code == "admin"))
     session.add(UserRole(user_id=user.id, role_id=role.id))
     session.flush()
+    from uuid import uuid4
+
+    record_audit(
+        session,
+        AuditInput(
+            user.id,
+            "identity.bootstrap",
+            "user",
+            user.id,
+            {"role_codes": ["admin"]},
+            uuid4().hex,
+            "bootstrap-cli",
+        ),
+    )
+    enqueue_event(session, "platform.admin_created", user.id, {"user_id": str(user.id)})
     return user.id
 
 
