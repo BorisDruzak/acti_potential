@@ -8,7 +8,7 @@
 - `docs/ACTI_V3_VISION_AND_ROADMAP.md` is the current ACTI v3 product and architecture baseline.
 - Everything imported from the previous application is archived in `legacy/v2/`, including its tests, installer, dependencies, and ignore rules. It is ACTI v2 reference material, not the ACTI v3 implementation.
 - Do not restore the archived desktop application as the active architecture or edit it as part of v3 work unless explicitly requested.
-- ACTI v3 has not been implemented yet. Infrastructure preparation is not application deployment or acceptance.
+- ACTI v3 Task 001 platform foundation is implemented. Current deployment and acceptance evidence is in `docs/architecture/TASK_001_ACCEPTANCE.md`; distinguish infrastructure preparation from application acceptance.
 
 ## Settings and local context
 

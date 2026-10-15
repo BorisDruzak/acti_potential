@@ -9,11 +9,15 @@ vision = "docs/ACTI_V3_VISION_AND_ROADMAP.md"
 legacy = "legacy/v2"
 rules = "AGENTS.md"
 local_context = "PROJECT_CONTEXT.local.md"
+backend = "backend"
+frontend = "frontend"
+deploy = "deploy"
+migration = "migration"
 
 [infrastructure]
 primary_ssh_alias = "acti-v3"
 local_settings = "project.local.toml"
-application_deployed = false
+application_deployed = true
 
 [storage.system]
 capacity_gib = 50
