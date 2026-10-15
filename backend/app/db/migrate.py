@@ -30,13 +30,16 @@ def upgrade_database(engine):
             )
             connection.execute(
                 text(
-                    "REVOKE UPDATE ON audit_events, number_operations, number_requests, number_entries, document_blocks, relation_events, document_relations, knowledge_curations, step_results, execution_events, execution_checklist FROM acti_app"
+                    "REVOKE UPDATE ON audit_events, number_operations, number_requests, number_entries, document_blocks, relation_events, document_relations, knowledge_curations, step_results, execution_events, execution_checklist, service_tokens, service_event_cursors FROM acti_app"
                 )
             )
             connection.execute(
                 text("GRANT UPDATE (state, document_id) ON number_entries TO acti_app")
             )
             connection.execute(text("GRANT UPDATE (checked) ON execution_checklist TO acti_app"))
+            connection.execute(text("GRANT UPDATE (revoked_at) ON service_tokens TO acti_app"))
+            connection.execute(text("GRANT DELETE ON service_event_cursors TO acti_app"))
+            connection.execute(text("GRANT USAGE ON SEQUENCE outbox_delivery_ordinal_seq TO acti_app"))
             connection.execute(text("GRANT UPDATE (state, decided_by, decided_at, effective_date, reason) ON document_relations TO acti_app"))
             connection.execute(
                 text(

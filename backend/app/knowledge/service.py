@@ -371,6 +371,8 @@ def visible_objects(session, actor, model, registry_id=None):
     )
     if registry_id:
         query = query.where(model.registry_id == registry_id)
+    if actor.scoped_registry_ids is not None:
+        query = query.where(model.registry_id.in_(actor.scoped_registry_ids))
     rows = list(session.scalars(query.order_by(model.id).limit(10001)))
     if len(rows) > 10000:
         fail(422, "knowledge_narrow_search", "Уточните реестр поиска")

@@ -69,6 +69,7 @@ class AccountOutput(BaseModel):
     roles: list[str]
     must_change_password: bool
     created_at: datetime
+    kind: Literal["local", "service"] = "local"
 
 
 class PasswordChanged(BaseModel):

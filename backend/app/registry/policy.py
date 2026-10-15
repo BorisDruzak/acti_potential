@@ -18,8 +18,13 @@ def role_actions(actor):
 
 
 def permissions_for(session, actor, registry_id) -> set[str]:
+    if actor.scoped_registry_ids is not None and str(registry_id) not in actor.scoped_registry_ids:
+        return set()
     row = session.get(RegistryAccess, (registry_id, actor.id))
-    return set(row.permissions if row else []) & role_actions(actor)
+    permissions = set(row.permissions if row else []) & role_actions(actor)
+    if actor.scoped_operations is not None and not actor.scoped_operations.intersection({"files", "content"}):
+        permissions.discard("download")
+    return permissions
 
 
 def document_permissions(session, actor, document) -> set[str]:
@@ -45,7 +50,10 @@ def accessible_document_clause(session, actor):
         DocumentACL.user_id == actor.id,
         DocumentACL.permissions.contains(["read"]),
     )
-    return and_(registry, or_(~restricted, individual))
+    clauses = [registry, or_(~restricted, individual)]
+    if actor.scoped_registry_ids is not None:
+        clauses.append(Document.registry_id.in_(actor.scoped_registry_ids))
+    return and_(*clauses)
 
 
 def field_readable(field, actor, mode=None):

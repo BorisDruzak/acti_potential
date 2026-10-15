@@ -4,11 +4,12 @@ import { type Registry } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
 type User = {
   id: string;
-  login: string;
+  login: string | null;
   display_name: string;
   active: boolean;
   roles: string[];
   must_change_password: boolean;
+  kind?: "local" | "service";
 };
 const roleNames: Record<string, string> = {
   admin: "Администратор",
@@ -72,6 +73,7 @@ function UserEditor({
   const [active, setActive] = useState(user?.active ?? true);
   const [password, setPassword] = useState("");
   const action = useAction();
+  if (user?.kind === "service") return <section className="panel"><h2>Сервисная учётная запись</h2><p>Настройте область API и токены в разделе «API и сервисные учётные записи». Вход с паролем и назначение интерактивных ролей для неё недоступны.</p><button type="button" onClick={onClose}>Закрыть</button></section>;
   return (
     <section className="panel compact-form">
       <h2>{user ? "Учётная запись" : "Новый пользователь"}</h2>
@@ -192,7 +194,7 @@ export function UsersAdmin() {
           Создать пользователя
         </button>
       </div>
-      <p>Локальные учётные записи. Права на содержимое назначаются отдельно.</p>
+      <p>Локальные и сервисные учётные записи. Права на содержимое назначаются отдельно.</p>
       <Feedback {...users} />
       {selected !== undefined && (
         <UserEditor
@@ -209,6 +211,7 @@ export function UsersAdmin() {
               <th>Имя</th>
               <th>Логин</th>
               <th>Роли</th>
+              <th>Способ доступа</th>
               <th>Статус</th>
               <th>Действия</th>
             </tr>
@@ -217,10 +220,11 @@ export function UsersAdmin() {
             {users.data?.map((user) => (
               <tr key={user.id}>
                 <td>{user.display_name}</td>
-                <td>{user.login}</td>
+                <td>{user.login || "—"}</td>
                 <td>
                   {user.roles.map((role) => roleNames[role] || role).join(", ")}
                 </td>
+                <td>{user.kind === "service" ? "Сервис API · без пароля" : "Локальный вход"}</td>
                 <td>
                   {!user.active
                     ? "Заблокирован"
@@ -229,7 +233,7 @@ export function UsersAdmin() {
                       : "Активен"}
                 </td>
                 <td>
-                  <button onClick={() => setSelected(user)}>Настроить</button>
+                  {user.kind === "service" ? <span>Настройки в разделе API и сервисных учётных записей</span> : <button onClick={() => setSelected(user)}>Настроить</button>}
                 </td>
               </tr>
             ))}

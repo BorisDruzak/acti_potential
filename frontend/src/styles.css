@@ -646,6 +646,14 @@ p {
 .execution-history li, .execution-attempts li { margin: 12px 0; overflow-wrap: anywhere; }
 .execution-history p { margin: 6px 0; }
 .error-text { color: #a02a2a; }
+.service-account-editor fieldset { display: flex; flex-direction: column; gap: 10px; }
+.service-account-detail, .operations-admin, .service-accounts-admin { min-width: 0; }
+.service-account-detail button, .service-accounts-admin .toolbar button { white-space: normal; }
+.operations-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; margin: 20px 0; }
+.secret-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; background: #12292ed9; }
+.one-time-secret { width: 100%; max-width: 680px; max-height: 90vh; overflow: auto; box-shadow: 0 16px 48px #0004; }
+.one-time-secret input { font-family: monospace; }
+.one-time-secret .button-row button { white-space: normal; }
 .process-builder .button-row { flex-wrap: wrap; }
 .process-builder .button-row button, .process-view button { white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 700px) {

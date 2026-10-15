@@ -83,6 +83,8 @@ def get_instance(session, actor, identity, *, lock=False):
     )
     if lock:
         query = query.with_for_update(of=ProcessInstance)
+    if actor.scoped_registry_ids is not None:
+        query = query.where(ProcessInstance.registry_id.in_(actor.scoped_registry_ids))
     instance = session.scalar(query)
     if instance is None:
         hidden()

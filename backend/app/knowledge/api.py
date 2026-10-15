@@ -39,7 +39,7 @@ Actor = Annotated[object, Depends(current_actor)]
 Mode = Literal["editor", "viewer"]
 
 
-def event(session, request, actor, action, obj):
+def event(session, request, actor, action, obj, version_id=None):
     emit(
         session,
         request,
@@ -47,7 +47,7 @@ def event(session, request, actor, action, obj):
         "knowledge." + action,
         "knowledge",
         obj.id,
-        {"registry_id": str(obj.registry_id)},
+        {"registry_id": str(obj.registry_id), **({"template_version_id": str(version_id)} if version_id else {})},
     )
 
 
@@ -168,7 +168,7 @@ def publish_template(
         version.revision + 1,
     )
     session.flush()
-    event(session, request, actor, "template.version.published", obj)
+    event(session, request, actor, "template.version.published", obj, version.id)
     return service.version_output(session, actor, obj, version)
 
 

@@ -38,33 +38,39 @@ export function Processes({admin = false, readOnly = false}: {admin?: boolean; r
   const registries = useData<Registry[]>("/registries");
   const types = useData<DocumentType[]>("/document-types");
   const [registryId, setRegistryId] = useState("");
-  const list = useData<ProcessRecord[]>(`/processes${registryId ? "?registry_id=" + encodeURIComponent(registryId) : ""}`);
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+  const mode = readOnly ? "viewer" : "editor";
+  const list = useData<{items: ProcessRecord[]; total: number; page: number; page_size: number}>(`/processes/catalog?${new URLSearchParams({mode, page: String(page), page_size: "20", ...(registryId ? {registry_id: registryId} : {}), ...(search ? {q: search} : {})})}`);
   const [selected, setSelected] = useState("");
   const [versionId, setVersionId] = useState("");
   const [asOf, setAsOf] = useState("");
   const [editing, setEditing] = useState<"create" | "edit" | "copy" | null>(null);
-  const mode = readOnly ? "viewer" : "editor";
-  const versions = useData<ProcessVersion[]>(selected ? `/processes/${selected}/versions?mode=${mode}` : null);
-  const latest = versions.data?.filter(version => version.process_id === selected).reduce<ProcessVersion | undefined>((current, version) => !current || version.version > current.version ? version : current, undefined);
+  const [versionPage, setVersionPage] = useState(1);
+  const versions = useData<{items: ProcessVersion[]; total: number; page: number; page_size: number}>(selected ? `/processes/${selected}/version-catalog?mode=${mode}&page=${versionPage}&page_size=20` : null);
+  const latest = versions.data?.items.filter(version => version.process_id === selected).reduce<ProcessVersion | undefined>((current, version) => !current || version.version > current.version ? version : current, undefined);
   const requestedVersion = versionId || (admin ? latest?.id : undefined);
   const detail = useData<ProcessRecord & {version: ProcessVersion | null}>(selected ? `/processes/${selected}?${new URLSearchParams({mode, ...(requestedVersion ? {version_id: requestedVersion} : {}), ...(asOf && !requestedVersion ? {as_of: asOf} : {})})}` : null);
-  const process = list.data?.find(item => item.id === selected) || detail.data;
+  const process = list.data?.items.find(item => item.id === selected) || detail.data;
   const version = detail.data?.version;
   const action = useAction();
   const registry = registries.data?.find(item => item.id === process?.registry_id);
   return <>
     <div className="toolbar"><div><h1>{admin ? "Конструктор процессов" : "Процессы"}</h1><p>Проверенные инструкции, маршруты и точные основания выполнения работы.</p></div>{admin && <button className="primary" onClick={() => setEditing("create")}>Создать процесс</button>}</div>
     <Feedback error={list.error || registries.error || types.error || versions.error || detail.error || action.error} loading={list.loading || detail.loading} message={action.message}/>
-    {editing && <ProcessMetadata key={editing + (process?.id || "")} process={editing === "create" ? undefined : process || undefined} copy={editing === "copy"} onClose={() => setEditing(null)} onSaved={id => {setSelected(id); setVersionId(""); list.reload(); versions.reload(); detail.reload();}}/>}
-    <div className="panel filters"><label>Реестр процессов<select value={registryId} onChange={event => {setRegistryId(event.target.value); setSelected(""); setVersionId("");}}><option value="">Все доступные реестры</option>{registries.data?.filter(item => item.permissions.includes("read")).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Процесс<select value={selected} onChange={event => {setSelected(event.target.value); setVersionId(""); setAsOf("");}}><option value="">Выберите процесс</option>{list.data?.map(item => <option key={item.id} value={item.id}>{item.name}{item.status === "archived" ? " · архивный" : ""}</option>)}</select></label></div>
+    {editing && <ProcessMetadata key={editing + (process?.id || "")} process={editing === "create" ? undefined : process || undefined} copy={editing === "copy"} onClose={() => setEditing(null)} onSaved={id => {setSelected(id); setVersionId(""); setVersionPage(1); list.reload(); versions.reload(); detail.reload();}}/>}
+    <form className="panel filters" onSubmit={event => {event.preventDefault(); setSearch(query); setPage(1);}}><label>Поиск процесса<input type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}/></label><button>Найти процесс</button><label>Реестр процессов<select value={registryId} onChange={event => {setRegistryId(event.target.value); setPage(1); setSelected(""); setVersionId(""); setVersionPage(1);}}><option value="">Все доступные реестры</option>{registries.data?.filter(item => item.permissions.includes("read")).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Процесс<select value={selected} onChange={event => {setSelected(event.target.value); setVersionId(""); setVersionPage(1); setAsOf("");}}><option value="">Выберите процесс</option>{selected && process && !list.data?.items.some(item => item.id === selected) && <option value={selected}>{process.name}</option>}{list.data?.items.map(item => <option key={item.id} value={item.id}>{item.name}{item.status === "archived" ? " · архивный" : ""}</option>)}</select></label></form>
+    {list.data && <div className="pagination"><span>Процессов: {list.data.total} · страница {page}</span><button type="button" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Предыдущие процессы</button><button type="button" disabled={page * list.data.page_size >= list.data.total} onClick={() => setPage(value => value + 1)}>Следующие процессы</button></div>}
     {process && <>
-      <div className="toolbar"><label>Версия процесса<select value={requestedVersion || ""} onChange={event => setVersionId(event.target.value)}>{!admin && <option value="">Действующая версия</option>}{versions.data?.map(item => <option key={item.id} value={item.id}>Версия {item.version} · {item.state === "published" ? "Опубликована" : "Черновик"} · {item.effective_from}</option>)}</select></label>
+      <div className="toolbar"><label>Версия процесса<select value={requestedVersion || ""} onChange={event => setVersionId(event.target.value)}>{!admin && <option value="">Действующая версия</option>}{requestedVersion && version && !versions.data?.items.some(item => item.id === requestedVersion) && <option value={requestedVersion}>Версия {version.version}</option>}{versions.data?.items.map(item => <option key={item.id} value={item.id}>Версия {item.version} · {item.state === "published" ? "Опубликована" : "Черновик"} · {item.effective_from}</option>)}</select></label>
         {!admin && <label>Процесс на дату<input type="date" value={asOf} onChange={event => {setAsOf(event.target.value); setVersionId("");}}/></label>}
-        {admin && <div className="button-row"><button onClick={() => setEditing("edit")}>Настроить процесс</button><button onClick={() => setEditing("copy")}>Копировать процесс</button><button disabled={action.busy} onClick={() => void action.run(async () => {const next = await action.request<ProcessVersion>(`/processes/${process.id}/versions`, "POST", {}); setVersionId(next.id); versions.reload();}, "Новая версия процесса создана")}>Новая версия процесса</button></div>}
+        {admin && <div className="button-row"><button onClick={() => setEditing("edit")}>Настроить процесс</button><button onClick={() => setEditing("copy")}>Копировать процесс</button><button disabled={action.busy} onClick={() => void action.run(async () => {const next = await action.request<ProcessVersion>(`/processes/${process.id}/versions`, "POST", {}); setVersionId(next.id); setVersionPage(1); versions.reload();}, "Новая версия процесса создана")}>Новая версия процесса</button></div>}
       </div>
+      {versions.data && <div className="pagination"><span>Версий: {versions.data.total} · страница {versionPage}</span><button type="button" disabled={versionPage <= 1} onClick={() => {setVersionId(""); setVersionPage(value => value - 1);}}>Предыдущие версии процесса</button><button type="button" disabled={versionPage * versions.data.page_size >= versions.data.total} onClick={() => {setVersionId(""); setVersionPage(value => value + 1);}}>Следующие версии процесса</button></div>}
       {version ? admin ? <ProcessBuilder key={version.id + ":" + version.state} process={process} version={version} types={(types.data || []).filter(type => registry?.document_type_ids.includes(type.id))} onSaved={() => {versions.reload(); detail.reload();}}/> : <ProcessView key={version.id} process={process} version={version} readOnly={readOnly}/> : !detail.loading && <p className="empty-state">На выбранную дату нет опубликованной версии процесса.</p>}
     </>}
-    {!selected && !list.loading && <div className="module-grid">{list.data?.map(item => <button className="module-card" key={item.id} onClick={() => setSelected(item.id)}><h3>{item.name}</h3><p>{item.purpose || item.description}</p><small>{item.department} · {item.category}</small></button>)}</div>}
-    {!list.loading && list.data?.length === 0 && <p className="empty-state">Доступных процессов пока нет.</p>}
+    {!selected && !list.loading && <div className="module-grid">{list.data?.items.map(item => <button className="module-card" key={item.id} onClick={() => {setSelected(item.id); setVersionPage(1);}}><h3>{item.name}</h3><p>{item.purpose || item.description}</p><small>{item.department} · {item.category}</small></button>)}</div>}
+    {!list.loading && list.data?.total === 0 && <p className="empty-state">Доступных процессов пока нет.</p>}
   </>;
 }

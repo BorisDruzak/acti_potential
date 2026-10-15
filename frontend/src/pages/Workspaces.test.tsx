@@ -270,3 +270,18 @@ it("boolean extra filter uses typed control and sends false rather than dropping
     ).toBe(true),
   );
 });
+
+it("records aggregate search-to-open timing without the query or personal dimensions", async () => {
+  window.history.replaceState(null, "", "/view");
+  const fetch = setup(["viewer"]);
+  fireEvent.click(await screen.findByRole("button", {name: "Тестовый реестр"}));
+  fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Частный поисковый текст"}});
+  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Открыть карточку"}));
+  await screen.findByRole("heading", {name: "Тестовый документ"});
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url.endsWith("/usage/retrieval"))).toHaveLength(2));
+  const bodies = fetch.mock.calls.filter(([url]) => url.endsWith("/usage/retrieval")).map(([, init]) => JSON.parse(String(init.body)));
+  expect(bodies[0]).toEqual({registry_id: "r", operation: "search", duration_ms: 0});
+  expect(bodies[1]).toEqual({registry_id: "r", operation: "time_to_open", duration_ms: expect.any(Number)});
+  expect(JSON.stringify(bodies)).not.toContain("Частный поисковый текст");
+});

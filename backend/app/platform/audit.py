@@ -18,6 +18,14 @@ class AuditInput:
 
 def record_audit(session, event: AuditInput) -> UUID:
     allowed = {"reason_code", "role_codes"} | set(EVENT_FIELDS.get(event.action, set()))
+    if event.action in {
+        "service.account.changed",
+        "service.token.created",
+        "service.token.rotated",
+        "service.token.revoked",
+        "service.queue.retried",
+    }:
+        allowed.add("reason")
     if set(event.details) - allowed:
         raise ValueError("Audit details are not in the approved allowlist")
     row = AuditEvent(**vars(event))

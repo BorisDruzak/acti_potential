@@ -15,6 +15,8 @@ import { ContentErrorsAdmin } from "./DocumentContent";
 import { Processes } from "./Processes";
 import { KnowledgeCatalog } from "./Knowledge";
 import { MyWork } from "./MyWork";
+import { ServiceAccountsAdmin } from "./ServiceAccountsAdmin";
+import { OperationsAdmin } from "./OperationsAdmin";
 export function Workspace() {
   const auth = useAuth();
   const roles = auth.user?.roles || [];
@@ -70,9 +72,11 @@ export function Workspace() {
     content = <TypesAdmin />;
   else if (section === "Справочники") content = <ReferencesAdmin />;
   else if (section === "Пользователи") content = <UsersAdmin />;
+  else if (section === "API и сервисные учётные записи") content = <ServiceAccountsAdmin />;
   else if (section === "Роли и доступ") content = <AccessAdmin />;
   else if (section === "История и аудит") content = <AuditAdmin />;
   else if (section === "Состояние платформы") content = <PlatformStatus />;
+  else if (section === "Эксплуатация") content = <OperationsAdmin />;
   else if (section === "Обработка содержания") content = <ContentErrorsAdmin />;
   else
     content = (

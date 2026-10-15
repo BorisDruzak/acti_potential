@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ApiError, apiUpload, encodeFile, saveDownload, saveExport } from "../api/client";
+import { useRef, useState } from "react";
+import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
 import { DynamicForm } from "../engine/DynamicForm";
@@ -621,6 +621,18 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const exportAction = useAction();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const searchTiming = useRef<{registryId: string; started: number} | null>(null);
+  function recordRetrieval(operation: "search" | "time_to_open", duration_ms: number) {
+    if (!registryId) return;
+    void apiRequest("/usage/retrieval", {method: "POST", headers: {"X-CSRF-Token": auth.user?.csrf_token || ""}, body: JSON.stringify({registry_id: registryId, operation, duration_ms: Math.min(3600000, Math.max(0, Math.round(duration_ms)))})}).catch(() => {});
+  }
+  function startSearchTiming() {searchTiming.current = {registryId, started: performance.now()}; recordRetrieval("search", 0);}
+  function openSearchResult(id: string, target?: ContentTarget) {
+    const timing = searchTiming.current;
+    if (timing?.registryId === registryId) recordRetrieval("time_to_open", performance.now() - timing.started);
+    searchTiming.current = null;
+    setContentTarget(target); setDocumentId(id);
+  }
   const registry = registries.data?.find((item) => item.id === registryId);
   const versions = useData<SchemaVersion[]>(
     typeId
@@ -682,6 +694,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     if (filterKey && ["present", "absent"].includes(filterOp)) params.set("filters", JSON.stringify({[filterKey]: {op: filterOp}}));
     setPage(1);
     setSearch("&" + params.toString());
+    startSearchTiming();
   }
   function persistViews(next: typeof savedViews) {
     setSavedViews(next);
@@ -693,6 +706,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     setContentQ(params.get("text") || ""); setFuzzy(params.get("fuzzy") !== "false");
     try { const [key, value] = Object.entries(JSON.parse(params.get("filters") || "{}"))[0] || ["", null]; setFilterKey(key); const typed = value as {op?: string; value?: unknown} | null; setFilterOp(typed && typeof typed === "object" ? typed.op || "eq" : "eq"); setFilterValue(typed && typeof typed === "object" ? (Array.isArray(typed.value) && typed.op === "between" ? typed.value[0] : typed.value) : value); setFilterEnd(typed?.op === "between" && Array.isArray(typed.value) ? String(typed.value[1]) : ""); } catch { setFilterKey(""); setFilterValue(null); }
     setPage(1); setSearch("&" + query);
+    startSearchTiming();
   }
   const close = () => {
     setDocumentId("");
@@ -963,9 +977,9 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                   <tr key={item.id}>
                     {configuredColumns.length ? configuredColumns.map(column => <td key={column.key}>{displayListValue(item.display_values?.[column.key] ?? item.values?.[column.key])}</td>) : <><td>{item.reg_number || "—"}</td><td>{item.reg_date || "—"}</td><td>{item.title || "Документ"}</td></>}
                     <td>{item.revision}</td>
-                    {"document" in result && <td><ContentMatches matches={result.matches} query={new URLSearchParams(search).get("text") || ""} onOpen={target => {setContentTarget(target); setDocumentId(item.id);}}/></td>}
+                    {"document" in result && <td><ContentMatches matches={result.matches} query={new URLSearchParams(search).get("text") || ""} onOpen={target => openSearchResult(item.id, target)}/></td>}
                     <td>
-                      <button onClick={() => setDocumentId(item.id)}>
+                      <button onClick={() => openSearchResult(item.id)}>
                         Открыть карточку
                       </button>
                     </td>

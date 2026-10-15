@@ -137,6 +137,8 @@ def listing(session: Db, actor: Actor, params: Annotated[ListInput, Depends()]):
     )
     if params.registry_id:
         query = query.where(ProcessInstance.registry_id == params.registry_id)
+    if actor.scoped_registry_ids is not None:
+        query = query.where(ProcessInstance.registry_id.in_(actor.scoped_registry_ids))
     if params.state:
         query = query.where(ProcessInstance.state == params.state)
     items = []

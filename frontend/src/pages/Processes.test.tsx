@@ -7,6 +7,7 @@ import type { Condition, FormSchema } from "../engine/schema";
 import { ProcessConditionEditor } from "./ProcessConditions";
 import { ProcessBuilder } from "./ProcessBuilder";
 import { ProcessView } from "./ProcessView";
+import { Processes } from "./Processes";
 
 afterEach(() => {cleanup(); vi.unstubAllGlobals();});
 const process: ProcessRecord = {id: "process", registry_id: "registry", code: "example", name: "Подготовка", description: "", owner_id: null, department: "Отдел", category: "Документы", purpose: "Подготовить документ", status: "active"};
@@ -101,4 +102,31 @@ it("checks a published viewer preview with local answers and no configuration or
   const nextRequest = fetch.mock.calls.filter(([url]) => url.endsWith("/preview?mode=viewer"))[1];
   expect(JSON.parse(String(nextRequest[1]?.body))).toEqual({step_key: "finish", values: {}});
   expect(fetch.mock.calls.some(([url, init]) => init?.method === "PUT" || url.includes("/instances"))).toBe(false);
+});
+
+it("pages the authorized process catalog and version history without fetching compatibility arrays", async () => {
+  const fetch = vi.fn(async (url: string) => {
+    let data: unknown = [];
+    if (url.endsWith("/users/me")) data = {id: "viewer", display_name: "Читатель", roles: ["viewer"], csrf_token: "csrf"};
+    else if (url.includes("/processes/catalog?")) data = {items: [process], total: 21, page: 1, page_size: 20};
+    else if (url.includes("/version-catalog?")) data = {items: [{...version, state: "published"}], total: 21, page: 1, page_size: 20};
+    else if (url.includes("/processes/process?")) data = {...process, version: {...version, state: "published"}};
+    else if (url.endsWith("/registries")) data = [{id: "registry", name: "Реестр", permissions: ["read"], document_type_ids: []}];
+    return new Response(JSON.stringify(data));
+  });
+  vi.stubGlobal("fetch", fetch);
+  function Ready() {return useAuth().user ? <Processes readOnly/> : null;}
+  render(<AuthProvider><Ready/></AuthProvider>);
+  await screen.findByRole("option", {name: process.name});
+  fireEvent.click(screen.getByRole("button", {name: "Следующие процессы"}));
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/processes/catalog?") && url.includes("page=2"))).toBe(true));
+  await screen.findByRole("option", {name: process.name});
+  fireEvent.change(screen.getByLabelText("Процесс"), {target: {value: process.id}});
+  await screen.findByText("Версий: 21 · страница 1");
+  fireEvent.click(screen.getByRole("button", {name: "Следующие версии процесса"}));
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/version-catalog?") && url.includes("page=2"))).toBe(true));
+  fireEvent.change(screen.getByLabelText("Поиск процесса"), {target: {value: "Подготовка"}});
+  fireEvent.click(screen.getByRole("button", {name: "Найти процесс"}));
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => new URL(url, "https://example.test").searchParams.get("q") === "Подготовка")).toBe(true));
+  expect(fetch.mock.calls.some(([url]) => /\/processes(?:\?|$)/.test(url) || url.includes("/versions?"))).toBe(false);
 });
