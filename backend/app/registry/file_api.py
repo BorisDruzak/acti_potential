@@ -24,7 +24,7 @@ from app.registry.documents import (
 )
 from app.registry.events import emit
 from app.registry.models import DocumentFile, DocumentVersion
-from app.registry.policy import condition_matches, field_writable
+from app.registry.policy import field_writable
 from app.storage.local import LocalFileStorage
 
 router = APIRouter()
@@ -57,9 +57,7 @@ async def upload_file(
             )
             if not field_writable(parent_field, actor):
                 fail(403, "field_forbidden", "Изменение группы не разрешено")
-        if not field_writable(field, actor) or not condition_matches(
-            field.get("visible_when"), values
-        ):
+        if not field_writable(field, actor):
             fail(403, "field_forbidden", "Загрузка в это поле не разрешена")
         probe = type("FileProbe", (), {"field_key": field_key})()
         if not file_visible(schema, actor, probe, values):

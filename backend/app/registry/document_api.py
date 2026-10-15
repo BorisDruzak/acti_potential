@@ -1,10 +1,11 @@
 import json
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import and_, case, delete, false, func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import Numeric, and_, case, delete, false, func, or_, select
 
 from app.api.dependencies import current_actor, current_admin, db_session
 from app.api.errors import fail
@@ -31,7 +32,7 @@ from app.registry.documents import (
 from app.registry.events import emit
 from app.registry.models import Document, DocumentACL, FormSchema, MetadataRevision, Registry
 from app.registry.policy import accessible_document_clause, field_readable, permissions_for
-from app.registry.value_validation import validate_values
+from app.registry.value_validation import uuid_value, validate_value, validate_values
 
 router = APIRouter()
 Db = Annotated[object, Depends(db_session, scope="function")]
@@ -79,6 +80,31 @@ def safe_system_filter(fields, system, predicate):
             if field.get("system") == system and field.get("filterable", False)
         ],
     )
+
+
+def custom_filter(session, actor, schema_id, field, value):
+    kind = field["type"]
+    if kind in {"group", "file"}:
+        fail(422, "invalid_filter", "Поле недоступно для фильтрации")
+    if kind in {"reference", "multi_reference", "user", "department", "document"}:
+        normalized = str(uuid_value(value, field["key"])) if value is not None else None
+    else:
+        normalized = validate_value(session, actor, field, value, None)
+    expression = field_expression(field)
+    if kind == "multi_reference" and normalized is not None:
+        predicate = Document.custom_data[field["key"]].contains([normalized])
+    elif kind == "decimal" and normalized is not None:
+        # Different form versions can reuse a key with a different type. CASE
+        # prevents PostgreSQL from casting unrelated schemas' text values.
+        expression = case((Document.schema_version_id == schema_id, expression))
+        predicate = expression.cast(Numeric) == Decimal(normalized)
+    elif normalized is None:
+        predicate = expression.is_(None)
+    else:
+        predicate = expression == (
+            str(normalized).lower() if isinstance(normalized, bool) else str(normalized)
+        )
+    return and_(Document.schema_version_id == schema_id, predicate)
 
 
 @router.get("/documents", response_model=DocumentPage)
@@ -143,20 +169,16 @@ def list_documents(
             options = [(sid, f) for sid, f in fields if f["key"] == key and f.get("filterable")]
             if not options or isinstance(value, (dict, list)):
                 fail(422, "invalid_filter", "Поле недоступно для фильтрации")
-            query = query.where(
-                or_(
-                    *[
-                        and_(
-                            Document.schema_version_id == sid,
-                            Document.custom_data[field["key"]].contains([value])
-                            if field["type"] == "multi_reference"
-                            else field_expression(field)
-                            == (str(value).lower() if isinstance(value, bool) else str(value)),
-                        )
-                        for sid, field in options
-                    ]
-                )
-            )
+            predicates = []
+            for sid, field in options:
+                try:
+                    predicates.append(custom_filter(session, actor, sid, field, value))
+                except HTTPException as error:
+                    if error.status_code != 422:
+                        raise
+            if not predicates:
+                fail(422, "invalid_filter", "Неверное значение фильтра")
+            query = query.where(or_(*predicates))
     total = session.scalar(select(func.count()).select_from(query.subquery()))
     order_column = getattr(Document, sort)
     if sort in {"title", "reg_number", "reg_date"}:

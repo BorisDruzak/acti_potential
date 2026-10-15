@@ -249,3 +249,49 @@ paths are excluded from Git and this report.
   fields are not server-filterable, as documented above.
 - Production backup restore/reboot/load acceptance and independent off-VM backup
   remain separate operational work; no acceptance is inferred for them.
+
+### Follow-up exploratory browser QA
+
+An additional manual pass on 2026-10-15 exercised configuration, all fourteen
+field kinds, conditional requirements, linked documents, schema copies and
+versions, references, ACLs, concurrent edits, attachments and account workflows.
+Twenty-one explicitly synthetic cards exercised real server pagination (20 + 1).
+No SQL Server connection or source-original access was used.
+
+The pass reproduced defects missed by the initial acceptance: decimal predicates
+changed after editing, invalid defaults silently retained an earlier value,
+read-only groups used the wrong display mode, changing a field type retained
+incompatible properties, disabling both modes re-enabled them, published field
+properties could not be inspected, separate file upload discarded unsaved card
+changes, historical attachments appeared missing, datetime/decimal filters missed
+equivalent values, audit object cells were blank, and an incorrect current
+password incorrectly ended the client session.
+
+Corrections include typed decimal predicates and filters, preserved group display
+context, explicit default validation, compatible type transitions, inspectable
+published properties, an unsaved-change upload guard, historical attachment IDs,
+canonical audit fields and a recoverable password-validation error. Regression
+coverage also rejects malformed group defaults, preserves strict boolean/text
+comparisons, resets registry filters consistently and exposes the required status
+filter. No database migration or new dependency is required.
+
+Verification before pilot activation: 113 backend tests on isolated PostgreSQL
+and Redis; 42 frontend tests; TypeScript and production build; Ruff for app/tests;
+Alembic check with no new operations; and a scoped independent integration review.
+The existing upstream Starlette warning remains. Full-tree Ruff additionally
+reports a pre-existing import-order issue in migration `0001_platform.py`, which
+this correction does not modify. Native browser retesting of the committed pilot
+release is recorded in its pull request and completion report.
+
+The follow-up activation exposed a separate proxy defect: Nginx retained a stale
+API container address after Compose recreated the backend. Reloading Nginx
+restored access; the durable configuration uses Docker DNS with a dynamically
+resolved shared upstream. An isolated pinned-image regression forced a different
+API address: the original configuration remained at HTTP 502, while the corrected
+configuration recovered automatically in 5.18 seconds. HTTP methods, request path,
+query and body were preserved, and temporary test containers/networks were removed.
+
+A final download-permission check found misleading empty-attachment text when
+metadata was readable but downloading was forbidden. Card/history now retain
+permitted attachment names and versions while omitting download actions; direct
+downloads still require the backend permission check.

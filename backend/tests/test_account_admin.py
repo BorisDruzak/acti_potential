@@ -73,8 +73,10 @@ def test_temporary_password_forces_change_and_rotates_session(client, factory):
             json={"current_password": "wrong", "new_password": CHANGED},
             headers=headers(client),
         ).status_code
-        == 401
+        == 422
     )
+    assert client.cookies.get(COOKIE_NAME) == previous_cookie
+    assert client.get("/api/v1/users/me").status_code == 200
     assert (
         client.post(
             "/api/v1/users/me/password",

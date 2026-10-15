@@ -116,19 +116,27 @@ export const fieldTypes: [FieldType, string][] = [
 export function conditionMatches(
   condition: Condition | null | undefined,
   values: Values,
+  fields: Field[] = [],
 ): boolean {
   if (!condition) return true;
   const actual = values[condition.field];
+  const decimal = fields.find((field) => field.key === condition.field)?.type === "decimal";
+  const equal = (expected: unknown) => {
+    if (!decimal) return actual === expected;
+    const left = canonicalDecimal(actual);
+    const right = canonicalDecimal(expected);
+    return left !== null && right !== null ? left === right : actual === expected;
+  };
   switch (condition.op) {
     case "eq":
-      return actual === condition.value;
+      return equal(condition.value);
     case "ne":
-      return actual !== condition.value;
+      return !equal(condition.value);
     case "in":
-      return Array.isArray(condition.value) && condition.value.includes(actual);
+      return Array.isArray(condition.value) && condition.value.some(equal);
     case "not_in":
       return (
-        Array.isArray(condition.value) && !condition.value.includes(actual)
+        Array.isArray(condition.value) && !condition.value.some(equal)
       );
     case "present":
       return (
@@ -148,6 +156,18 @@ export function conditionMatches(
       return false;
   }
 }
+function canonicalDecimal(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const match = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(String(value));
+  if (!match || !(match[2] || match[3]) || (match[4]?.length || 0) > 6) return null;
+  let digits = (match[2] + (match[3] || "")).replace(/^0+/, "");
+  if (!digits) return "0";
+  let exponent = Number(match[4] || 0) - (match[3]?.length || 0);
+  const trailing = /0+$/.exec(digits)?.[0].length || 0;
+  digits = trailing ? digits.slice(0, -trailing) : digits;
+  exponent += trailing;
+  return `${match[1] === "-" ? "-" : ""}${digits}e${exponent}`;
+}
 export function initialValues(schema: FormSchema): Values {
   return Object.fromEntries(
     schema.sections
@@ -162,13 +182,14 @@ export function canRead(
   roles: string[],
   values: Values,
   displayMode = mode === "view" ? "viewer" : "editor",
+  conditionFields: Field[] = [],
 ) {
   const effectiveRoles = roles.includes("user") ? [...roles, "editor"] : roles;
   return (
     (!field.modes?.length || field.modes.includes(displayMode)) &&
     (!field.read_roles?.length ||
       field.read_roles.some((role) => effectiveRoles.includes(role))) &&
-    conditionMatches(field.visible_when, values)
+    conditionMatches(field.visible_when, values, conditionFields)
   );
 }
 export function canWrite(field: Field, mode: string, roles: string[]) {
@@ -186,13 +207,14 @@ export function editableValues(
   mode: string,
   roles: string[],
   conditionValues = values,
+  conditionFields = schema.sections.flatMap((section) => section.fields),
 ): Values {
   return Object.fromEntries(
     schema.sections
       .flatMap((section) => section.fields)
       .filter(
         (field) =>
-          canRead(field, mode, roles, conditionValues) &&
+          canRead(field, mode, roles, conditionValues, undefined, conditionFields) &&
           canWrite(field, mode, roles) &&
           field.type !== "file" &&
           Object.hasOwn(values, field.key),
@@ -211,6 +233,7 @@ export function editableValues(
                 mode,
                 roles,
                 conditionValues,
+                conditionFields,
               ),
             )
           : values[field.key],
@@ -234,8 +257,9 @@ export function prunePendingFiles<T>(
 ): Record<string, T> {
   const allowed = new Set<string>();
   const clearedGroups = new Set<string>();
+  const conditionFields = schema.sections.flatMap((section) => section.fields);
   for (const field of schema.sections.flatMap((section) => section.fields)) {
-    if (!canRead(field, mode, roles, values) || !canWrite(field, mode, roles))
+    if (!canRead(field, mode, roles, values, undefined, conditionFields) || !canWrite(field, mode, roles))
       continue;
     if (field.type === "file") allowed.add(field.key);
     if (field.type !== "group") continue;
@@ -251,7 +275,7 @@ export function prunePendingFiles<T>(
       for (const child of field.children || []) {
         if (
           child.type === "file" &&
-          canRead(child, mode, roles, values) &&
+          canRead(child, mode, roles, values, undefined, conditionFields) &&
           canWrite(child, mode, roles)
         )
           allowed.add(field.key + "." + index + "." + child.key);

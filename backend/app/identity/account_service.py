@@ -162,7 +162,7 @@ def change_password(session, user_id, current_password, new_password):
     try:
         hasher.verify(credential.password_hash, current_password)
     except (VerificationError, InvalidHashError):
-        raise AuthenticationError() from None
+        fail(422, "current_password_incorrect", "Текущий пароль указан неверно")
     if current_password == new_password:
         fail(422, "password_unchanged", "Новый пароль должен отличаться от текущего")
     credential.password_hash = checked_password(new_password)

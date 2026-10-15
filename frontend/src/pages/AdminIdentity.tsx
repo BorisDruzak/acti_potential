@@ -433,7 +433,7 @@ export function AuditAdmin() {
                 <td>{String(event.occurred_at || event.created_at || "")}</td>
                 <td>{String(event.action || event.event_type || "")}</td>
                 <td>
-                  {String(event.entity_type || event.resource_type || "")}
+                  {String(event.object_type || "")}
                 </td>
                 <td>{String(event.actor_id || "Система")}</td>
               </tr>
