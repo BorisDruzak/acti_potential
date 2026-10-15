@@ -15,6 +15,65 @@ import {
 } from "./schema";
 import { useAction } from "./useData";
 
+function validDefault(field: Field): boolean {
+  const value = field.default;
+  if (value === undefined || value === null) return true;
+  switch (field.type) {
+    case "integer":
+      return typeof value === "number" && Number.isSafeInteger(value);
+    case "decimal":
+      return (
+        (typeof value === "number" || typeof value === "string") &&
+        String(value).trim() !== "" && Number.isFinite(Number(value))
+      );
+    case "boolean":
+      return typeof value === "boolean";
+    case "multi_reference":
+      return Array.isArray(value) && value.every((item) => typeof item === "string");
+    case "group":
+      return Array.isArray(value) && value.every(
+        (item) => !!item && typeof item === "object" && !Array.isArray(item),
+      );
+    case "file":
+      return Array.isArray(value) && value.length === 0;
+    default:
+      return typeof value === "string";
+  }
+}
+
+function defaultTextFor(field: Field): string {
+  return field.default === undefined
+    ? ""
+    : typeof field.default === "string"
+      ? field.default
+      : JSON.stringify(field.default);
+}
+
+function changeFieldType(field: Field, type: FieldType): Field {
+  const next = { ...field, type };
+  if (!["reference", "multi_reference", "department"].includes(type)) {
+    delete next.reference_set_id;
+    delete next.reference_code;
+  }
+  if (type !== "group") delete next.children;
+  const systemTypes: Record<string, FieldType> = {
+    reg_number: "text", reg_date: "date", title: "text", status: "text",
+  };
+  if (next.system && systemTypes[next.system] !== type) delete next.system;
+  const allowed = type === "group"
+    ? ["min_items", "max_items"]
+    : ["integer", "decimal"].includes(type)
+      ? ["min", "max"]
+      : ["text", "textarea"].includes(type)
+        ? ["min_length", "max_length", "choices"]
+        : [];
+  next.constraints = Object.fromEntries(
+    Object.entries(next.constraints || {}).filter(([key]) => allowed.includes(key)),
+  );
+  if (!validDefault(next)) delete next.default;
+  return next;
+}
+
 function ConditionEditor({
   title,
   value,
@@ -36,17 +95,19 @@ function ConditionEditor({
         Поле условия
         <select
           value={value?.field || ""}
-          onChange={(event) =>
+          onChange={(event) => {
+            const comparison = value?.value === undefined ? true : value.value;
+            setLiteral(event.target.value ? JSON.stringify(comparison) : "");
             onChange(
               event.target.value
                 ? {
                     field: event.target.value,
                     op: value?.op || "eq",
-                    value: value?.value ?? true,
+                    value: comparison,
                   }
                 : null,
-            )
-          }
+            );
+          }}
         >
           <option value="">Без условия</option>
           {fields.map((field) => (
@@ -114,13 +175,7 @@ function PropertyEditor({
 }) {
   const change = (patch: Partial<Field>) => onChange({ ...field, ...patch });
   const constraints = field.constraints || {};
-  const [defaultText, setDefaultText] = useState(
-    field.default === undefined
-      ? ""
-      : typeof field.default === "string"
-        ? field.default
-        : JSON.stringify(field.default),
-  );
+  const [defaultText, setDefaultText] = useState(() => defaultTextFor(field));
   return (
     <div className="properties">
       <h3>Свойства поля</h3>
@@ -145,9 +200,11 @@ function PropertyEditor({
         Тип поля
         <select
           value={field.type}
-          onChange={(event) =>
-            change({ type: event.target.value as FieldType })
-          }
+          onChange={(event) => {
+            const next = changeFieldType(field, event.target.value as FieldType);
+            setDefaultText(defaultTextFor(next));
+            onChange(next);
+          }}
         >
           {fieldTypes
             .filter(([type]) => !child || type !== "group")
@@ -170,6 +227,7 @@ function PropertyEditor({
         Значение по умолчанию
         <input
           value={defaultText}
+          aria-invalid={!validDefault(field)}
           onChange={(event) => {
             setDefaultText(event.target.value);
             let parsed: unknown = event.target.value;
@@ -181,18 +239,24 @@ function PropertyEditor({
                 "boolean",
                 "multi_reference",
                 "group",
+                "file",
               ].includes(field.type)
             ) {
               try {
                 parsed = JSON.parse(event.target.value);
               } catch {
-                return;
+                parsed = event.target.value;
               }
             }
             change({ default: parsed });
           }}
         />
       </label>
+      {!validDefault(field) && (
+        <p className="error" role="alert">
+          Значение по умолчанию не соответствует типу поля.
+        </p>
+      )}
       {["reference", "multi_reference", "department"].includes(field.type) && (
         <label>
           Справочник
@@ -296,6 +360,7 @@ function PropertyEditor({
             <label key={mode}>
               <input
                 type="checkbox"
+                disabled={field.modes?.length === 1 && field.modes.includes(mode)}
                 checked={!field.modes?.length || field.modes.includes(mode)}
                 onChange={(event) => {
                   const modes = field.modes?.length
@@ -312,6 +377,7 @@ function PropertyEditor({
             </label>
           ))}
         </div>
+        <small>Выберите хотя бы один режим отображения.</small>
       </fieldset>
       {(["read_roles", "write_roles"] as const).map((key) => (
         <fieldset key={key}>
@@ -425,6 +491,11 @@ export function SchemaBuilder({
     };
   }
   async function save(publish = false) {
+    for (const field of allFields.flatMap((field) => [field, ...(field.children || [])])) {
+      if (!validDefault(field)) {
+        throw new Error(`${field.label}: значение по умолчанию не соответствует типу поля.`);
+      }
+    }
     await action.request("/form-schemas/" + version.id, "PUT", { schema });
     if (publish)
       await action.request(
@@ -476,6 +547,35 @@ export function SchemaBuilder({
         </div>
       </div>
       <Feedback {...action} />
+      {published && (
+        <label>
+          Свойства опубликованного поля
+          <select
+            value={selection
+              ? `${selection.section}:${selection.field}${selection.child === undefined ? "" : ":" + selection.child}`
+              : ""}
+            onChange={(event) => {
+              if (!event.target.value) return setSelection(null);
+              const [section, field, child] = event.target.value.split(":").map(Number);
+              setSelection({ section, field, ...(child === undefined ? {} : { child }) });
+            }}
+          >
+            <option value="">Выберите поле</option>
+            {schema.sections.flatMap((section, sectionIndex) =>
+              section.fields.flatMap((field, fieldIndex) => [
+                <option key={`${sectionIndex}:${fieldIndex}`} value={`${sectionIndex}:${fieldIndex}`}>
+                  {section.title} · {field.label}
+                </option>,
+                ...(field.children || []).map((child, childIndex) => (
+                  <option key={`${sectionIndex}:${fieldIndex}:${childIndex}`} value={`${sectionIndex}:${fieldIndex}:${childIndex}`}>
+                    {field.label} · {child.label}
+                  </option>
+                )),
+              ]),
+            )}
+          </select>
+        </label>
+      )}
       {preview && (
         <div className="panel preview">
           <div className="toolbar">
