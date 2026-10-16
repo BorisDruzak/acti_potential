@@ -25,9 +25,6 @@ import { DocumentLayoutSwitch, DocumentWorkspace, useDocumentLayout } from "../c
 import { DocumentResults } from "../components/DocumentResults";
 import { useDocumentSchemas } from "../engine/documentPresentation";
 import type { ContentHit, ContentTarget } from "../engine/content";
-import { DocumentRelations, RelationStatusHistory } from "./DocumentRelations";
-import type { RelationNavigation } from "../engine/relations";
-import { knowledgeTabs, RelatedKnowledge, type KnowledgeTab } from "./Knowledge";
 
 function filesInRevision(card: Card, values: Values): FileVersion[] {
   const ids = new Set<string>();
@@ -77,7 +74,6 @@ function DocumentCard({
   onSaved,
   onClose,
   contentTarget,
-  onNavigate,
   onDirtyChange,
 }: {
   card: Card;
@@ -86,7 +82,6 @@ function DocumentCard({
   onSaved: () => void;
   onClose: () => void;
   contentTarget?: ContentTarget;
-  onNavigate: (value: RelationNavigation) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const auth = useAuth();
@@ -199,11 +194,6 @@ function DocumentCard({
         <div>
           <span className="eyebrow">КАРТОЧКА ДОКУМЕНТА</span>
           <h1>{card.title || "Документ"}</h1>
-          <p>
-            {card.reg_number || "Без номера"} · {card.reg_date || "Без даты"} ·
-            редакция {card.revision}
-          </p>
-          <p className="muted">UUID: {card.id}</p>
         </div>
         <button onClick={onClose}>К списку</button>
       </div>
@@ -227,10 +217,6 @@ function DocumentCard({
           История изменений
         </button>
         <button className={tab === "content" ? "active" : ""} onClick={() => setTab("content")}>Содержание</button>
-        <button className={tab === "relations" ? "active" : ""} onClick={() => setTab("relations")}>Связанные акты</button>
-        <button className={tab === "basis" ? "active" : ""} onClick={() => setTab("basis")}>Основания и изменения</button>
-        <button className={tab === "status-history" ? "active" : ""} onClick={() => setTab("status-history")}>История статуса</button>
-        {knowledgeTabs.map(name => <button key={name} className={tab === name ? "active" : ""} onClick={() => setTab(name)}>{name}</button>)}
       </div>
       <Feedback {...action} />
       {!readOnly && card.schema.sections.some(section => section.fields.some(field => field.number_series_id && !card.values[field.key])) && <CardNumberAssignment card={card} onSaved={onSaved}/>}
@@ -252,13 +238,14 @@ function DocumentCard({
       )}
       {tab === "card" && (
         <form
-          className="panel"
+          className="panel document-card-form"
           onSubmit={(event) => {
             event.preventDefault();
             void action.run(save);
           }}
         >
           <DynamicForm
+            navigationPlacement="side"
             schema={card.schema}
             values={values}
             onChange={changeValues}
@@ -426,9 +413,6 @@ function DocumentCard({
         </section>
       )}
       {tab === "content" && <DocumentContent card={card} readOnly={readOnly} target={contentTarget}/>}
-      {knowledgeTabs.includes(tab as KnowledgeTab) && <RelatedKnowledge key={tab} documentId={card.id} readOnly={readOnly} activeTab={tab as KnowledgeTab}/>}
-      {(tab === "relations" || tab === "basis") && <DocumentRelations key={tab} card={card} readOnly={readOnly} basis={tab === "basis"} onNavigate={onNavigate}/>}
-      {tab === "status-history" && <RelationStatusHistory card={card} readOnly={readOnly} onNavigate={onNavigate}/>}
     </section>
   );
 }
@@ -643,6 +627,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const exportAction = useAction();
   const [page, setPage] = useState(() => Math.max(1, Number(initial.get("page")) || 1));
   const [search, setSearch] = useState(() => {const params = new URLSearchParams(window.location.search); for (const key of ["document", "tab", "file", "block", "ordinal", "registry_id", "page", "cursor"]) params.delete(key); return "&" + params.toString();});
+  const documentLocation = useRef(window.location.pathname + window.location.search);
   useEffect(() => {
     const params = new URLSearchParams(search);
     if (registryId) params.set("registry_id", registryId);
@@ -651,6 +636,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     if (cursor) params.set("cursor", cursor);
     if (page > 1) params.set("page", String(page));
     window.history.replaceState(null, "", window.location.pathname + (params.size ? "?" + params.toString() : ""));
+    documentLocation.current = window.location.pathname + window.location.search;
   }, [search, registryId, documentId, contentTarget, cursor, page]);
   const searchTiming = useRef<{registryId: string; started: number} | null>(null);
   function recordRetrieval(operation: "search" | "time_to_open", duration_ms: number) {
@@ -763,6 +749,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   }
   useEffect(() => {
     const restore = () => {
+      const location = window.location.pathname + window.location.search;
+      // Section anchors also emit popstate. Keep the mounted card and draft for hash-only navigation.
+      if (location === documentLocation.current) return;
+      documentLocation.current = location;
       const params = new URLSearchParams(window.location.search);
       setRegistryId(params.get("registry_id") || ""); setDocumentId(params.get("document") || "");
       setContentTarget(params.get("tab") === "content" ? {fileId: params.get("file") || undefined, blockId: params.get("block") || undefined, ordinal: params.has("ordinal") ? Number(params.get("ordinal")) : undefined} : undefined);
@@ -792,7 +782,6 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             onClose={backToResults}
             onDirtyChange={reportDirty}
             contentTarget={contentTarget}
-            onNavigate={value => {openSearchResult(value.documentId, value.contentTarget);}}
           />
         )}
       </>

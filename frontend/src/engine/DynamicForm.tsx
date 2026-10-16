@@ -28,6 +28,7 @@ type Props = {
   conditionValues?: Values;
   conditionFields?: Field[];
   displayMode?: "editor" | "viewer";
+  navigationPlacement?: "side";
 };
 type Choice = { id: string; label: string; active?: boolean };
 function Lookup({
@@ -445,47 +446,50 @@ function FieldControl({
 export function DynamicForm({ schema, values, onChange, ...props }: Props) {
   const navigationId = useId();
   const conditionFields = props.conditionFields || schema.sections.flatMap((section) => section.fields);
+  const hasNavigation = !props.prefix && schema.sections.length > 2;
+  const sideNavigation = hasNavigation && props.navigationPlacement === "side";
+  const sections = schema.sections.map((section) => {
+    const visible = section.fields.filter((field) =>
+      canRead(
+        field,
+        props.mode,
+        props.roles,
+        props.conditionValues || values,
+        props.displayMode,
+        conditionFields,
+      ),
+    );
+    return visible.length ? (
+      <section className="form-section" key={section.key} id={`${navigationId}-${section.key}`}>
+        {section.title && <h3>{section.title}</h3>}
+        <div className="form-grid">
+          {visible.map((field) => (
+            <FieldControl
+              {...props}
+              conditionFields={conditionFields}
+              key={field.key}
+              field={field}
+              values={values}
+              value={values[field.key]}
+              onChange={(value) =>
+                onChange?.({ ...values, [field.key]: value })
+              }
+            />
+          ))}
+        </div>
+      </section>
+    ) : null;
+  });
   return (
-    <div className="dynamic-form">
-      {!props.prefix && schema.sections.length > 2 && (
+    <div className={`dynamic-form${sideNavigation ? " dynamic-form-side-navigation" : ""}`}>
+      {hasNavigation && (
         <nav className="form-navigation" aria-label="Разделы формы">
           {schema.sections.filter(section => section.fields.some(field => canRead(field, props.mode, props.roles, props.conditionValues || values, props.displayMode, conditionFields))).map(section => (
             <a key={section.key} href={`#${navigationId}-${section.key}`}>{section.title}</a>
           ))}
         </nav>
       )}
-      {schema.sections.map((section) => {
-        const visible = section.fields.filter((field) =>
-          canRead(
-            field,
-            props.mode,
-            props.roles,
-            props.conditionValues || values,
-            props.displayMode,
-            conditionFields,
-          ),
-        );
-        return visible.length ? (
-          <section className="form-section" key={section.key} id={`${navigationId}-${section.key}`}>
-            {section.title && <h3>{section.title}</h3>}
-            <div className="form-grid">
-              {visible.map((field) => (
-                <FieldControl
-                  {...props}
-                  conditionFields={conditionFields}
-                  key={field.key}
-                  field={field}
-                  values={values}
-                  value={values[field.key]}
-                  onChange={(value) =>
-                    onChange?.({ ...values, [field.key]: value })
-                  }
-                />
-              ))}
-            </div>
-          </section>
-        ) : null;
-      })}
+      {sideNavigation ? <div className="form-sections">{sections}</div> : sections}
     </div>
   );
 }

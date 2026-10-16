@@ -2,17 +2,23 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "../auth/AuthProvider";
 import { Documents } from "./Documents";
+import type { FormSchema } from "../engine/schema";
 
 afterEach(() => {cleanup(); vi.unstubAllGlobals(); localStorage.clear(); window.history.replaceState(null, "", "/work");});
-function setup(mixedVersions = false) {
+function setup(mixedVersions = false, sectionNavigation = false) {
   let revision = 1;
-  const schema = {sections: [{key: "main", title: "Основное", fields: [
+  const schema: FormSchema = {sections: [{key: "main", title: "Основное", fields: [
     {key: "caption", label: "Наименование", type: "text", system: "title", editable: true},
     {key: "x_kind", label: "Категория", type: "text", filterable: true},
     {key: "x_topic", label: "Содержание", type: "text", filterable: true},
     {key: "x_owner", label: "Куратор", type: "user"},
     {key: "private", label: "Закрыто", type: "text", read_roles: ["admin"]},
   ]}], list_view: {columns: [{key: "x_kind", label: "Вид документа"}, {key: "x_topic", label: "Тема"}, {key: "x_owner", label: "Ответственный исполнитель"}]}};
+  if (sectionNavigation) schema.sections.push(
+    {key: "publication", title: "Публикация", fields: [{key: "published", label: "Место публикации", type: "text", editable: true}]},
+    {key: "control", title: "Контроль исполнения", fields: [{key: "result", label: "Результат", type: "text", editable: true}]},
+    {key: "restricted", title: "Закрытый раздел", fields: [{key: "secret", label: "Скрытое поле", type: "text", read_roles: ["admin"]}]},
+  );
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     let data: unknown = [];
     if (url.endsWith("/users/me")) data = {id: "layout-user", roles: ["editor"], csrf_token: "csrf"};
@@ -40,6 +46,30 @@ function setup(mixedVersions = false) {
 }
 const mode = (name: string) => screen.getByRole("radio", {name});
 const firstRow = () => screen.findByRole("row", {name: /Выбрать документ «Альфа»/});
+
+it("keeps the four working tabs and permission-aware section navigation without duplicate header metadata", async () => {
+  setup(false, true);
+  fireEvent.click(await firstRow());
+  await screen.findByRole("button", {name: "Редактировать карточку"});
+  const card = document.querySelector(".document-card") as HTMLElement;
+  expect(Array.from(card.querySelectorAll(":scope > .tabs button"), item => item.textContent)).toEqual(["Карточка", "Файлы и версии", "История изменений", "Содержание"]);
+  const header = card.querySelector(":scope > .toolbar")!;
+  expect(header.textContent).not.toContain("UUID:");
+  expect(header.textContent).not.toContain("редакция");
+  expect(header.textContent).not.toContain("Р-1");
+  const nav = within(card).getByRole("navigation", {name: "Разделы формы"});
+  expect(within(nav).getAllByRole("link").map(link => link.textContent)).toEqual(["Основное", "Публикация", "Контроль исполнения"]);
+  for (const link of within(nav).getAllByRole("link")) expect(document.getElementById(link.getAttribute("href")!.slice(1))).toBeTruthy();
+  expect(within(card).queryByText("Скрытое поле")).toBeNull();
+  expect(within(card).getByText("Альфа", {selector: ".field-value"})).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button", {name: "Редактировать карточку"}));
+  const input = screen.getByLabelText("Наименование");
+  fireEvent.change(input, {target: {value: "Черновик раздела"}});
+  window.history.pushState(null, "", window.location.pathname + window.location.search + nav.querySelector("a")!.getAttribute("href"));
+  fireEvent(window, new PopStateEvent("popstate"));
+  expect(screen.getByLabelText("Наименование")).toBe(input);
+  expect((input as HTMLInputElement).value).toBe("Черновик раздела");
+});
 
 it("uses one three-position control, selects on click and opens full card on double-click or Enter", async () => {
   setup();

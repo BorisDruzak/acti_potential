@@ -48,7 +48,7 @@ function setup(content: "documents" | "audit" = "documents", download = true) {
 async function openCard() {
   fireEvent.click(await screen.findByRole("button", { name: "Реестр A" }));
   fireEvent.click(await screen.findByRole("row", {name: /Выбрать документ/}));
-  await screen.findByText("UUID: d");
+  await screen.findByRole("button", {name: "Редактировать карточку"});
 }
 
 it("protects unsaved card edits from a separate file upload", async () => {

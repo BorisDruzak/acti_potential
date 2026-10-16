@@ -147,7 +147,7 @@ it("reader route exposes no mutation controls even when returned permissions inc
   fireEvent.click(
     await screen.findByRole("row", {name: /Выбрать документ/}),
   );
-  await screen.findByText("UUID: d");
+  await screen.findByRole("heading", {name: "Тестовый документ"});
   expect(screen.queryByRole("button", { name: "Создать документ" })).toBeNull();
   expect(
     screen.queryByRole("button", { name: "Редактировать карточку" }),

@@ -59,6 +59,9 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
       {key:'original',label:'Оригинал LAYOUT',type:'file',editable:true},
       ...Array.from({length:12},(_,i)=>({key:'extra'+i,label:'Сведения '+i,type:'textarea',editable:true})),
     ]}],list_view:{columns:[{key:'custom_kind',label:'Вид документа'},{key:'custom_topic',label:'Тема'},{key:'custom_owner',label:'Ответственный исполнитель'}]}};
+    const fields=schema.sections[0].fields;
+    schema.sections=[{key:'main',title:'Основные сведения',fields:fields.slice(0,7)},
+      ...['Публикация','Контроль исполнения','Делопроизводство','Подписанты и согласующие','Оригиналы и вложения'].map((title,index)=>({key:'section'+index,title,fields:fields.slice(7+index*2,index===4?undefined:9+index*2)}))];
     await json(ap,`/form-schemas/${version.id}`,'PUT',{schema});await json(ap,`/form-schemas/${version.id}/publish`,'POST',{});
     const roles={};
     for(const role of ['editor','viewer']) {
@@ -140,6 +143,20 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await dragTo(.7,false);await ep.keyboard.press('Escape');await ep.mouse.up();assert.equal(await separator.getAttribute('aria-valuenow'),original);
     await workspace.screenshot({path:path.join(outputDir,'compact-list.png')});
     pass('Mouse resizing reveals title/number/date then 4/5/6/7 columns; both edges snap modes; dragging restores split; Escape cancels');
+    stage='card section navigation and default table';
+    assert.equal(await ep.getByRole('columnheader').count(),3);
+    assert.deepEqual(await detail.locator('.document-card > .tabs button').allTextContents(),['Карточка','Файлы и версии','История изменений','Содержание']);
+    assert(!/UUID|редакция|LAYOUT-1/.test(await detail.locator('.document-card > .toolbar').innerText()));
+    const navigation=detail.getByRole('navigation',{name:'Разделы формы',exact:true});
+    await searchToggle.click();await detail.evaluate(el=>el.scrollTop=450);
+    const navBounds=await navigation.boundingBox(), fieldBounds=await detail.locator('.form-sections').boundingBox(), paneBounds=await detail.boundingBox();
+    assert(navBounds.x>=fieldBounds.x+fieldBounds.width);assert(navBounds.y>=paneBounds.y && navBounds.y+navBounds.height<=paneBounds.y+paneBounds.height);
+    await navigation.getByRole('link',{name:'Оригиналы и вложения',exact:true}).click();
+    await ep.waitForFunction(()=>{const id=decodeURIComponent(location.hash.slice(1)),a=document.getElementById(id)?.getBoundingClientRect(),b=document.querySelector('.document-detail-body')?.getBoundingClientRect();return a && b && a.top>=b.top && a.top<b.bottom;});
+    await ep.screenshot({path:path.join(outputDir,'sticky-navigation.png'),fullPage:true,mask:[ep.locator('.account')]});
+    await navigation.getByRole('link',{name:'Основные сведения',exact:true}).click();await searchToggle.click();
+    await detail.evaluate(el=>el.scrollTop=0);
+    pass('Compact table has three sortable headers; only four card tabs; metadata removed; right-side section navigation stays visible and anchors work');
     stage='draft and scroll';
     await list.evaluate(el=>el.scrollTop=180);await detail.evaluate(el=>el.scrollTop=240);await delay(100);
     const before=await ep.evaluate(()=>[document.querySelector('[aria-label="Список документов"]').scrollTop,document.querySelector('[aria-label="Содержимое карточки"]').scrollTop]);assert(before.every(x=>x>0));
@@ -148,6 +165,9 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
     await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).fill('Компоновка 01. Сохранённый документ');
     await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).evaluate(el=>window.layoutInput=el);
+    await navigation.getByRole('link',{name:'Контроль исполнения',exact:true}).focus();await ep.keyboard.press('Enter');
+    await ep.goBack();await ep.goForward();
+    assert.equal(await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).evaluate(el=>el===window.layoutInput),true);
     await dragTo(.7);await dragTo(.35);
     await searchToggle.click();await searchToggle.click();
     for(const name of ['Таблица','Карточка','Вместе'])await mode(name).click();
@@ -186,6 +206,8 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await ep.reload();await dismissNav(ep);assert.equal(await mode('Карточка').getAttribute('aria-checked'),'true');
     await ep.getByRole('button',{name:'Показать список документов',exact:true}).click();assert.equal(await separator.getAttribute('aria-valuenow'),savedWidth);
     await ep.setViewportSize({width:390,height:844});for(const name of ['Таблица','Вместе','Карточка']){await mode(name).click();assert(await ep.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
+    assert.equal(await navigation.evaluate(el=>getComputedStyle(el).flexDirection),'row');
+    await navigation.getByRole('link',{name:'Основные сведения',exact:true}).click();
     await mode('Вместе').click();assert.equal(await separator.getAttribute('aria-orientation'),'horizontal');await separator.focus();await ep.keyboard.press('End');assert.equal(await mode('Таблица').getAttribute('aria-checked'),'true');assert(await list.evaluate(el=>el.scrollWidth>el.clientWidth));await ep.screenshot({path:path.join(outputDir,'mobile.png'),fullPage:true,mask:[ep.locator('.account')]});
     pass('Real search, cursor page, preserved URL, persisted preference and mobile horizontal scrolling');
     stage='viewer ACL';await vp.goto(`${origin}/view?registry_id=${registry.id}&document_type_id=${type.id}&sort=title&direction=asc`);await dismissNav(vp);
