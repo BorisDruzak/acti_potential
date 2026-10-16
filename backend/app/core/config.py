@@ -12,3 +12,9 @@ class Settings(BaseSettings):
     secure_cookie: bool = True
     source_sha: str = "development"
     trusted_proxy_cidrs: str = ""
+    oidc_enabled: bool = False
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: SecretStr = SecretStr("")
+    oidc_ca_file: str = ""
+    oidc_label: str = "Корпоративная учётная запись"

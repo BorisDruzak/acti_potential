@@ -32,11 +32,12 @@ def test_clean_repeat_and_concurrent_upgrade():
         "user_roles",
         "local_credentials",
         "auth_sessions",
+        "external_identities",
         "audit_events",
         "outbox_events",
         "processed_events",
     } <= set(inspect(engine).get_table_names())
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0010_service_api"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0011_oidc_identity"
         assert conn.scalar(text("SELECT count(*) FROM roles")) == 4
     engine.dispose()
