@@ -85,13 +85,13 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     for(const name of ['Таблица','Карточка','Вместе'])await mode(name).click();
     assert.deepEqual(await ep.evaluate(()=>[document.querySelector('[aria-label="Список документов"]').scrollTop,document.querySelector('[aria-label="Содержимое карточки"]').scrollTop]),before);
     await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
-    await ep.getByLabel('Наименование LAYOUT',{exact:false}).fill('Компоновка 01. Сохранённый документ');
-    await ep.getByLabel('Наименование LAYOUT',{exact:false}).evaluate(el=>window.layoutInput=el);
+    await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).fill('Компоновка 01. Сохранённый документ');
+    await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).evaluate(el=>window.layoutInput=el);
     for(const name of ['Таблица','Карточка','Вместе'])await mode(name).click();
-    assert.equal(await ep.getByLabel('Наименование LAYOUT',{exact:false}).evaluate(el=>el===window.layoutInput),true);
+    assert.equal(await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).evaluate(el=>el===window.layoutInput),true);
     await ep.getByRole('button',{name:'Файлы и версии',exact:true}).click();await mode('Карточка').click();await mode('Вместе').click();assert((await ep.getByRole('button',{name:'Файлы и версии',exact:true}).getAttribute('class')).includes('active'));
     await ep.getByRole('button',{name:'Карточка',exact:true}).click();ep.once('dialog',dialog=>dialog.dismiss());await row(docs[1].id).click();
-    assert.equal(await ep.getByLabel('Наименование LAYOUT',{exact:false}).inputValue(),'Компоновка 01. Сохранённый документ');
+    assert.equal(await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).inputValue(),'Компоновка 01. Сохранённый документ');
     await mode('Карточка').click();
     const save=ep.waitForResponse(r=>new URL(r.url()).pathname===`/api/v1/documents/${docs[0].id}`&&r.request().method()==='PUT');
     await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).click();assert.equal((await save).status(),200);
@@ -114,7 +114,8 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await ep.getByRole('button',{name:'Вперёд',exact:true}).click();await ep.getByText('Страница 2',{exact:true}).waitFor();
     const url=ep.url();for(const name of ['Таблица','Карточка','Вместе'])await mode(name).click();assert.equal(ep.url(),url);assert.equal(await ep.getByRole('searchbox').inputValue(),'Компоновка');
     await ep.getByRole('button',{name:'Назад',exact:true}).click();
-    for(const name of ['Таблица','Вместе','Карточка']){await mode(name).click();await detail.evaluate(el=>el.scrollTop=0);await list.evaluate(el=>el.scrollTop=0);await ep.screenshot({path:path.join(outputDir,name+'.png'),fullPage:true,mask:[ep.locator('.account')]});}
+    await ep.waitForFunction(()=>document.querySelector('.document-list-pane')?.getAttribute('aria-busy')==='false' && document.querySelectorAll('tbody tr[data-document-id]').length===20);
+    for(const name of ['Таблица','Вместе','Карточка']){await mode(name).click();await ep.locator('.document-detail-body').evaluate(el=>el.scrollTop=0);await ep.locator('.document-list-body .document-pane-scroll').evaluate(el=>el.scrollTop=0);await ep.screenshot({path:path.join(outputDir,name+'.png'),fullPage:true,mask:[ep.locator('.account')]});}
     await ep.reload();await dismissNav(ep);assert.equal(await mode('Карточка').getAttribute('aria-checked'),'true');
     await ep.setViewportSize({width:390,height:844});for(const name of ['Таблица','Вместе','Карточка']){await mode(name).click();assert(await ep.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
     await mode('Таблица').click();assert(await list.evaluate(el=>el.scrollWidth>el.clientWidth));await ep.screenshot({path:path.join(outputDir,'mobile.png'),fullPage:true,mask:[ep.locator('.account')]});
