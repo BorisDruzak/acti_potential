@@ -177,8 +177,9 @@ services:
       KC_DB_POOL_MIN_SIZE: "1"
       KC_DB_POOL_MAX_SIZE: "8"
       KC_TRUSTSTORE_PATHS: /etc/acti-idp-trust
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${ACTI_IDP_BOOTSTRAP_ADMIN:-}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${ACTI_IDP_BOOTSTRAP_PASSWORD:-}
+      # Unresolved null entries are omitted, rather than passed as empty strings.
+      KC_BOOTSTRAP_ADMIN_USERNAME:
+      KC_BOOTSTRAP_ADMIN_PASSWORD:
       JAVA_OPTS_KC_HEAP: -XX:InitialRAMPercentage=20 -XX:MaxRAMPercentage=60
     depends_on:
       postgres:

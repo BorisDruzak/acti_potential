@@ -26,8 +26,8 @@ merge accounts. Local emergency administration remains available.
   Never commit realm exports containing secrets or private signing keys.
 
 Set `COMPOSE_PROFILES=idp`, `ACTI_IDP_DB_PASSWORD`, and the temporary bootstrap
-administrator variables `ACTI_IDP_BOOTSTRAP_ADMIN` /
-`ACTI_IDP_BOOTSTRAP_PASSWORD`. After creating a permanent protected provider
+administrator variables `KC_BOOTSTRAP_ADMIN_USERNAME` /
+`KC_BOOTSTRAP_ADMIN_PASSWORD`. After creating a permanent protected provider
 administrator, remove bootstrap credentials from the runtime environment.
 
 Create realm `acti` with self-registration and email-based login disabled,

@@ -126,8 +126,8 @@ def prepare(values, helper):
     require(all(privileges.values()), "idp_database_isolation_failed")
     values.update({"COMPOSE_PROFILES": "idp", "ACTI_IDP_DB_PASSWORD": state["db_password"]})
     if not state.get("configured"):
-        values.update({"ACTI_IDP_BOOTSTRAP_ADMIN": state["bootstrap"]["login"],
-                       "ACTI_IDP_BOOTSTRAP_PASSWORD": state["bootstrap"]["password"]})
+        values.update({"KC_BOOTSTRAP_ADMIN_USERNAME": state["bootstrap"]["login"],
+                       "KC_BOOTSTRAP_ADMIN_PASSWORD": state["bootstrap"]["password"]})
     save_env(values)
     return {"status": "prepared", "isolation": privileges}
 
@@ -223,14 +223,23 @@ def configure(values, helper):
             "idp_client_secret_mismatch")
     # Keycloak 26 drops undeclared attributes. The ownership marker is admin-only.
     profile = request("GET", "/admin/realms/acti/users/profile", token=token)
+    # AD may legitimately lack these fields; READ_ONLY federation cannot fill them.
+    # ACTI authorizes the linked UUID, never the profile's name or email.
+    changed_profile = False
+    for item in profile["attributes"]:
+        if item["name"] in {"email", "firstName", "lastName"} and "required" in item:
+            item.pop("required")
+            changed_profile = True
     markers = [item for item in profile["attributes"] if item["name"] == "actiManaged"]
     if not markers:
         profile["attributes"].append({"name": "actiManaged", "multivalued": False,
                                       "permissions": {"view": ["admin"], "edit": ["admin"]}})
-        request("PUT", "/admin/realms/acti/users/profile", profile, token)
+        changed_profile = True
     else:
         require(len(markers) == 1 and markers[0].get("permissions") == {
             "view": ["admin"], "edit": ["admin"]}, "unsafe_idp_ownership_attribute")
+    if changed_profile:
+        request("PUT", "/admin/realms/acti/users/profile", profile, token)
     for account in state["pilot_accounts"]:
         users = request("GET", "/admin/realms/acti/users?" + urlencode({
             "username": account["login"], "exact": "true"}), token=token)
@@ -258,6 +267,8 @@ def configure(values, helper):
                    "ACTI_OIDC_LABEL": "Единый вход ACTI (пилот)"})
     values.pop("ACTI_IDP_BOOTSTRAP_ADMIN", None)
     values.pop("ACTI_IDP_BOOTSTRAP_PASSWORD", None)
+    values.pop("KC_BOOTSTRAP_ADMIN_USERNAME", None)
+    values.pop("KC_BOOTSTRAP_ADMIN_PASSWORD", None)
     save_env(values)
     return {"status": "configured", "pilot_accounts": len(state["pilot_accounts"]),
             "domain_federation": False, "restart_required": True}

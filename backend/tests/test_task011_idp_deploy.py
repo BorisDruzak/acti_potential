@@ -30,6 +30,9 @@ def test_idp_profile_never_exposes_provider_or_worker_secrets():
     assert "--optimized" in provider["command"]
     assert "--http-enabled=true" in provider["command"]
     assert provider["environment"]["KC_HOSTNAME"] == "https://example.invalid/idp"
+    # Keycloak rejects present-but-empty bootstrap values after initial setup.
+    assert provider["environment"].get("KC_BOOTSTRAP_ADMIN_USERNAME") is None
+    assert provider["environment"].get("KC_BOOTSTRAP_ADMIN_PASSWORD") is None
     for name in ("worker", "migrate"):
         assert not any(key.startswith("ACTI_OIDC_") for key in services[name]["environment"])
         assert "identity" not in services[name]["networks"]
@@ -50,3 +53,4 @@ def test_idp_proxy_is_lazy_and_preserves_tls_origin():
     assert "Content-Security-Policy" not in location
     image = (ROOT / "deploy/keycloak.Dockerfile").read_text()
     assert "@sha256:" in image and "kc.sh build --db=postgres --health-enabled=true" in image
+    assert "--http-relative-path=/idp" in image and "--http-management-relative-path=/" in image
