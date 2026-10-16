@@ -1,5 +1,6 @@
 """Real PostgreSQL coverage for the IdP portion of external backup manifests."""
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -11,6 +12,103 @@ MODULE_PATH = Path(__file__).resolve().parents[2] / "deploy/restore-verify.py"
 spec = importlib.util.spec_from_file_location("acti_idp_restore_verify", MODULE_PATH)
 restore = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(restore)
+
+
+def catalog_reader(connection):
+    """Run read-only verifier catalogs inside the test's rollback transaction."""
+    def sql(database, query):
+        rows = []
+        for statement in query.splitlines():
+            if statement.startswith("SET LOCAL "):
+                connection.exec_driver_sql(statement)
+        query = "\n".join(
+            line for line in query.splitlines()
+            if line.strip() and not line.startswith(("BEGIN ", "COMMIT;", "SET LOCAL "))
+        )
+        statements = query.splitlines() if query.startswith("SELECT json_build_object('kind'") else [query]
+        for statement in statements:
+            rows.append(json.dumps(connection.exec_driver_sql(statement).scalar_one()))
+        return "\n".join(rows).encode()
+    return sql
+
+
+@pytest.mark.parametrize("mutation", ["equivalent", "order", "name", "type", "default", "nullable", "generated"])
+def test_real_keycloak_dropped_slots_preserve_only_equivalent_visible_columns(
+    factory, monkeypatch, mutation
+):
+    verifier = object.__new__(restore.Verifier)
+    engine = factory.kw["bind"]
+    with engine.begin() as connection:
+        monkeypatch.setattr(verifier, "sql", catalog_reader(connection))
+        connection.exec_driver_sql("CREATE SCHEMA keycloak")
+        connection.exec_driver_sql(
+            "CREATE TABLE keycloak.column_history (id integer PRIMARY KEY, obsolete text, "
+            "title varchar(30) NOT NULL DEFAULT 'active', obsolete2 boolean, enabled boolean DEFAULT true)"
+        )
+        connection.exec_driver_sql("ALTER TABLE keycloak.column_history DROP COLUMN obsolete, DROP COLUMN obsolete2")
+        physical = connection.exec_driver_sql(
+            "SELECT attnum FROM pg_attribute WHERE attrelid='keycloak.column_history'::regclass "
+            "AND attnum>0 AND NOT attisdropped ORDER BY attnum"
+        ).scalars().all()
+        assert physical == [1, 3, 5]
+        before = verifier.schema(restore.SOURCE_DATABASE)
+        connection.exec_driver_sql("DROP TABLE keycloak.column_history")
+        columns = ["id integer PRIMARY KEY", "title varchar(30) NOT NULL DEFAULT 'active'", "enabled boolean DEFAULT true"]
+        if mutation == "order":
+            columns[1], columns[2] = columns[2], columns[1]
+        elif mutation == "name":
+            columns[1] = columns[1].replace("title ", "renamed_title ")
+        elif mutation == "type":
+            columns[1] = columns[1].replace("varchar(30)", "varchar(31)")
+        elif mutation == "default":
+            columns[1] = columns[1].replace("'active'", "'changed'")
+        elif mutation == "nullable":
+            columns[1] = columns[1].replace(" NOT NULL", "")
+        elif mutation == "generated":
+            columns[2] = "enabled boolean GENERATED ALWAYS AS (id > 0) STORED"
+        connection.exec_driver_sql("CREATE TABLE keycloak.column_history (" + ",".join(columns) + ")")
+        assert connection.exec_driver_sql(
+            "SELECT attnum FROM pg_attribute WHERE attrelid='keycloak.column_history'::regclass "
+            "AND attnum>0 AND NOT attisdropped ORDER BY attnum"
+        ).scalars().all() == [1, 2, 3]
+        after = verifier.schema(restore.SOURCE_DATABASE)
+        assert (before == after) == (mutation == "equivalent")
+        connection.rollback()
+
+
+def test_public_only_schema_digest_keeps_legacy_physical_column_slots(factory, monkeypatch):
+    verifier = object.__new__(restore.Verifier)
+    engine = factory.kw["bind"]
+    with engine.begin() as connection:
+        reader = catalog_reader(connection)
+        calls = []
+
+        def capture(database, query):
+            calls.append(query)
+            return reader(database, query)
+
+        monkeypatch.setattr(verifier, "sql", capture)
+        # A public table's quoted name must not accidentally select Keycloak rules.
+        connection.exec_driver_sql('CREATE TABLE public."keycloak.legacy" (id integer, obsolete text, title text)')
+        connection.exec_driver_sql('ALTER TABLE public."keycloak.legacy" DROP COLUMN obsolete')
+        fingerprint = verifier.schema(restore.SOURCE_DATABASE)
+        # The pre-fix fingerprint used the raw physical attnum for every schema.
+        legacy_query = calls[0].replace(
+            "CASE WHEN n.nspname='keycloak' THEN (SELECT count(*)::smallint FROM pg_attribute visible "
+            "WHERE visible.attrelid=a.attrelid AND visible.attnum>0 AND NOT visible.attisdropped "
+            "AND visible.attnum<=a.attnum) ELSE a.attnum END", "a.attnum",
+        )
+        assert legacy_query != calls[0]
+        definition = json.loads(reader(restore.SOURCE_DATABASE, legacy_query))
+        for constraint in definition.get("constraints") or []:
+            constraint[2] = restore.canonical_constraint(constraint[2])
+        assert fingerprint == {
+            "revision": definition["revision"],
+            "digest": hashlib.sha256(json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        }
+        public_columns = [row for row in definition["columns"] if row[0] == "keycloak.legacy"]
+        assert [row[2] for row in public_columns] == [1, 3]
+        connection.rollback()
 
 
 def test_real_postgresql_creates_owned_clone_with_connections_closed_before_acl(
@@ -84,26 +182,7 @@ def test_real_catalog_includes_keycloak_data_and_schema_with_quoted_names(
     verifier = object.__new__(restore.Verifier)
     engine = factory.kw["bind"]
     with engine.begin() as connection:
-        def sql(database, query):
-            rows = []
-            for statement in query.splitlines():
-                if not statement.strip() or statement.startswith(("BEGIN ", "COMMIT;")):
-                    continue
-                # Catalog SELECTs span lines; execute them together below.
-                if statement.startswith("SET LOCAL "):
-                    connection.exec_driver_sql(statement)
-            query = "\n".join(
-                line for line in query.splitlines()
-                if line.strip() and not line.startswith(("BEGIN ", "COMMIT;", "SET LOCAL "))
-            )
-            # Each manifest SELECT is one line; schema SELECT spans multiple lines.
-            statements = query.splitlines() if query.startswith("SELECT json_build_object('kind'") else [query]
-            for statement in statements:
-                value = connection.exec_driver_sql(statement).scalar_one()
-                rows.append(json.dumps(value))
-            return "\n".join(rows).encode()
-
-        monkeypatch.setattr(verifier, "sql", sql)
+        monkeypatch.setattr(verifier, "sql", catalog_reader(connection))
         before = verifier.schema(restore.SOURCE_DATABASE)
         connection.exec_driver_sql("CREATE SCHEMA keycloak")
         connection.exec_driver_sql(
