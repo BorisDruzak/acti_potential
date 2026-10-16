@@ -498,7 +498,7 @@ def token(value):
 def related(session, actor, document_id=None, process_version_id=None, step_key=None, mode=None):
     dtype, category, values, form_id = None, None, {}, None
     if document_id:
-        document = get_document(session, actor, document_id)
+        document = get_document(session, actor, document_id, mode=mode)
         schema = get_schema(session, document)
         values = redact_values(schema, raw_values(document, schema), actor, mode)
         dtype, category, form_id = (

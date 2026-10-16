@@ -44,7 +44,7 @@ def display_values(session, schema, values, actor, mode=None, *, exporting=False
             if cache is not None:
                 return cache.get((kind, str(value)), "Недоступный документ")
             try:
-                linked = get_document(session, actor, UUID(str(value)))
+                linked = get_document(session, actor, UUID(str(value)), mode=mode)
                 linked_schema = get_schema(session, linked)
                 permitted = redact_values(linked_schema, raw_values(linked, linked_schema), actor, mode)
                 for section in linked_schema.get("sections", []):

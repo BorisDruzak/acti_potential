@@ -29,6 +29,8 @@ def indexed_corpus(factory, count=80):
         identities = []
         for _ in range(count):
             row = Document(
+                card_state="published",
+                publication_targets=["internal", "shared"],
                 id=uuid4(),
                 registry_id=original.registry_id,
                 document_type_id=original.document_type_id,

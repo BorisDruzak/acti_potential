@@ -129,7 +129,8 @@ def test_export_checks_each_historical_schema_column_and_group_child(client, fac
                                    state="published", schema_data=newer)
         db.add(second_schema)
         db.flush()
-        db.add(Document(registry_id=first.registry_id, document_type_id=first.document_type_id,
+        db.add(Document(card_state="published", publication_targets=["internal", "shared"],
+                        registry_id=first.registry_id, document_type_id=first.document_type_id,
                         schema_version_id=second_schema.id, created_by=sample["editor"].id,
                         custom_data={"public": "NEW-NONEXPORTABLE", "rows": []}))
     sign_in_as(client, factory, sample["viewer"])

@@ -26,6 +26,7 @@ class SearchParameters(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
     status: str | None = Field(None, max_length=100)
+    card_state: Literal["draft", "published"] | None = None
     filters: str | None = Field(None, max_length=8000)
     sort: str = Field("updated_at", max_length=110)
     direction: Literal["asc", "desc"] = "desc"
@@ -47,7 +48,7 @@ def fields_for(session, actor, mode=None, *, registry_id=None, document_type_id=
         and "read" in permissions_for(session, actor, registry.id)
         for tid in registry.document_type_ids
     }
-    accessible = select(Document.schema_version_id).where(accessible_document_clause(session, actor))
+    accessible = select(Document.schema_version_id).where(accessible_document_clause(session, actor, mode))
     if registry_id:
         accessible = accessible.where(Document.registry_id == registry_id)
     query = select(FormSchema).where(
@@ -170,7 +171,9 @@ def custom_filter(session, actor, schema_id, field, value):
 
 
 def search_query(session, actor, params):
-    query = select(Document).where(accessible_document_clause(session, actor))
+    query = select(Document).where(accessible_document_clause(session, actor, params.mode))
+    if params.card_state:
+        query = query.where(Document.card_state == params.card_state)
     if params.registry_id:
         query = query.where(Document.registry_id == params.registry_id)
     if params.document_type_id:

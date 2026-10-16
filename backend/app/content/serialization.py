@@ -92,7 +92,7 @@ def summaries(session, actor, documents, mode):
     related = list(
         session.scalars(
             select(Document).where(
-                Document.id.in_(linked), accessible_document_clause(session, actor)
+                Document.id.in_(linked), accessible_document_clause(session, actor, mode)
             )
         )
     )

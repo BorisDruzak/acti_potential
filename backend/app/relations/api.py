@@ -114,7 +114,7 @@ def basis(
 
 @router.get("/documents/{document_id}/relation-options")
 def options(document_id: UUID, session: Db, actor: Actor, mode: Mode | None = None):
-    document = get_document(session, actor, document_id)
+    document = get_document(session, actor, document_id, mode=mode)
     permissions = document_permissions(session, actor, document)
     versions = {}
     if "download" in permissions:
@@ -259,7 +259,7 @@ def graph(
     state: State | None = None,
     limit: int = Query(100, ge=1, le=200),
 ):
-    seed = get_document(session, actor, document_id)
+    seed = get_document(session, actor, document_id, mode=mode)
     nodes, edges, seen, frontier, visited, truncated = {}, [], set(), {document_id}, set(), False
 
     def add_node(document):

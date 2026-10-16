@@ -116,6 +116,9 @@ class Document(Base):
         UniqueConstraint("source_database", "source_entity", "source_id"),
         Index("ix_documents_registry_date_id", "registry_id", "reg_date", "id"),
         Index("ix_documents_custom_data", "custom_data", postgresql_using="gin"),
+        Index("ix_documents_publication_targets", "publication_targets", postgresql_using="gin"),
+        CheckConstraint("card_state IN ('draft','published')", name="document_card_state"),
+        CheckConstraint("jsonb_typeof(publication_targets) = 'array' AND publication_targets <@ '[\"internal\",\"shared\"]'::jsonb AND jsonb_array_length(publication_targets) <= 2", name="document_publication_targets"),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     registry_id: Mapped[UUID] = mapped_column(ForeignKey("registries.id"), index=True)
@@ -125,6 +128,8 @@ class Document(Base):
     reg_date: Mapped[date | None] = mapped_column(Date, index=True)
     title: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(100), index=True)
+    card_state: Mapped[str] = mapped_column(String(20), default="draft", server_default="draft", index=True)
+    publication_targets: Mapped[list] = mapped_column(JSONB, default=lambda: ["internal"], server_default=text("'[\"internal\"]'::jsonb"))
     custom_data: Mapped[dict] = mapped_column(JSONB, default=dict)
     revision: Mapped[int] = mapped_column(Integer, default=1)
     current_version: Mapped[int] = mapped_column(Integer, default=0)
@@ -144,6 +149,8 @@ class MetadataRevision(Base):
     document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id"), index=True)
     revision: Mapped[int] = mapped_column(Integer)
     values: Mapped[dict] = mapped_column(JSONB)
+    card_state: Mapped[str | None] = mapped_column(String(20))
+    publication_targets: Mapped[list | None] = mapped_column(JSONB)
     created_by: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

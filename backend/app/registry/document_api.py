@@ -87,6 +87,8 @@ def create_document(data: DocumentCreate, request: Request, session: Db, actor: 
         document_type_id=data.document_type_id,
         schema_version_id=schema.id,
         created_by=actor.id,
+        card_state=data.card_state,
+        publication_targets=data.publication_targets,
     )
     session.add(document)
     session.flush()
@@ -109,6 +111,9 @@ def create_document(data: DocumentCreate, request: Request, session: Db, actor: 
         trusted_upload_ids=trusted,
     )
     write_values(document, schema.schema_data, values)
+    from app.registry.card_numbers import sync_card_number
+
+    sync_card_number(session, request, actor, document, schema.schema_data)
     append_history(session, document, schema.schema_data, actor)
     emit(
         session,
@@ -130,7 +135,7 @@ def create_document(data: DocumentCreate, request: Request, session: Db, actor: 
 def read_document(
     document_id: UUID, session: Db, actor: Actor, mode: Literal["editor", "viewer"] | None = None
 ):
-    return document_output(session, get_document(session, actor, document_id), actor, mode)
+    return document_output(session, get_document(session, actor, document_id, mode=mode), actor, mode)
 
 
 @router.put("/documents/{document_id}", response_model=DocumentOutput)
@@ -139,6 +144,12 @@ def update_document(
 ):
     document = get_document(session, actor, document_id, "update", lock=True)
     check_revision(document, data.revision)
+    if document.card_state == "published" and data.card_state == "draft":
+        fail(409, "card_already_published", "Официальную карточку нельзя вернуть в черновик")
+    if data.card_state is not None:
+        document.card_state = data.card_state
+    if data.publication_targets is not None:
+        document.publication_targets = data.publication_targets
     schema = get_schema(session, document)
     previous = raw_values(document, schema)
     document.revision += 1
@@ -176,6 +187,9 @@ def update_document(
         trusted_upload_ids=trusted,
     )
     write_values(document, schema, values)
+    from app.registry.card_numbers import sync_card_number
+
+    sync_card_number(session, request, actor, document, schema)
     append_history(session, document, schema, actor)
     emit(
         session,
@@ -196,7 +210,7 @@ def history(
 ):
     from app.registry.policy import redact_values
 
-    document = get_document(session, actor, document_id)
+    document = get_document(session, actor, document_id, mode=mode)
     schema = get_schema(session, document)
     rows = session.scalars(
         select(MetadataRevision)
@@ -210,6 +224,8 @@ def history(
             "created_by": row.created_by,
             "created_at": row.created_at,
             "values": redact_values(schema, row.values, actor, mode),
+            "card_state": row.card_state,
+            "publication_targets": row.publication_targets,
         }
         for row in rows
     ]

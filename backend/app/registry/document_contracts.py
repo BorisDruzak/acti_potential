@@ -2,11 +2,20 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class CardPublicationInput(Input):
+    @field_validator("publication_targets", check_fields=False)
+    @classmethod
+    def distinct_targets(cls, value):
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("Publication targets must be unique")
+        return value
 
 
 class AttachmentCreate(Input):
@@ -16,18 +25,22 @@ class AttachmentCreate(Input):
     content_base64: str = Field(max_length=35000000, repr=False)
 
 
-class DocumentCreate(Input):
+class DocumentCreate(CardPublicationInput):
     registry_id: UUID
     document_type_id: UUID
     schema_version_id: UUID | None = None
     values: dict[str, Any]
     files: list[AttachmentCreate] = Field(default_factory=list, max_length=100)
+    card_state: Literal["draft", "published"] = "draft"
+    publication_targets: list[Literal["internal", "shared"]] = Field(default_factory=lambda: ["internal"], max_length=2)
 
 
-class DocumentUpdate(Input):
+class DocumentUpdate(CardPublicationInput):
     revision: int = Field(ge=1)
     values: dict[str, Any]
     files: list[AttachmentCreate] = Field(default_factory=list, max_length=100)
+    card_state: Literal["draft", "published"] | None = None
+    publication_targets: list[Literal["internal", "shared"]] | None = Field(None, max_length=2)
 
 
 class FileOutput(BaseModel):
@@ -51,6 +64,8 @@ class DocumentSummary(BaseModel):
     reg_date: date | None
     title: str | None
     status: str | None
+    card_state: Literal["draft", "published"]
+    publication_targets: list[Literal["internal", "shared"]]
     revision: int
     current_version: int
     created_at: datetime
@@ -77,6 +92,8 @@ class HistoryOutput(BaseModel):
     id: UUID
     revision: int
     values: dict[str, Any]
+    card_state: Literal["draft", "published"] | None = None
+    publication_targets: list[Literal["internal", "shared"]] | None = None
     created_by: UUID
     created_at: datetime
 

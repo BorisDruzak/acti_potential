@@ -317,7 +317,7 @@ def history(
     service.require(session, actor, series, "view")
     if not service.entry_visible(session, actor, entry):
         fail(404, "number_entry_not_found", "Номер не найден")
-    privileged = bool(actor.roles & {"admin", "editor", "user"})
+    privileged = bool(actor.roles & {"admin", "editor"})
     return {
         "items": [
             {

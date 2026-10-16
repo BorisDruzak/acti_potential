@@ -5885,6 +5885,25 @@
             ],
             "title": "Status"
           },
+          "card_state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published"
+            ],
+            "title": "Card State"
+          },
+          "publication_targets": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "internal",
+                "shared"
+              ]
+            },
+            "type": "array",
+            "title": "Publication Targets"
+          },
           "values": {
             "additionalProperties": true,
             "type": "object",
@@ -5914,6 +5933,8 @@
           "current_version",
           "created_at",
           "updated_at",
+          "card_state",
+          "publication_targets",
           "values",
           "display_values",
           "permissions"
@@ -6021,6 +6042,21 @@
               }
             ],
             "title": "Status"
+          },
+          "card_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "published"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card State"
           },
           "reg_number": {
             "anyOf": [

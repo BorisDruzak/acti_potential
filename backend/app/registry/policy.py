@@ -10,9 +10,9 @@ ACTIONS = CONTENT_ACTIONS | {"manage"}
 
 
 def role_actions(actor):
-    if actor.roles & {"admin", "editor", "user"}:
+    if actor.roles & {"admin", "editor"}:
         return CONTENT_ACTIONS
-    if "viewer" in actor.roles:
+    if actor.roles & {"viewer", "user"}:
         return frozenset({"read", "download"})
     return frozenset()
 
@@ -27,7 +27,16 @@ def permissions_for(session, actor, registry_id) -> set[str]:
     return permissions
 
 
+def publication_visible(actor, document, mode=None):
+    return bool(
+        actor.roles & {"admin", "editor"} and mode != "viewer"
+        or document.card_state == "published" and "shared" in (document.publication_targets or [])
+    )
+
+
 def document_permissions(session, actor, document) -> set[str]:
+    if not publication_visible(actor, document):
+        return set()
     permissions = permissions_for(session, actor, document.registry_id)
     restricted = session.scalar(select(exists().where(DocumentACL.document_id == document.id)))
     if restricted:
@@ -36,7 +45,13 @@ def document_permissions(session, actor, document) -> set[str]:
     return permissions
 
 
-def accessible_document_clause(session, actor):
+def publication_clause(actor, mode=None):
+    if actor.roles & {"admin", "editor"} and mode != "viewer":
+        return Document.id.is_not(None)
+    return and_(Document.card_state == "published", Document.publication_targets.contains(["shared"]))
+
+
+def accessible_document_clause(session, actor, mode=None):
     if "read" not in role_actions(actor):
         return Document.id.is_(None)
     registry = exists().where(
@@ -50,17 +65,17 @@ def accessible_document_clause(session, actor):
         DocumentACL.user_id == actor.id,
         DocumentACL.permissions.contains(["read"]),
     )
-    clauses = [registry, or_(~restricted, individual)]
+    clauses = [registry, or_(~restricted, individual), publication_clause(actor, mode)]
     if actor.scoped_registry_ids is not None:
         clauses.append(Document.registry_id.in_(actor.scoped_registry_ids))
     return and_(*clauses)
 
 
 def field_readable(field, actor, mode=None):
-    mode = mode or ("editor" if actor.roles & {"admin", "editor", "user"} else "viewer")
-    if not actor.roles & {"admin", "editor", "user"}:
+    mode = mode or ("editor" if actor.roles & {"admin", "editor"} else "viewer")
+    if not actor.roles & {"admin", "editor"}:
         mode = "viewer"
-    effective_roles = actor.roles | ({"editor"} if "user" in actor.roles else set())
+    effective_roles = actor.roles
     roles = field.get("read_roles") or []
     modes = field.get("modes") or []
     if roles and not effective_roles.intersection(roles):
@@ -72,9 +87,10 @@ def field_readable(field, actor, mode=None):
 
 def field_writable(field, actor):
     roles = field.get("write_roles") or []
-    effective_roles = actor.roles | ({"editor"} if "user" in actor.roles else set())
+    effective_roles = actor.roles
     return (
-        field_readable(field, actor, "editor")
+        bool(actor.roles & {"admin", "editor"})
+        and field_readable(field, actor, "editor")
         and field.get("editable", True)
         and (not roles or bool(effective_roles.intersection(roles)))
     )

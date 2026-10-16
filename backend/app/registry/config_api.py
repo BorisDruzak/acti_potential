@@ -256,7 +256,7 @@ def _readable_reference_ids(session, actor, mode=None):
     contexts.update(
         session.execute(
             select(Document.registry_id, Document.schema_version_id)
-            .where(accessible_document_clause(session, actor))
+            .where(accessible_document_clause(session, actor, mode))
             .distinct()
         ).all()
     )

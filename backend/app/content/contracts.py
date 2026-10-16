@@ -19,6 +19,7 @@ class SearchInput(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
     status: str | None = Field(None, max_length=100)
+    card_state: Literal["draft", "published"] | None = None
     reg_number: str | None = Field(None, max_length=255)
     filters: dict = Field(default_factory=dict, max_length=20)
     fuzzy: bool = True
@@ -46,6 +47,7 @@ class SearchInput(BaseModel):
             date_from=self.date_from,
             date_to=self.date_to,
             status=self.status,
+            card_state=self.card_state,
             reg_number=self.reg_number,
             filters=json.dumps(self.filters),
             mode=self.mode,
@@ -127,6 +129,8 @@ class SearchDocument(BaseModel):
     reg_number: str | None = None
     reg_date: date | None = None
     status: str | None = None
+    card_state: Literal["draft", "published"]
+    publication_targets: list[Literal["internal", "shared"]]
     values: dict
     display_values: dict
     permissions: list[str]

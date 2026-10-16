@@ -460,7 +460,7 @@ def result_output(session, actor, instance, attempt, result, mode=None):
     provenance = deepcopy(result.result_document)
     if provenance:
         try:
-            document = get_document(session, actor, uuid(provenance["document_id"]))
+            document = get_document(session, actor, uuid(provenance["document_id"]), mode=mode)
             if str(document.schema_version_id) != provenance["schema_version_id"]:
                 raise HTTPException(404)
             allowed = redact_values(get_schema(session, document), result.values, actor, mode)
@@ -497,7 +497,7 @@ def trajectory_restricted(session, actor, instance, mode=None):
         values = result.values if result else {}
         if result and result.result_document:
             try:
-                get_document(session, actor, uuid(result.result_document["document_id"]))
+                get_document(session, actor, uuid(result.result_document["document_id"]), mode=mode)
             except HTTPException:
                 if any(
                     edge.get("condition")

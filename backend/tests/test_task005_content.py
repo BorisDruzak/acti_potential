@@ -257,6 +257,8 @@ def test_equal_rank_pagination_and_text_filtered_export(client, factory):
         original = db.get(Document, sample["document"])
         original.custom_data = {"public": "Муниципальный договор"}
         duplicate = Document(
+            card_state="published",
+            publication_targets=["internal", "shared"],
             registry_id=original.registry_id,
             document_type_id=original.document_type_id,
             schema_version_id=original.schema_version_id,
@@ -264,6 +266,8 @@ def test_equal_rank_pagination_and_text_filtered_export(client, factory):
             custom_data={"public": "Муниципальный договор"},
         )
         excluded = Document(
+            card_state="published",
+            publication_targets=["internal", "shared"],
             registry_id=original.registry_id,
             document_type_id=original.document_type_id,
             schema_version_id=original.schema_version_id,

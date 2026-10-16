@@ -182,17 +182,30 @@ def bound_document(
     )
     published = client.post(f"/api/v1/form-schemas/{draft['id']}/publish", headers=headers, json={})
     assert published.status_code == 200, published.text
-    created = client.post(
-        "/api/v1/documents",
-        headers=headers,
-        json={
-            "registry_id": registry["id"],
-            "document_type_id": kind["id"],
-            "values": {"title": "Synthetic numbered document"},
-        },
-    )
-    assert created.status_code == 201, created.text
-    return created.json()
+    # Explicit assignment still supports existing, unnumbered official cards.
+    # New API-created bound cards now reserve a number during creation; build
+    # this pre-existing state directly rather than disabling that lifecycle.
+    from uuid import UUID
+
+    from app.registry.documents import append_history
+    from app.registry.models import Document
+
+    me = client.get("/api/v1/users/me").json()
+    with client.app.state.factory.begin() as db:
+        document = Document(
+            registry_id=UUID(registry["id"]),
+            document_type_id=UUID(kind["id"]),
+            schema_version_id=UUID(draft["id"]),
+            title="Synthetic numbered document",
+            created_by=UUID(me["id"]),
+            card_state="published",
+            publication_targets=["internal", "shared"],
+        )
+        db.add(document)
+        db.flush()
+        append_history(db, document, schema, SimpleNamespace(id=UUID(me["id"])))
+        identity = document.id
+    return client.get(f"/api/v1/documents/{identity}").json()
 
 
 def test_assignment_revision_history_void_and_manual_guard(client, factory):

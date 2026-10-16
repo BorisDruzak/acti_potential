@@ -127,13 +127,13 @@ def read_chunk(session, actor, identity, mode=None):
             .where(
                 MetadataFragment.id == identity,
                 MetadataFragment.document_revision == Document.revision,
-                accessible_document_clause(session, actor),
+                accessible_document_clause(session, actor, mode),
                 source_clauses(session, actor, mode, MetadataFragment.field_key),
             )
         )
         if fragment is None:
             fail(404, "source_not_found", "Источник не найден")
-        document = get_document(session, actor, fragment.document_id)
+        document = get_document(session, actor, fragment.document_id, mode=mode)
         return {
             "document_id": document.id,
             "chunk_id": fragment.id,

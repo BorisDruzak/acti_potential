@@ -109,7 +109,7 @@ class ExtractionWithBlocks(ExtractionRead):
 def authorize_file(session, actor, file, mode=None, *, action="download"):
     if file is None:
         fail(404, "content_not_found", "Файл не найден")
-    document = get_document(session, actor, file.document_id, action)
+    document = get_document(session, actor, file.document_id, action, mode=mode)
     schema = get_schema(session, document)
     if not file_visible(schema, actor, file, raw_values(document, schema), mode):
         fail(404, "content_not_found", "Файл не найден")
@@ -179,7 +179,7 @@ def document_content(
     page: int = Query(1, ge=1, le=1000000),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    document = get_document(session, actor, document_id, "download")
+    document = get_document(session, actor, document_id, "download", mode=mode)
     schema, items = get_schema(session, document), []
     values, total = raw_values(document, schema), 0
     query = (

@@ -48,9 +48,9 @@ def write_values(document, schema, values):
     document.updated_at = datetime.now(UTC)
 
 
-def get_document(session, actor, document_id, action="read", *, lock=False):
+def get_document(session, actor, document_id, action="read", *, lock=False, mode=None):
     query = select(Document).where(
-        Document.id == document_id, accessible_document_clause(session, actor)
+        Document.id == document_id, accessible_document_clause(session, actor, mode)
     )
     if lock:
         query = query.with_for_update(of=Document).execution_options(populate_existing=True)
@@ -84,6 +84,8 @@ def append_history(session, document, schema, actor):
             document_id=document.id,
             revision=document.revision,
             values=raw_values(document, schema),
+            card_state=document.card_state,
+            publication_targets=list(document.publication_targets),
             created_by=actor.id,
         )
     )
@@ -101,6 +103,8 @@ def summary(session, document, actor, schema=None):
             "current_version",
             "created_at",
             "updated_at",
+            "card_state",
+            "publication_targets",
         )
     }
 

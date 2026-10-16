@@ -36,6 +36,7 @@ for _event in (
     "series.updated",
     "grants.updated",
     "reserved",
+    "linked",
     "assigned",
     "cancelled",
     "expired",

@@ -143,7 +143,7 @@ def download_file(
     file = session.get(DocumentFile, file_id)
     if file is None:
         fail(404, "not_found", "Файл не найден")
-    document = get_document(session, actor, file.document_id, "download")
+    document = get_document(session, actor, file.document_id, "download", mode=mode)
     schema = get_schema(session, document)
     if not file_visible(schema, actor, file, raw_values(document, schema), mode):
         fail(404, "not_found", "Файл не найден")

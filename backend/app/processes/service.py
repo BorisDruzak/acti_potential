@@ -178,7 +178,7 @@ def pinned_form(session, process, step):
 
 
 def basis(session, actor, source, mode=None):
-    document = get_document(session, actor, UUID(source["document_id"]))
+    document = get_document(session, actor, UUID(source["document_id"]), mode=mode)
     version_id = UUID(source["version_id"]) if source.get("version_id") else None
     block_id = UUID(source["block_id"]) if source.get("block_id") else None
     if (

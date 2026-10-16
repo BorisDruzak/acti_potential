@@ -66,6 +66,8 @@ def actors_and_document(factory, fields=None):
         db.add(schema)
         db.flush()
         document = Document(
+            card_state="published",
+            publication_targets=["internal", "shared"],
             registry_id=registry.id,
             document_type_id=dtype.id,
             schema_version_id=schema.id,
@@ -280,6 +282,8 @@ def test_conditional_hidden_title_cannot_be_guessed_through_search_or_sort(clien
         first.custom_data = {"gate": True}
         first.title = "SYNTHETIC-CONDITIONAL-TITLE-A"
         second = Document(
+            card_state="published",
+            publication_targets=["internal", "shared"],
             registry_id=first.registry_id,
             document_type_id=first.document_type_id,
             schema_version_id=first.schema_version_id,
@@ -442,7 +446,7 @@ def test_direct_routes_enforce_viewer_role_and_current_document_acl(client, fact
     assert client.get(endpoint).status_code == 404
 
 
-def test_legacy_user_role_remains_editor_compatible_for_field_access():
+def test_user_role_has_reader_field_access_without_editor_alias():
     user = Actor(uuid4(), "Legacy user", frozenset({"user"}))
     viewer = Actor(uuid4(), "Viewer", frozenset({"viewer"}))
     field = {
@@ -451,10 +455,18 @@ def test_legacy_user_role_remains_editor_compatible_for_field_access():
         "read_roles": ["editor"],
         "write_roles": ["editor"],
     }
-    assert field_readable(field, user) is True
-    assert field_writable(field, user) is True
+    assert field_readable(field, user) is False
+    assert field_readable(field, user, "editor") is False
+    assert field_writable(field, user) is False
     assert field_readable(field, viewer) is False
     assert field_writable(field, viewer) is False
+    schema = {"sections": [{"fields": [field, {"key": "public", "type": "text"}]}]}
+    assert redact_values(schema, {"editor_value": "HIDDEN", "public": "Visible"}, user) == {
+        "public": "Visible"
+    }
+    assert [item["key"] for item in redact_schema(schema, user)["sections"][0]["fields"]] == [
+        "public"
+    ]
 
 
 def test_viewer_cannot_elevate_display_mode_to_editor():

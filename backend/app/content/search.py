@@ -60,6 +60,7 @@ def unified_parameters(params):
             date_from=params.date_from,
             date_to=params.date_to,
             status=params.status,
+            card_state=params.card_state,
             reg_number=params.reg_number,
             filters=json.loads(params.filters or "{}"),
             fuzzy=params.fuzzy,

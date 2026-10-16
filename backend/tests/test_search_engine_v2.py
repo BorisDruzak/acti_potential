@@ -46,6 +46,8 @@ def corpus(factory):
         }
         index_metadata(db, source.id)
         other = Document(
+            card_state="published",
+            publication_targets=["internal", "shared"],
             registry_id=source.registry_id,
             document_type_id=source.document_type_id,
             schema_version_id=source.schema_version_id,
@@ -102,6 +104,8 @@ def test_general_query_number_and_registration_date_are_intersected(client, fact
         index_metadata(db, source.id)
         for number, day in [("42-П", 17), ("43-П", 16)]:
             document = Document(
+                card_state="published",
+                publication_targets=["internal", "shared"],
                 registry_id=source.registry_id,
                 document_type_id=source.document_type_id,
                 schema_version_id=source.schema_version_id,

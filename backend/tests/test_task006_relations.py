@@ -54,6 +54,8 @@ def relation_documents(client, factory, *, fields=None):
         documents = [original]
         for title in ["Synthetic changing act", "Synthetic repealing act"]:
             doc = Document(
+                card_state="published",
+                publication_targets=["internal", "shared"],
                 registry_id=original.registry_id,
                 document_type_id=original.document_type_id,
                 schema_version_id=original.schema_version_id,

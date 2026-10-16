@@ -74,7 +74,7 @@ def permissions(session, actor, series):
     if "read" not in permissions_for(session, actor, series.registry_id):
         return set()
     allowed = set(grant.permissions if grant else []) & PERMISSIONS
-    if not actor.roles & {"admin", "editor", "user"}:
+    if not actor.roles & {"admin", "editor"}:
         allowed &= {"view"}
     return allowed
 
@@ -191,7 +191,7 @@ def output(session, actor, entry):
         "expires_at": entry.expires_at,
         "document_id": entry.document_id,
         "document_title": title,
-        "owner_id": entry.owner_id if actor.roles & {"admin", "editor", "user"} else None,
+        "owner_id": entry.owner_id if actor.roles & {"admin", "editor"} else None,
     }
 
 
@@ -340,24 +340,14 @@ def locked_entry(session, actor, identity, action):
     return series, entry
 
 
-def assign(session, request, actor, identity, data):
-    series, entry = locked_entry(session, actor, identity, "assign")
-    action = "assign:" + str(identity)
-    previous = replay(session, actor, series, action, data)
-    if previous is not None:
-        return previous
-    ensure_allocation_safe(session, series)
-    if entry.state != "reserved" or entry.expires_at and entry.expires_at <= datetime.now(UTC):
-        fail(409, "number_not_reserved", "Резерв недоступен или срок истёк")
-    document = get_document(session, actor, data.document_id, "update", lock=True)
-    check_revision(document, data.revision)
+def assignment_field(session, actor, series, document, schema):
+    """Validate the same scope and field policy for explicit and card allocation."""
     if (
         document.registry_id != series.registry_id
         or series.document_type_ids
         and str(document.document_type_id) not in series.document_type_ids
     ):
         fail(422, "number_document_scope", "Документ не соответствует серии")
-    schema = get_schema(session, document)
     fields = {
         f["key"]: f for section in schema.get("sections", []) for f in section.get("fields", [])
     }
@@ -375,7 +365,16 @@ def assign(session, request, actor, identity, data):
         or not field_accessible(bound, actor, fields, values=raw_values(document, schema))
     ):
         fail(403, "number_field_forbidden", "Поле номера недоступно или использует другую серию")
-    if document.reg_number:
+    return bound
+
+
+def write_entry_number(session, actor, series, entry, document, schema):
+    bound = assignment_field(session, actor, series, document, schema)
+    if entry.document_id not in (None, document.id):
+        fail(409, "number_already_linked", "Резерв уже связан с другим документом")
+    if document.reg_number and not (
+        entry.document_id == document.id and document.reg_number == entry.number_string
+    ):
         fail(
             409, "number_already_present", "Существующий регистрационный номер нельзя перезаписать"
         )
@@ -400,9 +399,27 @@ def assign(session, request, actor, identity, data):
         document_id=document.id,
     )
     write_values(document, schema, checked)
+    entry.document_id = document.id
+
+
+def assign(session, request, actor, identity, data):
+    # Card updates already lock the document before its series. Use that order
+    # here too, so publication cannot deadlock with an explicit assignment.
+    document = get_document(session, actor, data.document_id, "update", lock=True)
+    series, entry = locked_entry(session, actor, identity, "assign")
+    action = "assign:" + str(identity)
+    previous = replay(session, actor, series, action, data)
+    if previous is not None:
+        return previous
+    ensure_allocation_safe(session, series)
+    if entry.state != "reserved" or entry.expires_at and entry.expires_at <= datetime.now(UTC):
+        fail(409, "number_not_reserved", "Резерв недоступен или срок истёк")
+    check_revision(document, data.revision)
+    schema = get_schema(session, document)
+    write_entry_number(session, actor, series, entry, document, schema)
     document.revision += 1
     document.updated_at = datetime.now(UTC)
-    entry.document_id, entry.state = document.id, "assigned"
+    entry.state = "assigned" if document.card_state == "published" else "reserved"
     session.flush()
     append_history(session, document, schema, actor)
     emit(
@@ -418,7 +435,10 @@ def assign(session, request, actor, identity, data):
             "registry_id": str(document.registry_id),
         },
     )
-    operation(session, request, actor, entry, "assigned", data.idempotency_key)
+    operation(
+        session, request, actor, entry,
+        "assigned" if entry.state == "assigned" else "linked", data.idempotency_key,
+    )
     return remember(session, actor, series, action, data, [entry], output(session, actor, entry))
 
 

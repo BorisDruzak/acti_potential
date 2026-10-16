@@ -43,7 +43,7 @@ def anchor(session, actor, document_id, version_id=None, block_id=None, mode=Non
     if version is None:
         fail(404, "relation_basis_not_found", "Основание недоступно")
     try:
-        owner = get_document(session, actor, version.document_id, "download")
+        owner = get_document(session, actor, version.document_id, "download", mode=mode)
         schema = get_schema(session, owner)
         values = raw_values(owner, schema)
         files = [
@@ -76,9 +76,9 @@ def anchor(session, actor, document_id, version_id=None, block_id=None, mode=Non
 
 
 def endpoints(session, actor, relation, mode=None, *, action="read"):
-    source = get_document(session, actor, relation.source_document_id, action)
+    source = get_document(session, actor, relation.source_document_id, action, mode=mode)
     target = (
-        get_document(session, actor, relation.target_document_id, action)
+        get_document(session, actor, relation.target_document_id, action, mode=mode)
         if relation.target_document_id
         else None
     )
@@ -307,7 +307,7 @@ def decide(session, request, actor, identity, data, state):
 
 
 def visible_relations(session, actor, document_id, mode=None, *, relation_type=None, state=None):
-    get_document(session, actor, document_id)
+    get_document(session, actor, document_id, mode=mode)
     query = select(DocumentRelation).where(
         or_(
             DocumentRelation.source_document_id == document_id,

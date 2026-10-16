@@ -30,6 +30,8 @@ def test_custom_temporal_cursor_round_trip(client, factory, kind, values):
         original.custom_data = {"when": values[0]}
         db.add(
             Document(
+                card_state="published",
+                publication_targets=["internal", "shared"],
                 registry_id=original.registry_id,
                 document_type_id=original.document_type_id,
                 schema_version_id=original.schema_version_id,
