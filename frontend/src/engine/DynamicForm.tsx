@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { apiRequest, saveDownload } from "../api/client";
 import {
   canRead,
@@ -29,6 +29,7 @@ type Props = {
   conditionFields?: Field[];
   displayMode?: "editor" | "viewer";
   navigationPlacement?: "side";
+  sectionContent?: Record<string, ReactNode>;
 };
 type Choice = { id: string; label: string; active?: boolean };
 function Lookup({
@@ -459,9 +460,11 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
         conditionFields,
       ),
     );
-    return visible.length ? (
+    const extra = props.sectionContent?.[section.key];
+    return visible.length || extra ? (
       <section className="form-section" key={section.key} id={`${navigationId}-${section.key}`}>
         {section.title && <h3>{section.title}</h3>}
+        {extra}
         <div className="form-grid">
           {visible.map((field) => (
             <FieldControl
@@ -484,7 +487,7 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
     <div className={`dynamic-form${sideNavigation ? " dynamic-form-side-navigation" : ""}`}>
       {hasNavigation && (
         <nav className="form-navigation" aria-label="Разделы формы">
-          {schema.sections.filter(section => section.fields.some(field => canRead(field, props.mode, props.roles, props.conditionValues || values, props.displayMode, conditionFields))).map(section => (
+          {schema.sections.filter(section => props.sectionContent?.[section.key] || section.fields.some(field => canRead(field, props.mode, props.roles, props.conditionValues || values, props.displayMode, conditionFields))).map(section => (
             <a key={section.key} href={`#${navigationId}-${section.key}`}>{section.title}</a>
           ))}
         </nav>

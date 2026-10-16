@@ -33,7 +33,7 @@ function setup() {
 
 it("keeps decimal filters and configured export columns in the document workspace", async () => {
   const fetch = setup();
-  fireEvent.click(await screen.findByRole("button", {name: "Реестр"}));
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.change(screen.getByLabelText("Тип"), {target: {value: "t"}});
   fireEvent.change(await screen.findByLabelText("Дополнительный фильтр"), {target: {value: "amount"}});
   expect(screen.queryByRole("option", {name: "Условное поле"})).toBeNull();
@@ -56,7 +56,7 @@ it("keeps decimal filters and configured export columns in the document workspac
 
 it("saves and restores filters per user and workspace without storing result data", async () => {
   setup();
-  fireEvent.click(await screen.findByRole("button", {name: "Реестр"}));
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Образец"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
   fireEvent.change(screen.getByLabelText("Название представления"), {target: {value: "Мой поиск"}});

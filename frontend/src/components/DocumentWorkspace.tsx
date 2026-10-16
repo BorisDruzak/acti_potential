@@ -67,9 +67,9 @@ function restoreAnchor(node: HTMLDivElement | null, anchor?: ReadingAnchor) {
   const row = Array.from(node.querySelectorAll<HTMLTableRowElement>("tbody tr[data-document-id]")).find(row => row.dataset.documentId === anchor.id);
   if (row) node.scrollTop += row.getBoundingClientRect().top - node.getBoundingClientRect().top - (node.querySelector("thead")?.getBoundingClientRect().height || 0) - anchor.offset;
 }
-export function DocumentWorkspace({layout, onChange, onResize, onRestore, list, detail, count, selectedLabel, busy = false}: {
+export function DocumentWorkspace({layout, onChange, onResize, onRestore, list, detail, count, selectedLabel, busy = false, onListEnd, feedKey}: {
   layout: DocumentLayout; onChange: (mode: DocumentLayoutMode) => void; onResize: (ratio: number) => void; onRestore: (layout: DocumentLayout) => void;
-  list: ReactNode; detail: ReactNode; count: ReactNode; selectedLabel: string; busy?: boolean;
+  list: ReactNode; detail: ReactNode; count: ReactNode; selectedLabel: string; busy?: boolean; onListEnd?: () => void; feedKey?: string;
 }) {
   const {mode, ratio} = layout;
   const workspace = useRef<HTMLDivElement>(null);
@@ -158,6 +158,10 @@ export function DocumentWorkspace({layout, onChange, onResize, onRestore, list, 
     if (mode !== "table" && drag.current?.scroll.detail && detailScroll.current) detailScroll.current.scrollTop = drag.current.scroll.detail.top;
     keyboardAnchor.current = undefined;
   }, [mode, ratio, resetScroll]);
+  useLayoutEffect(() => {
+    positions.current = {}; last.current = {};
+    if (listScroll.current) {listScroll.current.scrollTop = 0; listScroll.current.scrollLeft = 0;}
+  }, [feedKey]);
   function restore(panel: "list" | "detail") {focus.current = panel; onChange("split");}
   const percent = mode === "card" ? 0 : mode === "table" ? 100 : Math.round(ratio * 100);
   return <div ref={workspace} className="document-workspace" data-layout={mode} data-resizing={resizing || undefined}
@@ -167,7 +171,7 @@ export function DocumentWorkspace({layout, onChange, onResize, onRestore, list, 
         aria-label="Показать список документов" onClick={() => restore("list")}><span aria-hidden="true">›</span><span>Документы</span></button>
       <div className="document-list-body" hidden={mode === "card"}>
         <div ref={listScroll} className="document-pane-scroll" role="region" aria-label="Список документов" tabIndex={0}
-          onScroll={event => remember("list", event.currentTarget)}>{count}{list}</div>
+          onScroll={event => {const node = event.currentTarget; remember("list", node); if (mode !== "card" && node.scrollHeight - node.scrollTop - node.clientHeight < 180) onListEnd?.();}}>{count}{list}</div>
       </div>
     </section>
     <div ref={handle} className="document-resize-handle" role="separator" tabIndex={0}

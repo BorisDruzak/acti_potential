@@ -82,7 +82,7 @@ it("uses real search API shape and opens a precise source block beyond the first
   const fetch = setup({reader: true, search: true, blockPage: true});
   vi.stubGlobal("URL", class extends URL {static createObjectURL() {return "blob:download";} static revokeObjectURL() {}});
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-  fireEvent.click(await screen.findByRole("button", {name: "Реестр"}));
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "registry"}});
   fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Порядок подачи"}});
   fireEvent.change(screen.getByLabelText("Где искать"), {target: {value: "content"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));

@@ -46,7 +46,7 @@ function setup(content: "documents" | "audit" = "documents", download = true) {
 }
 
 async function openCard() {
-  fireEvent.click(await screen.findByRole("button", { name: "Реестр A" }));
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "A"}});
   fireEvent.click(await screen.findByRole("row", {name: /Выбрать документ/}));
   await screen.findByRole("button", {name: "Редактировать карточку"});
 }
@@ -97,13 +97,13 @@ it("renders the object type returned by the audit API", async () => {
 
 it("resets date and sort controls when switching registries to an unfiltered query", async () => {
   const fetch = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "Реестр A" }));
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "A"}});
   fireEvent.change(screen.getByLabelText("Дата регистрации с"), { target: { value: "2026-10-01" } });
   fireEvent.change(screen.getByLabelText("Дата регистрации по"), { target: { value: "2026-10-15" } });
   fireEvent.change(screen.getByLabelText("Сортировка"), { target: { value: "title" } });
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).date_from === "2026-10-01")).toBe(true));
-  fireEvent.click(screen.getByRole("button", { name: "Реестр B" }));
+  fireEvent.change(screen.getByLabelText("Реестр", {exact: true}), {target: {value: "B"}});
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).registry_ids[0] === "B")).toBe(true));
   expect((screen.getByLabelText("Дата регистрации с") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Дата регистрации по") as HTMLInputElement).value).toBe("");
@@ -115,14 +115,14 @@ it("resets date and sort controls when switching registries to an unfiltered que
 
 it("applies the status filter and clears it when changing registry", async () => {
   const fetch = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "Реестр A" }));
-  fireEvent.change(screen.getByLabelText("Статус"), { target: { value: "Зарегистрирован" } });
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "A"}});
+  fireEvent.change(screen.getByLabelText("Состояние карточки"), { target: { value: "published" } });
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) =>
-    url.endsWith("/search") && JSON.parse(String(init?.body)).status === "Зарегистрирован",
+    url.endsWith("/search") && JSON.parse(String(init?.body)).card_state === "published",
   )).toBe(true));
-  fireEvent.click(screen.getByRole("button", { name: "Реестр B" }));
-  expect((screen.getByLabelText("Статус") as HTMLInputElement).value).toBe("");
+  fireEvent.change(screen.getByLabelText("Реестр", {exact: true}), {target: {value: "B"}});
+  expect((screen.getByLabelText("Состояние карточки") as HTMLInputElement).value).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
   await waitFor(() => expect(JSON.parse(String(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).at(-1)?.[1]?.body)).registry_ids).toEqual(["B"]));
   expect(new URL(fetch.mock.calls.at(-1)![0], "https://example.test").searchParams.has("status")).toBe(false);

@@ -21,7 +21,7 @@ export function Workspace() {
   const roles = auth.user?.roles || [];
   const defaultSpace: Space = roles.includes("admin")
     ? "admin"
-    : roles.some((role) => ["editor", "user"].includes(role))
+    : roles.some((role) => ["editor"].includes(role))
       ? "work"
       : "view";
   function resolve(): Space {
@@ -29,7 +29,7 @@ export function Workspace() {
     return path === "admin" && roles.includes("admin")
       ? "admin"
       : path === "work" &&
-          roles.some((role) => ["admin", "editor", "user"].includes(role))
+          roles.some((role) => ["admin", "editor"].includes(role))
         ? "work"
         : path === "view"
           ? "view"

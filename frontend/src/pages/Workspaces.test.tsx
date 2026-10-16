@@ -10,6 +10,7 @@ import { App } from "../App";
 import { AuthProvider } from "../auth/AuthProvider";
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
 });
@@ -122,6 +123,9 @@ function setup(roles: string[], mustChange = false) {
           },
         };
       }
+      if (url.endsWith("/search")) {
+        const batch = data as {items: unknown[]}; batch.items = batch.items.map(document => ({document, matches: []}));
+      }
       return Promise.resolve(new Response(JSON.stringify(data)));
     });
   vi.stubGlobal("fetch", fetch);
@@ -141,9 +145,7 @@ it("forces initial password change before loading any workspace configuration", 
 it("reader route exposes no mutation controls even when returned permissions include them", async () => {
   window.history.replaceState(null, "", "/view");
   const fetch = setup(["viewer"]);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Тестовый реестр" }),
-  );
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.click(
     await screen.findByRole("row", {name: /Выбрать документ/}),
   );
@@ -174,9 +176,7 @@ it("viewer cannot open administration by typing its route", async () => {
 it("entering card edit mode never turns the clicked button into a submit button", async () => {
   window.history.replaceState(null, "", "/work");
   const fetch = setup(["editor"]);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Тестовый реестр" }),
-  );
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.click(
     await screen.findByRole("row", {name: /Выбрать документ/}),
   );
@@ -211,9 +211,7 @@ it("entering card edit mode never turns the clicked button into a submit button"
 it("atomically saves a file selected during editing with the updated card values", async () => {
   window.history.replaceState(null, "", "/work");
   const fetch = setup(["editor"]);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Тестовый реестр" }),
-  );
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.click(
     await screen.findByRole("row", {name: /Выбрать документ/}),
   );
@@ -248,9 +246,7 @@ it("atomically saves a file selected during editing with the updated card values
 it("boolean extra filter uses typed control and sends false rather than dropping it", async () => {
   window.history.replaceState(null, "", "/view");
   const fetch = setup(["viewer"]);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Тестовый реестр" }),
-  );
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.change(screen.getByLabelText("Тип"), { target: { value: "t" } });
   fireEvent.change(await screen.findByLabelText("Дополнительный фильтр"), {
     target: { value: "publish" },
@@ -273,7 +269,7 @@ it("boolean extra filter uses typed control and sends false rather than dropping
 it("records aggregate search-to-open timing without the query or personal dimensions", async () => {
   window.history.replaceState(null, "", "/view");
   const fetch = setup(["viewer"]);
-  fireEvent.click(await screen.findByRole("button", {name: "Тестовый реестр"}));
+  fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Частный поисковый текст"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
   fireEvent.click(await screen.findByRole("row", {name: /Выбрать документ/}));

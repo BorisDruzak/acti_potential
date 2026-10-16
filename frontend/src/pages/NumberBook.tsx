@@ -33,7 +33,7 @@ function Reservation({series, onSaved}: {series: NumberSeries; onSaved: () => vo
 function EntryHistory({entry}: {entry: NumberEntry}) {
   const [open, setOpen] = useState(false);
   const history = useData<{items: {id: string; action: string; created_at: string; reason?: string}[]}>(open ? `/number-entries/${entry.id}/history` : null);
-  return <details onToggle={event => setOpen(event.currentTarget.open)}><summary>История номера {entry.number}</summary><Feedback {...history}/>{history.data?.items.map(item => <p key={item.id}>{new Date(item.created_at).toLocaleString("ru-RU")} · {numberStates[item.action] || item.action}{item.reason ? " · " + item.reason : ""}</p>)}</details>;
+  return <details onToggle={event => setOpen(event.currentTarget.open)}><summary>История номера {entry.number}</summary><Feedback {...history}/>{history.data?.items.map(item => <p key={item.id}>{new Date(item.created_at).toLocaleString("ru-RU")} · {item.action === "linked" ? "Связан с черновиком" : numberStates[item.action] || item.action}{item.reason ? " · " + item.reason : ""}</p>)}</details>;
 }
 
 function NumberIntervals({series}: {series: NumberSeries}) {

@@ -83,6 +83,8 @@ export type FileVersion = {
   field_key?: string;
   created_at: string;
 };
+export type CardState = "draft" | "published";
+export type PublicationTarget = "internal" | "shared";
 export type Card = {
   id: string;
   registry_id: string;
@@ -92,6 +94,8 @@ export type Card = {
   reg_number?: string;
   reg_date?: string;
   status?: string;
+  card_state?: CardState;
+  publication_targets?: PublicationTarget[];
   revision: number;
   current_version: number;
   values: Values;
@@ -192,7 +196,7 @@ export function canRead(
   conditionFields: Field[] = [],
   seen: Set<Field> = new Set(),
 ) {
-  const effectiveRoles = roles.includes("user") ? [...roles, "editor"] : roles;
+  const effectiveRoles = roles;
   if (seen.has(field)) return false;
   if (field.visible_when && conditionFields.length) {
     const dependency = conditionFields.find(current => current.key === field.visible_when!.field);
@@ -206,7 +210,7 @@ export function canRead(
   );
 }
 export function canWrite(field: Field, mode: string, roles: string[]) {
-  const effectiveRoles = roles.includes("user") ? [...roles, "editor"] : roles;
+  const effectiveRoles = roles;
   return (
     mode !== "view" &&
     !field.number_series_id &&

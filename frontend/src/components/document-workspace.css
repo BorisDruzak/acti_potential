@@ -136,3 +136,13 @@
   .document-results-heading { padding: 10px 12px; }
   .document-detail-body .toolbar h1 { font-size: 21px; }
 }
+
+.document-view-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.document-view-actions > button { min-height: 30px; padding: 5px 12px; font-size: 12px; }
+.document-feed-end { min-height: 42px; padding: 12px; color: #70857a; font-size: 12px; text-align: center; }
+.document-publication { display: grid; gap: 12px; margin-bottom: 18px; }
+.document-publication > label { display: grid; gap: 6px; max-width: 280px; }
+.document-publication fieldset { display: flex; gap: 14px; flex-wrap: wrap; border: 1px solid #dce5df; border-radius: 6px; padding: 10px 12px; }
+.document-publication legend { font-size: 13px; padding: 0 5px; }
+.document-publication .checkbox-label { flex-direction: row; align-items: center; }
+.documents-search .document-search-body .search-saved-views { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5ece7; }

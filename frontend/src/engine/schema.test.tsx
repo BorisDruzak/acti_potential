@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { DynamicForm } from "./DynamicForm";
 import {
+  canRead,
+  canWrite,
   conditionMatches,
   editableValues,
   initialValues,
@@ -216,7 +218,7 @@ it("uses top-level conditions for repeatable children and mode-specific fields",
     ),
   ).toEqual({ show: false, rows: [{}] });
 });
-it("legacy user role retains editor field access and decimal precision", () => {
+it("editor role retains decimal precision", () => {
   const change = vi.fn();
   render(
     <DynamicForm
@@ -240,7 +242,7 @@ it("legacy user role retains editor field access and decimal precision", () => {
       values={{}}
       onChange={change}
       mode="edit"
-      roles={["user"]}
+      roles={["editor"]}
     />,
   );
   fireEvent.change(screen.getByLabelText("Сумма"), {
@@ -291,4 +293,10 @@ it("drops queued attachments hidden by conditions and clears shifted group paths
       "edit",
     ),
   ).toEqual({ original: "one", "rows.0.file": "two" });
+});
+
+it("does not promote user roles into editor field access", () => {
+  const field = {key: "internal", label: "Служебное поле", type: "text" as const, read_roles: ["editor"], write_roles: ["editor"]};
+  expect(canRead(field, "view", ["user"], {})).toBe(false);
+  expect(canWrite(field, "edit", ["user"])).toBe(false);
 });

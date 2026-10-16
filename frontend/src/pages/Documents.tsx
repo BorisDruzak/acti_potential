@@ -9,6 +9,8 @@ import {
   initialValues,
   prunePendingFiles,
   type Card,
+  type CardState,
+  type PublicationTarget,
   type DocumentType,
   type Field,
   type FileVersion,
@@ -24,7 +26,10 @@ import { DocumentContent } from "./DocumentContent";
 import { DocumentLayoutSwitch, DocumentWorkspace, useDocumentLayout } from "../components/DocumentWorkspace";
 import { DocumentResults } from "../components/DocumentResults";
 import { useDocumentSchemas } from "../engine/documentPresentation";
-import type { ContentHit, ContentTarget } from "../engine/content";
+import { useDocumentFeed } from "../engine/useDocumentFeed";
+import { DocumentFeedEnd } from "../components/DocumentFeedEnd";
+import { DocumentPublication, publicationSection } from "../components/DocumentPublication";
+import type { ContentTarget } from "../engine/content";
 
 function filesInRevision(card: Card, values: Values): FileVersion[] {
   const ids = new Set<string>();
@@ -88,6 +93,10 @@ function DocumentCard({
   const action = useAction();
   const [editing, setEditing] = useState(false);
   const [values, setValues] = useState<Values>(card.values);
+  const [cardState, setCardState] = useState<CardState>(card.card_state || "draft");
+  const [targets, setTargets] = useState<PublicationTarget[]>(card.publication_targets || ["internal"]);
+  const publicationKey = publicationSection(card.schema);
+  const publication = <DocumentPublication state={cardState} targets={targets} onState={editing ? setCardState : undefined} onTargets={editing ? setTargets : undefined} published={card.card_state === "published"}/>;
   const [conflict, setConflict] = useState(false);
   const [tab, setTab] = useState(contentTarget ? "content" : "card");
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
@@ -99,6 +108,8 @@ function DocumentCard({
       values: Values;
       created_at: string;
       created_by: string;
+      card_state?: CardState | null;
+      publication_targets?: PublicationTarget[] | null;
     }[]
   >(
     tab === "history"
@@ -113,6 +124,7 @@ function DocumentCard({
   const hasUnsavedChanges =
     editing &&
     (JSON.stringify(values) !== JSON.stringify(card.values) ||
+      cardState !== (card.card_state || "draft") || JSON.stringify(targets) !== JSON.stringify(card.publication_targets || ["internal"]) ||
       Object.keys(pendingFiles).length > 0);
   useEffect(() => {onDirtyChange?.(hasUnsavedChanges);}, [hasUnsavedChanges, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
@@ -145,6 +157,8 @@ function DocumentCard({
         "PUT",
         {
           revision,
+          card_state: cardState,
+          publication_targets: targets,
           values: editableValues(
             card.schema,
             values,
@@ -245,6 +259,7 @@ function DocumentCard({
           }}
         >
           <DynamicForm
+            sectionContent={publicationKey ? {[publicationKey]: publication} : undefined}
             navigationPlacement="side"
             schema={card.schema}
             values={values}
@@ -266,6 +281,7 @@ function DocumentCard({
                 : undefined
             }
           />
+          {!publicationKey && <section className="form-section"><h3>Публикация</h3>{publication}</section>}
           {canEdit && (
             <div className="button-row">
               {editing ? (
@@ -283,6 +299,8 @@ function DocumentCard({
                     type="button"
                     onClick={() => {
                       setValues(card.values);
+                      setCardState(card.card_state || "draft");
+                      setTargets(card.publication_targets || ["internal"]);
                       setPendingFiles({});
                       setEditing(false);
                     }}
@@ -397,6 +415,7 @@ function DocumentCard({
                 Редакция {item.revision} ·{" "}
                 {new Date(item.created_at).toLocaleString("ru-RU")}
               </summary>
+              {item.card_state && item.publication_targets ? <DocumentPublication state={item.card_state} targets={item.publication_targets}/> : <p className="muted">Состояние карточки и базы публикации в этой редакции неизвестны.</p>}
               <DynamicForm
                 schema={card.schema}
                 values={item.values}
@@ -418,12 +437,16 @@ function DocumentCard({
 }
 
 function CreateDocument({
+  registries,
+  onRegistryChange,
   registry,
   types,
   references,
   onCreated,
   onClose,
 }: {
+  registries: Registry[];
+  onRegistryChange: (id: string) => void;
   registry: Registry;
   types: DocumentType[];
   references: ReferenceSet[];
@@ -445,6 +468,7 @@ function CreateDocument({
         </div>
         <button onClick={onClose}>К списку</button>
       </div>
+      <label className="picker">Реестр документа<select value={registry.id} onChange={event => onRegistryChange(event.target.value)}>{registries.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label className="picker">
         Тип документа
         <select
@@ -499,6 +523,10 @@ function NewDocumentForm({
     initialValues(version.schema),
   );
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
+  const [cardState, setCardState] = useState<CardState>("draft");
+  const [targets, setTargets] = useState<PublicationTarget[]>(["internal"]);
+  const publicationKey = publicationSection(version.schema);
+  const publication = <DocumentPublication state={cardState} targets={targets} onState={setCardState} onTargets={setTargets}/>;
   function changeValues(next: Values) {
     setPendingFiles((current) =>
       prunePendingFiles(current, version.schema, next, roles, "create", values),
@@ -518,6 +546,8 @@ function NewDocumentForm({
       "/documents",
       "POST",
       {
+        card_state: cardState,
+        publication_targets: targets,
         registry_id: registry.id,
         document_type_id: version.document_type_id,
         schema_version_id: version.id,
@@ -537,6 +567,7 @@ function NewDocumentForm({
       }}
     >
       <DynamicForm
+        sectionContent={publicationKey ? {[publicationKey]: publication} : undefined}
         schema={version.schema}
         values={values}
         onChange={changeValues}
@@ -551,6 +582,7 @@ function NewDocumentForm({
             : undefined
         }
       />
+      {!publicationKey && <section className="form-section"><h3>Публикация</h3>{publication}</section>}
       {Object.entries(pendingFiles).map(([field, file]) => (
         <div key={field} className="file-line">
           <span>{file.name} — будет сохранён вместе с карточкой</span>
@@ -577,8 +609,9 @@ function NewDocumentForm({
   );
 }
 
-export function Documents({ readOnly = false }: { readOnly?: boolean }) {
+export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: boolean }) {
   const auth = useAuth();
+  const readOnly = requestedReadOnly || !auth.user?.roles.some(role => ["admin", "editor"].includes(role));
   const {layout, choose: chooseLayout, resize: resizeLayout, restore: restoreLayout, back: backToResults} = useDocumentLayout(auth.user?.id || "anonymous", readOnly);
   const dirtyCard = useRef(false);
   const reportDirty = useCallback((value: boolean) => {dirtyCard.current = value;}, []);
@@ -593,13 +626,12 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const [navigationRevision, setNavigationRevision] = useState(0);
   const [savedDocument, setSavedDocument] = useState<{id: string; revision: number} | null>(null);
   const [creating, setCreating] = useState(false);
+  const [createRegistryId, setCreateRegistryId] = useState("");
   const [q, setQ] = useState(() => initial.get("q") || initial.get("text") || "");
   const [scope, setScope] = useState<SearchScope>(() => (initial.get("scope") as SearchScope) || "all");
   const [versionScope, setVersionScope] = useState(() => initial.get("version_scope") || "current");
   const [advanced, setAdvanced] = useState(false);
   const [searchOpen, setSearchOpen] = useState(true);
-  const [cursor, setCursor] = useState(() => initial.get("cursor") || "");
-  const [previousCursors, setPreviousCursors] = useState<string[]>([]);
   const [fuzzy, setFuzzy] = useState(() => initial.get("fuzzy") !== "false");
   const [contentTarget, setContentTarget] = useState<ContentTarget | undefined>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -607,7 +639,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   });
   const [number, setNumber] = useState(() => initial.get("reg_number") || "");
   const [registrationDate, setRegistrationDate] = useState(() => initial.get("reg_date") || "");
-  const [status, setStatus] = useState(() => initial.get("status") || "");
+  const [status, setStatus] = useState(() => initial.get("card_state") || "");
   const [from, setFrom] = useState(() => initial.has("reg_date") ? "" : initial.get("date_from") || "");
   const [to, setTo] = useState(() => initial.has("reg_date") ? "" : initial.get("date_to") || "");
   const [typeId, setTypeId] = useState(() => initial.get("document_type_id") || "");
@@ -625,7 +657,6 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     try { const data = JSON.parse(localStorage.getItem(`acti.views.v1.${auth.user?.id}.${readOnly ? "viewer" : "editor"}`) || "[]"); return Array.isArray(data) ? data.filter(item => typeof item?.name === "string" && typeof item?.registry === "string" && typeof item?.query === "string") : []; } catch { return []; }
   });
   const exportAction = useAction();
-  const [page, setPage] = useState(() => Math.max(1, Number(initial.get("page")) || 1));
   const [search, setSearch] = useState(() => {const params = new URLSearchParams(window.location.search); for (const key of ["document", "tab", "file", "block", "ordinal", "registry_id", "page", "cursor"]) params.delete(key); return "&" + params.toString();});
   const documentLocation = useRef(window.location.pathname + window.location.search);
   useEffect(() => {
@@ -633,11 +664,9 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     if (registryId) params.set("registry_id", registryId);
     if (documentId) params.set("document", documentId);
     if (contentTarget) {params.set("tab", "content"); if (contentTarget.fileId) params.set("file", contentTarget.fileId); if (contentTarget.blockId) params.set("block", contentTarget.blockId); if (contentTarget.ordinal !== undefined) params.set("ordinal", String(contentTarget.ordinal));}
-    if (cursor) params.set("cursor", cursor);
-    if (page > 1) params.set("page", String(page));
     window.history.replaceState(null, "", window.location.pathname + (params.size ? "?" + params.toString() : ""));
     documentLocation.current = window.location.pathname + window.location.search;
-  }, [search, registryId, documentId, contentTarget, cursor, page]);
+  }, [search, registryId, documentId, contentTarget]);
   const searchTiming = useRef<{registryId: string; started: number} | null>(null);
   function recordRetrieval(operation: "search" | "time_to_open", duration_ms: number) {
     if (!registryId) return;
@@ -672,18 +701,20 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
         (field) => field.filterable && !field.visible_when && !["file", "group"].includes(field.type),
       ) || [];
   const filterField = filterFields.find((field) => field.key === filterKey);
-  const applied = searchBody(search, registryId, readOnly ? "viewer" : "editor", cursor);
-  const list = useData<{items: ContentHit[]; total: number; page_size: number; next_cursor: string | null}>(
-    !creating ? "/search" : null,
-    {body: applied, csrfToken: auth.user?.csrf_token || "", retainOnReload: true},
-  );
+  const applied = searchBody(search, registryId, readOnly ? "viewer" : "editor");
+  const list = useDocumentFeed(applied, auth.user?.csrf_token || "");
   const resultDocuments = (list.data?.items || []).map(result => "document" in result ? result.document : result as unknown as Card);
   const listSchemas = useDocumentSchemas(resultDocuments, auth.user?.id || "anonymous", readOnly, layout.mode !== "card");
   function sortResults(key: string) {
     const nextDirection = applied.sort === key && applied.direction === "asc" ? "desc" : "asc";
     setSort(key); setDirection(nextDirection);
     const next = new URLSearchParams(search); next.set("sort", key); next.set("direction", nextDirection);
-    setSearch("&" + next.toString()); setCursor(""); setPage(1); setPreviousCursors([]);
+    setSearch("&" + next.toString());
+  }
+  function changeRegistry(id: string) {
+    setRegistryId(id); setSearch(""); setQ(""); setScope("all"); setFuzzy(true); setContentTarget(undefined);
+    setNumber(""); setRegistrationDate(""); setStatus(""); setFrom(""); setTo(""); setSort("auto"); setDirection("desc");
+    setTypeId(""); setFilterKey(""); setFilterValue(null); setFilterOp("eq"); setFilterEnd("");
   }
   function openFullResult(id: string) {if (openSearchResult(id)) chooseLayout("card");}
   const card = useData<Card>(
@@ -715,7 +746,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     params.set("scope", scope); params.set("fuzzy", String(fuzzy)); params.set("version_scope", versionScope);
     if (number) params.set("reg_number", number);
     if (registrationDate) params.set("reg_date", registrationDate);
-    if (status) params.set("status", status);
+    if (status) params.set("card_state", status);
     if (from) params.set("date_from", from);
     if (to) params.set("date_to", to);
     if (typeId) params.set("document_type_id", typeId);
@@ -730,9 +761,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       params.set("filters", JSON.stringify({ [filterKey]: filterOp === "eq" ? filterValue : {op: filterOp, value: filterOp === "between" ? [filterValue, filterEnd] : filterValue} }));
     }
     if (filterKey && ["present", "absent"].includes(filterOp)) params.set("filters", JSON.stringify({[filterKey]: {op: filterOp}}));
-    setPage(1); setCursor(""); setPreviousCursors([]);
-    setSearch("&" + params.toString());
-    list.reload();
+
+    const nextSearch = "&" + params.toString();
+    if (nextSearch === search) list.reload();
+    setSearch(nextSearch);
     startSearchTiming();
   }
   function persistViews(next: typeof savedViews) {
@@ -741,10 +773,11 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   }
   function loadView(query: string) {
     const params = new URLSearchParams(query);
-    setQ(params.get("q") || params.get("text") || ""); setNumber(params.get("reg_number") || ""); setRegistrationDate(params.get("reg_date") || ""); setStatus(params.get("status") || ""); setFrom(params.has("reg_date") ? "" : params.get("date_from") || ""); setTo(params.has("reg_date") ? "" : params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "auto"); setDirection(params.get("direction") || "desc");
+    params.delete("page"); params.delete("cursor");
+    setQ(params.get("q") || params.get("text") || ""); setNumber(params.get("reg_number") || ""); setRegistrationDate(params.get("reg_date") || ""); setStatus(params.get("card_state") || ""); setFrom(params.has("reg_date") ? "" : params.get("date_from") || ""); setTo(params.has("reg_date") ? "" : params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "auto"); setDirection(params.get("direction") || "desc");
     setScope((params.get("scope") as SearchScope) || "all"); setVersionScope(params.get("version_scope") || "current"); setFuzzy(params.get("fuzzy") !== "false");
     try { const [key, value] = Object.entries(JSON.parse(params.get("filters") || "{}"))[0] || ["", null]; setFilterKey(key); const typed = value as {op?: string; value?: unknown} | null; setFilterOp(typed && typeof typed === "object" ? typed.op || "eq" : "eq"); setFilterValue(typed && typeof typed === "object" ? (Array.isArray(typed.value) && typed.op === "between" ? typed.value[0] : typed.value) : value); setFilterEnd(typed?.op === "between" && Array.isArray(typed.value) ? String(typed.value[1]) : ""); } catch { setFilterKey(""); setFilterValue(null); }
-    setPage(1); setCursor(""); setPreviousCursors([]); setSearch("&" + query);
+    setSearch("&" + params.toString());
     startSearchTiming();
   }
   useEffect(() => {
@@ -758,7 +791,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       setContentTarget(params.get("tab") === "content" ? {fileId: params.get("file") || undefined, blockId: params.get("block") || undefined, ordinal: params.has("ordinal") ? Number(params.get("ordinal")) : undefined} : undefined);
       setNavigationRevision(value => value + 1);
       const query = new URLSearchParams(params); for (const key of ["document", "tab", "file", "block", "ordinal", "registry_id", "page", "cursor"]) query.delete(key);
-      loadView(query.toString()); setCursor(params.get("cursor") || ""); setPage(Math.max(1, Number(params.get("page")) || 1));
+      loadView(query.toString());
     };
     window.addEventListener("popstate", restore);
     return () => window.removeEventListener("popstate", restore);
@@ -786,14 +819,20 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
         )}
       </>
     ) : <div className="empty-state">Выберите документ, чтобы увидеть карточку, файлы и историю.</div>;
-  if (creating && registry)
+  const createRegistries = (registries.data || []).filter(item => item.permissions.includes("create"));
+  const createRegistry = createRegistries.find(item => item.id === createRegistryId) || createRegistries[0];
+  if (creating && createRegistry)
     return (
       <CreateDocument
-        registry={registry}
+        key={createRegistry.id}
+        registries={createRegistries}
+        onRegistryChange={setCreateRegistryId}
+        registry={createRegistry}
         types={types.data || []}
         references={references.data || []}
         onCreated={(id) => {
           setCreating(false);
+          setSavedDocument({id, revision: 1});
           setDocumentId(id);
         }}
         onClose={close}
@@ -808,47 +847,11 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           </span>
           <h1>{registry ? registry.name : "Документы"}</h1>
         </div>
-        <div className="documents-heading-actions">
-        {!readOnly && registry?.permissions.includes("create") && (
-          <button className="primary" onClick={() => setCreating(true)}>
-            Создать документ
-          </button>
-        )}
-        </div>
       </div>
       <Feedback
         error={registries.error || types.error || references.error}
         loading={registries.loading}
       />
-      <div className="registry-tabs" aria-label="Быстрый фильтр по реестру"><button className={!registryId ? "active" : ""} onClick={() => {setRegistryId(""); setCursor(""); setPage(1); setPreviousCursors([]);}}>Все реестры</button>
-        {registries.data
-          ?.filter((item) => item.permissions.includes("read"))
-          .map((item) => (
-            <button
-              key={item.id}
-              className={registryId === item.id ? "active" : ""}
-              onClick={() => {
-                setRegistryId(item.id);
-                setPage(1);
-                setSearch("");
-                setQ("");
-                setScope("all"); setFuzzy(true); setContentTarget(undefined); setCursor(""); setPreviousCursors([]);
-                setNumber("");
-                setRegistrationDate("");
-                setStatus("");
-                setFrom("");
-                setTo("");
-                setSort("auto");
-                setDirection("desc"); setFilterOp("eq"); setFilterEnd("");
-                setTypeId("");
-                setFilterKey("");
-                setFilterValue(null);
-              }}
-            >
-              {item.name}
-            </button>
-          ))}
-      </div>
       {!registries.loading && !registries.error && registries.data && !registries.data.some(item => item.permissions.includes("read")) && (
         <div className="empty-state">Вам пока не предоставлен доступ к реестрам. Обратитесь к администратору.</div>
       )}
@@ -857,10 +860,6 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           <details className="document-search-disclosure" aria-label="Поиск документов" open={searchOpen} onToggle={event => setSearchOpen(event.currentTarget.open)}>
             <summary><span>Поиск</span><span className="search-scope-caption">{registryId ? registry ? `Реестр: ${registry.name}` : "Выбранный реестр недоступен" : "По всем доступным реестрам"}{!searchOpen && applied.query ? ` · ${applied.query}` : ""}</span></summary>
             <div className="document-search-body" hidden={!searchOpen}>
-          <details className="panel search-saved-views"><summary>Сохранённые фильтры и сортировки</summary>
-            <div className="inline-form"><label>Название представления<input value={viewName} onChange={event => setViewName(event.target.value)} /></label><button disabled={!viewName.trim() || !search} onClick={() => {persistViews([...savedViews.filter(item => !(item.registry === registryId && item.name === viewName.trim())), {name: viewName.trim(), registry: registryId, query: search.slice(1)}]); setViewName("");}}>Сохранить текущий поиск</button></div>
-            {savedViews.filter(item => item.registry === registryId).map(item => <div className="button-row" key={item.name}><button onClick={() => loadView(item.query)}>{item.name}</button><button aria-label={`Удалить представление: ${item.name}`} onClick={() => persistViews(savedViews.filter(current => current !== item))}>Удалить</button></div>)}
-          </details>
           <form
             className="search-form"
             onSubmit={(event) => {
@@ -879,7 +878,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               />
             </label>
             <label>Где искать<select value={scope} onChange={event => setScope(event.target.value as SearchScope)}><option value="all">Везде</option><option value="metadata">Реквизиты</option><option value="content">Содержание документов</option></select></label>
-            <div className="button-row"><button className="primary">Найти</button><button type="button" onClick={() => {setQ(""); const next = new URLSearchParams(search); next.delete("q"); next.delete("text"); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}>Очистить запрос</button><button type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>Фильтры</button></div>
+            <div className="button-row"><button className="primary">Найти</button><button type="button" onClick={() => {setQ(""); const next = new URLSearchParams(search); next.delete("q"); next.delete("text"); setSearch("&" + next.toString()); }}>Очистить запрос</button><button type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>Фильтры</button></div>
             <SearchStatus loading={list.loading} startedAt={list.startedAt} durationMs={list.durationMs} error={list.error}/>
             <div className="search-quick-filters">
             <label>
@@ -894,11 +893,8 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               <input type="date" value={registrationDate} onChange={event => {setRegistrationDate(event.target.value); if (event.target.value) {setFrom(""); setTo("");}}}/>
             </label>
             <label>
-              Статус
-              <input
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              />
+              Состояние карточки
+              <select value={status} onChange={event => setStatus(event.target.value)}><option value="">Все доступные</option>{!readOnly && <option value="draft">Черновик</option>}<option value="published">Опубликован</option></select>
             </label>
             <label>
               Дата регистрации с
@@ -1013,17 +1009,21 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
           {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
           </details>
+          <details className="panel search-saved-views"><summary>Сохранённые фильтры и сортировки</summary>
+            <div className="inline-form"><label>Название представления<input value={viewName} onChange={event => setViewName(event.target.value)} /></label><button disabled={!viewName.trim() || !search} onClick={() => {persistViews([...savedViews.filter(item => !(item.registry === registryId && item.name === viewName.trim())), {name: viewName.trim(), registry: registryId, query: search.slice(1)}]); setViewName("");}}>Сохранить текущий поиск</button></div>
+            {savedViews.filter(item => item.registry === registryId).map(item => <div className="button-row" key={item.name}><button onClick={() => loadView(item.query)}>{item.name}</button><button aria-label={`Удалить представление: ${item.name}`} onClick={() => persistViews(savedViews.filter(current => current !== item))}>Удалить</button></div>)}
+          </details>
             </div>
           </details>
-          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "date_from", "date_to", "document_type_id", "filters"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : value} ×</button>)}</div>
+          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "card_state", "date_from", "date_to", "document_type_id", "filters"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус правового акта", card_state: "Состояние карточки", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : key === "card_state" ? value === "draft" ? "Черновик" : "Опубликован" : value} ×</button>)}</div>
           <Feedback error={list.error} />
           <div className="document-results-toolbar" role="group" aria-label="Вид и сортировка документов">
-          <div className="search-sort">            <label>
+          <div className="search-sort"><label>Реестр<select value={registryId} onChange={event => changeRegistry(event.target.value)}><option value="">Все реестры</option>{registries.data?.filter(item => item.permissions.includes("read")).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>
               Сортировка
               <select
                 value={sort}
 
-                onChange={(event) => {setSort(event.target.value); const next = new URLSearchParams(search); next.set("sort", event.target.value); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}
+                onChange={(event) => {setSort(event.target.value); const next = new URLSearchParams(search); next.set("sort", event.target.value); setSearch("&" + next.toString()); }}
               >
                 <option value="auto">Автоматически</option><option value="relevance">Релевантность</option><option value="updated_at">Последние изменения</option>
                 <option value="reg_date">Дата регистрации</option>
@@ -1032,11 +1032,12 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 {filterFields.filter(field => !field.system && field.type !== "multi_reference").map(field => <option key={field.key} value={`custom:${field.key}`}>{field.label}</option>)}
               </select>
             </label>
-            <label>Направление сортировки<select value={direction}  onChange={event => {setDirection(event.target.value); const next = new URLSearchParams(search); next.set("direction", event.target.value); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
+            <label>Направление сортировки<select value={direction}  onChange={event => {setDirection(event.target.value); const next = new URLSearchParams(search); next.set("direction", event.target.value); setSearch("&" + next.toString()); }}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
 </div>
-            <DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
+            <div className="document-view-actions"><DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
+            {!readOnly && createRegistries.length > 0 && <button className="primary" onClick={() => {setCreateRegistryId(createRegistries.some(item => item.id === registryId) ? registryId : createRegistries[0].id); setCreating(true);}}>Создать документ</button>}</div>
           </div>
-          <DocumentWorkspace busy={list.loading} layout={layout} onChange={chooseLayout} onResize={resizeLayout} onRestore={restoreLayout}
+          <DocumentWorkspace onListEnd={list.appendError ? undefined : list.loadMore} feedKey={JSON.stringify(applied)} busy={list.loading} layout={layout} onChange={chooseLayout} onResize={resizeLayout} onRestore={restoreLayout}
             selectedLabel={card.data?.title || resultDocuments.find(item => item.id === documentId)?.title || "Карточка"}
             detail={detail}
             count={<div className="document-results-heading"><h2>Документы</h2><span className="muted">Найдено: {list.data?.total ?? "…"}</span></div>}
@@ -1050,23 +1051,8 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               Документов по выбранным условиям пока нет.
             </div>
           )}
-          <div className="pagination">
-            <button
-              disabled={page === 1 || list.loading}
-              onClick={() => {setCursor(previousCursors.at(-1) || ""); setPage(previousCursors.length ? page - 1 : 1); setPreviousCursors(values => values.slice(0, -1));}}
-            >
-              Назад
-            </button>
-            <span>Страница {page}</span>
-            <button
-              disabled={
-                !list.data?.next_cursor || list.loading
-              }
-              onClick={() => {setPreviousCursors(values => [...values, cursor]); setCursor(list.data?.next_cursor || ""); setPage(page + 1);}}
-            >
-              Вперёд
-            </button>
-          </div>
+          {list.error && <button onClick={list.reload}>Повторить поиск</button>}
+          {(list.data || list.loading) && <DocumentFeedEnd enabled={layout.mode !== "card"} hasMore={!!list.data?.next_cursor} loading={list.loading} error={list.appendError} onLoad={list.loadMore}/>}
             </>}/>
         </>
       )}

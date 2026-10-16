@@ -69,7 +69,7 @@ export function Layout({
   const roles = auth.user?.roles || [];
   const spaces: Space[] = [
     ...(roles.includes("admin") ? ["admin" as Space] : []),
-    ...(roles.some((role) => ["admin", "editor", "user"].includes(role))
+    ...(roles.some((role) => ["admin", "editor"].includes(role))
       ? ["work" as Space]
       : []),
     "view",
