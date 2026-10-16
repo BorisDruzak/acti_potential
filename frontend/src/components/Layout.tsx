@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
 export type Space = "admin" | "work" | "view";
 const spaceNames: Record<Space, string> = {
@@ -22,6 +22,50 @@ export function Layout({
   const auth = useAuth();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const pinKey = `acti.navigation.v1:${auth.user?.id ?? "local"}`;
+  const [pinned, setPinned] = useState(() => {
+    try { return localStorage.getItem(pinKey) === "pinned"; } catch { return false; }
+  });
+  const [expanded, setExpanded] = useState(true);
+  const [desktop, setDesktop] = useState(() => window.innerWidth > 700);
+  const sidebar = useRef<HTMLElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const docked = pinned && desktop;
+  const open = docked || expanded;
+  function reveal() {
+    clearTimeout(hideTimer.current);
+    setExpanded(true);
+  }
+  function hide() {
+    clearTimeout(hideTimer.current);
+    if (!docked) hideTimer.current = setTimeout(() => {
+      if (!sidebar.current?.contains(document.activeElement)) setExpanded(false);
+    }, 220);
+  }
+  function close() {
+    clearTimeout(hideTimer.current);
+    if (!docked) {
+      setExpanded(false);
+      if (sidebar.current?.contains(document.activeElement)) menuButton.current?.focus();
+    }
+  }
+  function togglePin() {
+    const next = !pinned;
+    clearTimeout(hideTimer.current);
+    setPinned(next);
+    setExpanded(true);
+    try { localStorage.setItem(pinKey, next ? "pinned" : "auto"); } catch { /* Optional preference. */ }
+  }
+  useEffect(() => () => clearTimeout(hideTimer.current), []);
+  useEffect(() => {
+    const media = window.matchMedia?.("(min-width: 701px)");
+    if (!media) return;
+    const changed = () => setDesktop(media.matches);
+    changed();
+    media.addEventListener("change", changed);
+    return () => media.removeEventListener("change", changed);
+  }, []);
   const roles = auth.user?.roles || [];
   const spaces: Space[] = [
     ...(roles.includes("admin") ? ["admin" as Space] : []),
@@ -49,7 +93,7 @@ export function Layout({
           "Обработка содержания",
           "Мой пароль",
         ]
-      : ["Мои реестры", "Процессы", space === "work" ? "Моя работа" : "Ход работы", "Шаблоны", "Как делали раньше", "Реестр номеров", "Мой пароль"];
+      : ["Документы", "Моя работа", "Реестр номеров", "Мой пароль"];
   async function logout() {
     setBusy(true);
     setError("");
@@ -62,14 +106,33 @@ export function Layout({
     }
   }
   return (
-    <div className="app-shell">
+    <div className={`app-shell navigation-shell${docked ? " navigation-pinned" : ""}${open ? " navigation-open" : ""}`}>
       <a className="skip-link" href="#content">
         Перейти к содержанию
       </a>
-      <aside className="sidebar">
+      <div className="sidebar-region" onPointerLeave={hide}>
+        <button type="button" className="navigation-edge" aria-label="Показать навигацию у края"
+          aria-controls="main-navigation" aria-expanded={open}
+          onPointerEnter={event => { if (event.pointerType !== "touch") reveal(); }}
+          onFocus={reveal} onClick={reveal}><span aria-hidden="true">›</span></button>
+      <aside id="main-navigation" ref={sidebar} className="sidebar" inert={!open}
+        onPointerEnter={reveal} onFocus={reveal}
+        onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) hide(); }}
+        onKeyDown={event => { if (event.key === "Escape" && !docked) { event.preventDefault(); close(); } }}>
+        <div className="sidebar-heading">
         <div className="brand">
           ACTI<span>v3</span>
         </div>
+        <button type="button" className="navigation-pin" onClick={togglePin}
+          aria-pressed={pinned} aria-label={pinned ? "Открепить панель" : "Закрепить панель"}
+          title={pinned ? "Открепить панель — включить автоскрытие" : "Закрепить панель — оставить открытой"}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M8 3h8m-7 0v7l-3 4v2h12v-2l-3-4V3M12 16v6"/></svg>
+        </button>
+        {!docked && <button type="button" className="navigation-close" aria-label="Скрыть панель" onClick={close}>
+          <span aria-hidden="true">×</span>
+        </button>}
+        </div>
+        <span className="navigation-mode">{pinned ? "Панель закреплена" : "Панель скрывается автоматически"}</span>
         <label className="space-picker">
           Рабочее пространство
           <select
@@ -89,7 +152,13 @@ export function Layout({
             <button
               key={title}
               className={section === title ? "nav-item active" : "nav-item"}
-              onClick={() => setSection(title)}
+              onClick={() => {
+                setSection(title);
+                if (!docked) {
+                  document.getElementById("content")?.focus({preventScroll: true});
+                  close();
+                }
+              }}
               aria-current={section === title ? "page" : undefined}
             >
               <span className="nav-mark" aria-hidden="true">
@@ -104,8 +173,14 @@ export function Layout({
           Универсальный реестр<span>v3</span>
         </div>
       </aside>
+      </div>
       <div className="main-column">
         <header className="topbar">
+          <button ref={menuButton} type="button" className="navigation-toggle"
+            aria-label="Открыть навигацию" aria-expanded={open} aria-controls="main-navigation"
+            onClick={() => { if (open && !docked) close(); else reveal(); }}>
+            <span aria-hidden="true">☰</span><span className="navigation-toggle-label">Меню</span>
+          </button>
           <span className="breadcrumb">
             {spaceNames[space]}
             <b>/</b>
@@ -133,7 +208,7 @@ export function Layout({
             {error}
           </div>
         )}
-        <main id="content" tabIndex={-1}>
+        <main id="content" tabIndex={-1} onPointerEnter={hide} onPointerDown={close} onFocus={hide}>
           {children}
         </main>
         <footer className="page-footer">

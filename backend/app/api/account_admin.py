@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.api.dependencies import COOKIE_NAME, current_actor, current_admin, db_session
 from app.api.errors import fail
@@ -101,6 +101,62 @@ class AuditPage(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ActivityOutput(BaseModel):
+    id: UUID
+    created_at: datetime
+    action: str
+    object_type: str
+
+
+class ActivityPage(BaseModel):
+    items: list[ActivityOutput]
+    total: int
+    page: int
+    page_size: int
+
+
+@router.get("/users/me/activity", response_model=ActivityPage)
+def my_activity(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    category: Literal["documents", "numbers", "account", "other"] | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    actor=Depends(current_actor),
+    session=Depends(db_session, scope="function"),
+):
+    """Personal event summaries; identity and private audit details stay server-side."""
+    if any(value is not None and value.utcoffset() is None for value in (since, until)):
+        fail(422, "activity_timezone_required", "Укажите часовой пояс периода")
+    if since and until and since >= until:
+        fail(422, "activity_invalid_period", "Начало периода должно быть раньше окончания")
+    filters = [AuditEvent.actor_id == actor.id]
+    categories = {
+        "documents": AuditEvent.action.startswith("document."),
+        "numbers": AuditEvent.action.startswith("number."),
+        "account": or_(AuditEvent.action.startswith("auth."),
+                       AuditEvent.action.startswith("identity.")),
+    }
+    if category:
+        filters.append(~or_(*categories.values()) if category == "other" else categories[category])
+    if since:
+        filters.append(AuditEvent.created_at >= since)
+    if until:
+        filters.append(AuditEvent.created_at < until)
+    rows = session.scalars(
+        select(AuditEvent).where(*filters)
+        .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
+        .offset((page - 1) * page_size).limit(page_size)
+    )
+    return {
+        "items": [{"id": row.id, "created_at": row.created_at,
+                   "action": row.action, "object_type": row.object_type} for row in rows],
+        "total": session.scalar(select(func.count()).select_from(AuditEvent).where(*filters)),
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 def audit(session, request, actor, action, object_id, details=None, object_type="user"):
