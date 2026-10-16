@@ -269,6 +269,122 @@ def assert_same_manifest(expected, actual):
     require(expected == actual, "table_or_sequence_manifest_mismatch")
 
 
+def constraint_tokens(expression):
+    """Token positions; quoted SQL text and comments are opaque to normalization."""
+    tokens, cursor = [], 0
+    while cursor < len(expression):
+        start = cursor
+        char = expression[cursor]
+        if char.isspace():
+            cursor += 1
+            continue
+        kind = "symbol"
+        if expression.startswith("--", cursor):
+            end = expression.find("\n", cursor + 2)
+            cursor = len(expression) if end == -1 else end
+            kind = "opaque"
+        elif expression.startswith("/*", cursor):
+            depth, cursor = 1, cursor + 2
+            while cursor < len(expression) and depth:
+                if expression.startswith("/*", cursor):
+                    depth, cursor = depth + 1, cursor + 2
+                elif expression.startswith("*/", cursor):
+                    depth, cursor = depth - 1, cursor + 2
+                else:
+                    cursor += 1
+            kind = "opaque"
+        elif char in "'\"" or (
+            char in "Ee" and expression[cursor : cursor + 2].lower() == "e'"
+        ):
+            escaped = char in "Ee"
+            if escaped:
+                cursor += 1
+            quote = expression[cursor]
+            cursor += 1
+            while cursor < len(expression):
+                if escaped and expression[cursor] == "\\":
+                    cursor += 2
+                elif expression[cursor] == quote:
+                    cursor += 1
+                    if cursor < len(expression) and expression[cursor] == quote:
+                        cursor += 1
+                    else:
+                        break
+                else:
+                    cursor += 1
+            kind = "literal" if quote == "'" and not escaped else "opaque"
+        elif char == "$" and (
+            match := re.match(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$", expression[cursor:])
+        ):
+            delimiter = match.group()
+            end = expression.find(delimiter, cursor + len(delimiter))
+            cursor = len(expression) if end == -1 else end + len(delimiter)
+            kind = "opaque"
+        elif match := re.match(r"[A-Za-z_][A-Za-z0-9_$]*", expression[cursor:]):
+            cursor += len(match.group())
+            kind = "word"
+        elif expression.startswith("::", cursor):
+            cursor += 2
+        else:
+            cursor += 1
+        tokens.append((kind, expression[start:cursor], start, cursor))
+    return tokens
+
+
+def canonical_constraint(expression):
+    """Canonicalize only PostgreSQL's proven varchar-literal-array cast rewrite.
+
+    Dump/restore may distribute a text[] cast over each varchar literal. Values,
+    order, operators and all other casts remain significant. This is intentionally
+    a closed grammar, rather than general SQL expression simplification.
+    """
+    tokens = constraint_tokens(expression)
+    replacements, index = [], 0
+    while index < len(tokens):
+        if [token[1] for token in tokens[index : index + 3]] != ["(", "ARRAY", "["]:
+            index += 1
+            continue
+        cursor, literals, valid = index + 3, [], True
+        while cursor + 4 < len(tokens):
+            if tokens[cursor][0] != "literal" or [
+                token[1] for token in tokens[cursor + 1 : cursor + 4]
+            ] != ["::", "character", "varying"]:
+                valid = False
+                break
+            literals.append(tokens[cursor][1])
+            cursor += 4
+            if tokens[cursor][1] != ",":
+                break
+            cursor += 1
+        if (
+            valid
+            and literals
+            and [token[1] for token in tokens[cursor : cursor + 6]]
+            == [
+                "]",
+                ")",
+                "::",
+                "text",
+                "[",
+                "]",
+            ]
+        ):
+            replacement = (
+                "ARRAY["
+                + ", ".join(
+                    "(" + literal + "::character varying)::text" for literal in literals
+                )
+                + "]"
+            )
+            replacements.append((tokens[index][2], tokens[cursor + 5][3], replacement))
+            index = cursor + 6
+        else:
+            index += 1
+    for start, end, replacement in reversed(replacements):
+        expression = expression[:start] + replacement + expression[end:]
+    return expression
+
+
 def verify_toc(data):
     require(
         b"Format: CUSTOM" in data and b"TABLE DATA public document_files" in data,
@@ -671,6 +787,8 @@ SELECT json_build_object(
 COMMIT;
 """
         definition = json.loads(self.sql(database, query))
+        for constraint in definition.get("constraints") or []:
+            constraint[2] = canonical_constraint(constraint[2])
         return {
             "revision": definition["revision"],
             "digest": hashlib.sha256(

@@ -609,3 +609,127 @@ def test_retrieved_bundle_refuses_symlink_original_even_when_hash_would_match(
     (bundle / "objects" / "key-1").symlink_to(outside)
     with pytest.raises(restore.RestoreSafetyError, match="symlink_path_forbidden"):
         restore.load_bundle(bundle, "a" * 40)
+
+
+def sample_schema_definition():
+    return {
+        "revision": ["0010_service_api"],
+        "relations": [["records", "r", "p", False, False, "d", None]],
+        "columns": [
+            ["records", "id", 1, "uuid", True, "", "", None],
+            ["records", "title", 3, "text", True, "", "", None],
+            ["records", "enabled", 6, "boolean", False, "", "", "true"],
+        ],
+        "constraints": [["records", "records_pkey", "PRIMARY KEY (id)", True, False, False]],
+        "indexes": ["CREATE UNIQUE INDEX records_pkey ON public.records USING btree (id)"],
+        "triggers": None,
+        "functions": None,
+        "views": None,
+        "enums": None,
+        "sequences": None,
+        "policies": None,
+    }
+
+
+def schema_fingerprints(tmp_path, monkeypatch, before, after):
+    receipt, path = sample_receipt(tmp_path, monkeypatch)
+    verifier = restore.Verifier(receipt, path)
+    outputs = iter([json.dumps(before).encode(), json.dumps(after).encode()])
+    monkeypatch.setattr(verifier, "sql", lambda database, query: next(outputs))
+    return verifier.schema(restore.SOURCE_DATABASE), verifier.schema(restore.TARGET_DATABASE)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["order", "name", "type", "default", "nullable", "constraint", "index", "trigger"]
+)
+def test_schema_fingerprint_still_detects_semantic_ddl_changes(tmp_path, monkeypatch, mutation):
+    before = sample_schema_definition()
+    after = json.loads(json.dumps(before))
+    if mutation == "order":
+        after["columns"][1], after["columns"][2] = after["columns"][2], after["columns"][1]
+        for position, column in enumerate(after["columns"], start=1):
+            column[2] = position
+    elif mutation == "name":
+        after["columns"][1][1] = "renamed_title"
+    elif mutation == "type":
+        after["columns"][1][3] = "character varying(20)"
+    elif mutation == "default":
+        after["columns"][2][7] = "false"
+    elif mutation == "nullable":
+        after["columns"][1][4] = False
+    elif mutation == "constraint":
+        after["constraints"][0][2] = "PRIMARY KEY (id, title)"
+    elif mutation == "index":
+        after["indexes"][0] = "CREATE INDEX records_title ON public.records USING btree (title)"
+    elif mutation == "trigger":
+        after["triggers"] = [["records", "changed", "CREATE TRIGGER changed ...", "O"]]
+    source, restored = schema_fingerprints(tmp_path, monkeypatch, before, after)
+    assert source != restored
+
+
+SOURCE_ARRAY_CAST = "(ARRAY['pending'::character varying, 'active'::character varying])::text[]"
+RESTORED_ARRAY_CAST = (
+    "ARRAY[('pending'::character varying)::text, ('active'::character varying)::text]"
+)
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        "CHECK (((state)::text = ANY ({})))",
+        "CHECK (((scope)::text <> ''::text) AND ((state)::text = ANY ({})))",
+    ],
+)
+def test_schema_fingerprint_normalizes_only_proven_pg_array_cast_rewrite(
+    tmp_path, monkeypatch, wrapper
+):
+    before = sample_schema_definition()
+    after = json.loads(json.dumps(before))
+    before["constraints"][0][2] = wrapper.format(SOURCE_ARRAY_CAST)
+    after["constraints"][0][2] = wrapper.format(RESTORED_ARRAY_CAST)
+    source, restored = schema_fingerprints(tmp_path, monkeypatch, before, after)
+    assert source == restored
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        RESTORED_ARRAY_CAST.replace("'active'", "'disabled'"),
+        "ARRAY[('active'::character varying)::text, ('pending'::character varying)::text]",
+        RESTORED_ARRAY_CAST.replace("::text", "::integer", 1),
+    ],
+)
+def test_schema_normalization_preserves_literal_values_order_and_casts(
+    tmp_path, monkeypatch, changed
+):
+    before = sample_schema_definition()
+    after = json.loads(json.dumps(before))
+    before["constraints"][0][2] = "CHECK (state = ANY (" + SOURCE_ARRAY_CAST + "))"
+    after["constraints"][0][2] = "CHECK (state = ANY (" + changed + "))"
+    source, restored = schema_fingerprints(tmp_path, monkeypatch, before, after)
+    assert source != restored
+
+
+def test_schema_normalization_preserves_operators(tmp_path, monkeypatch):
+    before = sample_schema_definition()
+    after = json.loads(json.dumps(before))
+    before["constraints"][0][2] = "CHECK (state = ANY (" + SOURCE_ARRAY_CAST + "))"
+    after["constraints"][0][2] = "CHECK (state <> ANY (" + RESTORED_ARRAY_CAST + "))"
+    source, restored = schema_fingerprints(tmp_path, monkeypatch, before, after)
+    assert source != restored
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "CHECK (note = '" + SOURCE_ARRAY_CAST.replace("'", "''") + "')",
+        'CHECK ("' + SOURCE_ARRAY_CAST + '" = note)',
+        "CHECK (note = $quoted$" + SOURCE_ARRAY_CAST + "$quoted$)",
+        "CHECK (note = E'escaped\\' " + SOURCE_ARRAY_CAST.replace("'", "''") + "')",
+        "CHECK (note = 1 /* " + SOURCE_ARRAY_CAST + " */)",
+        SOURCE_ARRAY_CAST.replace("character varying", "text"),
+        SOURCE_ARRAY_CAST.replace("'pending'", "NULL"),
+    ],
+)
+def test_schema_normalization_never_rewrites_quoted_text_or_other_expressions(expression):
+    assert restore.canonical_constraint(expression) == expression
