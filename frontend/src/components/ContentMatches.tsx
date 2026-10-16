@@ -1,7 +1,18 @@
 import type { ReactNode } from "react";
 import type { ContentMatch, ContentTarget } from "../engine/content";
 
-export function HighlightedSnippet({text, query}: {text: string; query: string}) {
+export function HighlightedSnippet({text, query, highlights}: {text: string; query: string; highlights?: number[][]}) {
+  if (highlights?.length) {
+    const parts: ReactNode[] = [];
+    let position = 0;
+    for (const [start, end] of highlights) {
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < position || end <= start || end > text.length) continue;
+      parts.push(text.slice(position, start), <mark key={start}>{text.slice(start, end)}</mark>);
+      position = end;
+    }
+    parts.push(text.slice(position));
+    return <>{parts}</>;
+  }
   const terms = Array.from(new Set(query.toLocaleLowerCase("ru-RU").split(/\s+/).filter(term => term.length > 1))).slice(0, 12);
   const lower = text.toLocaleLowerCase("ru-RU");
   const result: ReactNode[] = [];
@@ -28,7 +39,7 @@ export function ContentMatches({matches, query, onOpen}: {
 }) {
   return <div className="content-matches">{matches.map((match, index) => <article key={`${match.block_id || match.field_key || "match"}-${index}`}>
     <p className="match-source">{match.source === "file" ? `${match.label || "Оригинал"} · версия ${match.version || 1}` : `Реквизиты · ${match.label || match.field_key || "Карточка"}`}</p>
-    <p className="content-text"><HighlightedSnippet text={match.snippet} query={query}/></p>
+    <p className="content-text"><HighlightedSnippet text={match.snippet} query={query} highlights={match.highlights}/></p>
     {match.source === "file" && <button type="button" className="text-button" onClick={() => onOpen({fileId: match.file_id, blockId: match.block_id, ordinal: match.block_ordinal})}>Открыть фрагмент источника</button>}
   </article>)}</div>;
 }

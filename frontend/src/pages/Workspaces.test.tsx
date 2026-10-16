@@ -66,7 +66,7 @@ function setup(roles: string[], mustChange = false) {
       else if (url.includes("/document-types"))
         data = [{ id: "t", code: "test", name: "Тестовый тип" }];
       else if (url.includes("/references")) data = [];
-      else if (url.includes("/documents?"))
+      else if (url.endsWith("/search"))
         data = {
           items: [
             {
@@ -262,10 +262,9 @@ it("boolean extra filter uses typed control and sends false rather than dropping
   await waitFor(() =>
     expect(
       fetch.mock.calls.some(
-        ([url]) =>
-          url.includes("filters=") &&
-          new URL(url, "https://example.test").searchParams.get("filters") ===
-            '{"publish":false}',
+        ([url, init]) =>
+          url.endsWith("/search") &&
+          JSON.stringify(JSON.parse(String(init?.body)).filters) === '{"publish":false}',
       ),
     ).toBe(true),
   );
