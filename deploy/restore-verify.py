@@ -982,16 +982,11 @@ COMMIT;
         require(self.database_marker() is None, "restore_database_already_exists")
         self.receipt["database_creation_started"] = True
         self.save()
-        self.docker(
-            "exec",
-            self.receipt["postgres_container"],
-            "createdb",
-            "-U",
+        self.sql(
             "postgres",
-            "-T",
-            "template0",
-            "--connection-limit=0",
-            TARGET_DATABASE,
+            "CREATE DATABASE "
+            + identifier(TARGET_DATABASE)
+            + " TEMPLATE template0 CONNECTION LIMIT 0;",
         )
         marker = PURPOSE + ":" + self.receipt["run_id"]
         self.sql(

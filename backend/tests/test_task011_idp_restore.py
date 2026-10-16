@@ -5,10 +5,76 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 MODULE_PATH = Path(__file__).resolve().parents[2] / "deploy/restore-verify.py"
 spec = importlib.util.spec_from_file_location("acti_idp_restore_verify", MODULE_PATH)
 restore = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(restore)
+
+
+def test_real_postgresql_creates_owned_clone_with_connections_closed_before_acl(
+    factory, monkeypatch
+):
+    engine = factory.kw["bind"]
+    run_id = str(uuid4())
+    target = "acti_restore_create_" + run_id.replace("-", "") + "_test"
+    marker = restore.PURPOSE + ":" + run_id
+    monkeypatch.setattr(restore, "TARGET_DATABASE", target)
+    verifier = object.__new__(restore.Verifier)
+    verifier.receipt = {"run_id": run_id}
+    monkeypatch.setattr(verifier, "save", lambda: None)
+    monkeypatch.setattr(verifier, "stage", lambda value: None)
+    monkeypatch.setattr(
+        verifier, "docker", lambda *args, **kwargs: pytest.fail("Database creation must use SQL")
+    )
+
+    class CreationObserved(Exception):
+        pass
+
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        assert connection.exec_driver_sql("SELECT current_database()").scalar_one().endswith("_test")
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM pg_database WHERE datname='acti'"
+        ).scalar_one() == 0, "Never create/drop test databases in the ACTI production cluster"
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM pg_database WHERE datname=" + restore.literal(target)
+        ).scalar_one() == 0
+
+        def sql(database, query):
+            assert database == "postgres"
+            result = connection.exec_driver_sql(query)
+            value = result.scalar_one_or_none() if result.returns_rows else None
+            return json.dumps(value).encode() if value is not None else b""
+
+        def inspect_before_acl():
+            row = connection.exec_driver_sql(
+                "SELECT datconnlimit,shobj_description(oid,'pg_database'),oid::text "
+                "FROM pg_database WHERE datname=" + restore.literal(target)
+            ).one()
+            assert row[0] == 0, "Non-superusers must be blocked before grants are restricted"
+            assert row[1] == marker
+            assert row[2] == verifier.receipt["database_ownership"]["oid"]
+            raise CreationObserved()
+
+        monkeypatch.setattr(verifier, "sql", sql)
+        monkeypatch.setattr(verifier, "restrict_clone_access", inspect_before_acl)
+        try:
+            with pytest.raises(CreationObserved):
+                verifier.restore(Path("not-opened-before-database-isolation.dump"))
+        finally:
+            row = connection.exec_driver_sql(
+                "SELECT oid::text,shobj_description(oid,'pg_database') FROM pg_database WHERE datname="
+                + restore.literal(target)
+            ).one_or_none()
+            if row is not None:
+                assert target == "acti_restore_create_" + run_id.replace("-", "") + "_test"
+                assert row[1] == marker, "Never drop a database without this run's owner marker"
+                assert verifier.receipt["database_ownership"]["oid"] == row[0]
+                connection.exec_driver_sql("DROP DATABASE " + restore.identifier(target))
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM pg_database WHERE datname=" + restore.literal(target)
+        ).scalar_one() == 0
 
 
 def test_real_catalog_includes_keycloak_data_and_schema_with_quoted_names(
