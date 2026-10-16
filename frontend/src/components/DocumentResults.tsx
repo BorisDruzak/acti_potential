@@ -11,13 +11,14 @@ export function DocumentResults({results, schemas, sortSchemas, types, roles, re
 }) {
   const rows = results.map(result => "document" in result ? result.document : result as unknown as Card);
   function value(item: Card, column: DocumentColumn) {
+    if (column === "card_state") return item.card_state === "published" ? "Опубликован" : item.card_state === "draft" ? "Черновик" : "—";
     if (column === "document_type") return types.find(type => type.id === item.document_type_id)?.name || "—";
     if (column === "title" || column === "reg_number" || column === "reg_date") return item[column] || "—";
     return configuredValue(item, schemas.get(item.schema_version_id), documentColumns.find(item => item.key === column)!.label, roles, readOnly);
   }
   function sortKey(column: typeof documentColumns[number]): string | undefined {
     if ("sort" in column) return column.sort;
-    if (!typeId || column.key === "document_type") return;
+    if (!typeId || ["document_type", "card_state"].includes(column.key)) return;
     return configuredColumnSort(sortSchemas, column.label);
   }
   function keydown(event: KeyboardEvent<HTMLTableRowElement>, index: number) {

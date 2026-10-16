@@ -12,6 +12,8 @@ Controlled legacy import initializes cards as published and targets the internal
 
 The Documents UI places saved filters below search controls, a registry dropdown beside sorting, and creation beside the layout switch (also available with All registries selected when a create-capable registry exists). Reader status filters cannot reveal drafts. Result batches append on scrolling inside the list pane, using the existing opaque cursor API. Query/filter/sort changes reset the feed and abort old requests; switching layouts preserves rows, selection, draft and scroll. No page buttons or page counters remain.
 
+Card state is displayed and edited in Main information and appears as a separate document-list column, including the compact list. Publication contains the two placement checkboxes. New-card forms open inside the existing document-card pane, with the list, search and toolbar retained; cancellation returns to the previous document and working layout.
+
 ## Implementation plan
 
 1. Add separate card state/publication-target fields and nullable historical snapshots with an additive Alembic migration; extend create/update/output/search contracts. Preserve existing document status and immutable published schemas.

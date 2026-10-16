@@ -51,7 +51,7 @@ it("keeps decimal filters and configured export columns in the document workspac
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/search/export?") && new URL(url, "https://test.invalid").searchParams.get("columns") === "amount")).toBe(true));
   const exported = fetch.mock.calls.find(([url]) => url.includes("/search/export?"))![0];
   expect(JSON.parse(new URL(exported, "https://test.invalid").searchParams.get("parameters")!).sort).toBe("custom:amount");
-  expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+  expect(screen.getAllByRole("columnheader")).toHaveLength(8);
 });
 
 it("saves and restores filters per user and workspace without storing result data", async () => {

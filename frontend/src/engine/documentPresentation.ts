@@ -6,6 +6,7 @@ export const documentColumns = [
   {key: "title", label: "Наименование документа", sort: "title"},
   {key: "reg_number", label: "Регистрационный номер", sort: "reg_number"},
   {key: "reg_date", label: "Дата регистрации", sort: "reg_date"},
+  {key: "card_state", label: "Состояние карточки"},
   {key: "document_type", label: "Тип документа"},
   {key: "kind", label: "Вид документа"},
   {key: "topic", label: "Тема"},

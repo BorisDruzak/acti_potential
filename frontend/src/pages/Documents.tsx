@@ -28,7 +28,7 @@ import { DocumentResults } from "../components/DocumentResults";
 import { useDocumentSchemas } from "../engine/documentPresentation";
 import { useDocumentFeed } from "../engine/useDocumentFeed";
 import { DocumentFeedEnd } from "../components/DocumentFeedEnd";
-import { DocumentPublication, publicationSection } from "../components/DocumentPublication";
+import { DocumentCardState, DocumentPublication, mainInformationSection, publicationSection } from "../components/DocumentPublication";
 import type { ContentTarget } from "../engine/content";
 
 function filesInRevision(card: Card, values: Values): FileVersion[] {
@@ -96,7 +96,9 @@ function DocumentCard({
   const [cardState, setCardState] = useState<CardState>(card.card_state || "draft");
   const [targets, setTargets] = useState<PublicationTarget[]>(card.publication_targets || ["internal"]);
   const publicationKey = publicationSection(card.schema);
-  const publication = <DocumentPublication state={cardState} targets={targets} onState={editing ? setCardState : undefined} onTargets={editing ? setTargets : undefined} published={card.card_state === "published"}/>;
+  const mainKey = mainInformationSection(card.schema);
+  const lifecycle = <DocumentCardState state={cardState} onChange={editing ? setCardState : undefined} published={card.card_state === "published"}/>;
+  const publication = <DocumentPublication targets={targets} onTargets={editing ? setTargets : undefined}/>;
   const [conflict, setConflict] = useState(false);
   const [tab, setTab] = useState(contentTarget ? "content" : "card");
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
@@ -259,7 +261,7 @@ function DocumentCard({
           }}
         >
           <DynamicForm
-            sectionContent={publicationKey ? {[publicationKey]: publication} : undefined}
+            sectionContent={{...(mainKey ? {[mainKey]: lifecycle} : {}), ...(publicationKey ? {[publicationKey]: publication} : {})}}
             navigationPlacement="side"
             schema={card.schema}
             values={values}
@@ -281,6 +283,7 @@ function DocumentCard({
                 : undefined
             }
           />
+          {!mainKey && <section className="form-section"><h3>Основные сведения</h3>{lifecycle}</section>}
           {!publicationKey && <section className="form-section"><h3>Публикация</h3>{publication}</section>}
           {canEdit && (
             <div className="button-row">
@@ -415,7 +418,7 @@ function DocumentCard({
                 Редакция {item.revision} ·{" "}
                 {new Date(item.created_at).toLocaleString("ru-RU")}
               </summary>
-              {item.card_state && item.publication_targets ? <DocumentPublication state={item.card_state} targets={item.publication_targets}/> : <p className="muted">Состояние карточки и базы публикации в этой редакции неизвестны.</p>}
+              {item.card_state && item.publication_targets ? <><DocumentCardState state={item.card_state}/><DocumentPublication targets={item.publication_targets}/></> : <p className="muted">Состояние карточки и базы публикации в этой редакции неизвестны.</p>}
               <DynamicForm
                 schema={card.schema}
                 values={item.values}
@@ -439,6 +442,8 @@ function DocumentCard({
 function CreateDocument({
   registries,
   onRegistryChange,
+  onBeforeCreate,
+  onDirtyChange,
   registry,
   types,
   references,
@@ -447,6 +452,8 @@ function CreateDocument({
 }: {
   registries: Registry[];
   onRegistryChange: (id: string) => void;
+  onBeforeCreate: () => boolean;
+  onDirtyChange: (dirty: boolean) => void;
   registry: Registry;
   types: DocumentType[];
   references: ReferenceSet[];
@@ -455,25 +462,27 @@ function CreateDocument({
 }) {
   const auth = useAuth();
   const [typeId, setTypeId] = useState("");
+  const draftDirty = useRef(false);
+  const reportDirty = useCallback((dirty: boolean) => {draftDirty.current = dirty; onDirtyChange(dirty);}, [onDirtyChange]);
   const versions = useData<SchemaVersion[]>(
     typeId ? "/document-types/" + typeId + "/versions?mode=editor" : null,
   );
   const version = versions.data?.find((item) => item.state === "published");
   return (
-    <section>
+    <section className="document-card document-create">
       <div className="toolbar">
         <div>
           <h1>Новый документ</h1>
           <p>Реестр: {registry.name}</p>
         </div>
-        <button onClick={onClose}>К списку</button>
+        <button onClick={onClose}>Отмена создания</button>
       </div>
       <label className="picker">Реестр документа<select value={registry.id} onChange={event => onRegistryChange(event.target.value)}>{registries.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label className="picker">
         Тип документа
         <select
           value={typeId}
-          onChange={(event) => setTypeId(event.target.value)}
+          onChange={event => {if (!draftDirty.current || window.confirm("В новом документе есть несохранённые изменения. Сменить тип документа?")) setTypeId(event.target.value);}}
         >
           <option value="">Выберите тип</option>
           {types
@@ -495,6 +504,8 @@ function CreateDocument({
       {version && (
         <NewDocumentForm
           key={version.id}
+          onBeforeCreate={onBeforeCreate}
+          onDirtyChange={reportDirty}
           registry={registry}
           version={version}
           references={references}
@@ -511,7 +522,11 @@ function NewDocumentForm({
   references,
   roles,
   onCreated,
+  onBeforeCreate,
+  onDirtyChange,
 }: {
+  onBeforeCreate: () => boolean;
+  onDirtyChange: (dirty: boolean) => void;
   registry: Registry;
   version: SchemaVersion;
   references: ReferenceSet[];
@@ -526,7 +541,12 @@ function NewDocumentForm({
   const [cardState, setCardState] = useState<CardState>("draft");
   const [targets, setTargets] = useState<PublicationTarget[]>(["internal"]);
   const publicationKey = publicationSection(version.schema);
-  const publication = <DocumentPublication state={cardState} targets={targets} onState={setCardState} onTargets={setTargets}/>;
+  const mainKey = mainInformationSection(version.schema);
+  const lifecycle = <DocumentCardState state={cardState} onChange={setCardState}/>;
+  const publication = <DocumentPublication targets={targets} onTargets={setTargets}/>;
+  const dirty = JSON.stringify(values) !== JSON.stringify(initialValues(version.schema)) || cardState !== "draft" || JSON.stringify(targets) !== '["internal"]' || Object.keys(pendingFiles).length > 0;
+  useEffect(() => {onDirtyChange(dirty);}, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
   function changeValues(next: Values) {
     setPendingFiles((current) =>
       prunePendingFiles(current, version.schema, next, roles, "create", values),
@@ -560,14 +580,15 @@ function NewDocumentForm({
   }
   return (
     <form
-      className="panel"
+      className="panel document-card-form"
       onSubmit={(event) => {
         event.preventDefault();
-        void action.run(create, "Документ создан");
+        if (onBeforeCreate()) void action.run(create, "Документ создан");
       }}
     >
       <DynamicForm
-        sectionContent={publicationKey ? {[publicationKey]: publication} : undefined}
+        navigationPlacement="side"
+        sectionContent={{...(mainKey ? {[mainKey]: lifecycle} : {}), ...(publicationKey ? {[publicationKey]: publication} : {})}}
         schema={version.schema}
         values={values}
         onChange={changeValues}
@@ -582,6 +603,7 @@ function NewDocumentForm({
             : undefined
         }
       />
+      {!mainKey && <section className="form-section"><h3>Основные сведения</h3>{lifecycle}</section>}
       {!publicationKey && <section className="form-section"><h3>Публикация</h3>{publication}</section>}
       {Object.entries(pendingFiles).map(([field, file]) => (
         <div key={field} className="file-line">
@@ -614,7 +636,21 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   const readOnly = requestedReadOnly || !auth.user?.roles.some(role => ["admin", "editor"].includes(role));
   const {layout, choose: chooseLayout, resize: resizeLayout, restore: restoreLayout, back: backToResults} = useDocumentLayout(auth.user?.id || "anonymous", readOnly);
   const dirtyCard = useRef(false);
+  const dirtyCreation = useRef(false);
+  const reportCreationDirty = useCallback((value: boolean) => {dirtyCreation.current = value;}, []);
+  const priorCreateLayout = useRef<typeof layout | null>(null);
   const reportDirty = useCallback((value: boolean) => {dirtyCard.current = value;}, []);
+  useEffect(() => {
+    const beforeNavigation = (event: Event) => {
+      if ((dirtyCard.current || dirtyCreation.current) && !window.confirm("Есть несохранённые изменения документа. Перейти в другой раздел без сохранения?")) event.preventDefault();
+    };
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (dirtyCard.current || dirtyCreation.current) {event.preventDefault(); event.returnValue = "";}
+    };
+    window.addEventListener("acti:before-workspace-navigation", beforeNavigation);
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {window.removeEventListener("acti:before-workspace-navigation", beforeNavigation); window.removeEventListener("beforeunload", beforeUnload);};
+  }, []);
   const registries = useData<Registry[]>("/registries");
   const types = useData<DocumentType[]>("/document-types");
   const references = useData<ReferenceSet[]>(
@@ -659,6 +695,9 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   const exportAction = useAction();
   const [search, setSearch] = useState(() => {const params = new URLSearchParams(window.location.search); for (const key of ["document", "tab", "file", "block", "ordinal", "registry_id", "page", "cursor"]) params.delete(key); return "&" + params.toString();});
   const documentLocation = useRef(window.location.pathname + window.location.search);
+  const acceptedLocation = useRef(window.location.pathname + window.location.search + window.location.hash);
+  const cardNavigation = useRef("");
+  cardNavigation.current = JSON.stringify([window.location.pathname, documentId, !!contentTarget, contentTarget?.fileId, contentTarget?.blockId, contentTarget?.ordinal]);
   useEffect(() => {
     const params = new URLSearchParams(search);
     if (registryId) params.set("registry_id", registryId);
@@ -666,6 +705,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     if (contentTarget) {params.set("tab", "content"); if (contentTarget.fileId) params.set("file", contentTarget.fileId); if (contentTarget.blockId) params.set("block", contentTarget.blockId); if (contentTarget.ordinal !== undefined) params.set("ordinal", String(contentTarget.ordinal));}
     window.history.replaceState(null, "", window.location.pathname + (params.size ? "?" + params.toString() : ""));
     documentLocation.current = window.location.pathname + window.location.search;
+    acceptedLocation.current = window.location.pathname + window.location.search + window.location.hash;
   }, [search, registryId, documentId, contentTarget]);
   const searchTiming = useRef<{registryId: string; started: number} | null>(null);
   function recordRetrieval(operation: "search" | "time_to_open", duration_ms: number) {
@@ -674,12 +714,13 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   }
   function startSearchTiming() {searchTiming.current = {registryId, started: performance.now()}; recordRetrieval("search", 0);}
   function openSearchResult(id: string, target?: ContentTarget) {
-    if (id === documentId && !target) return true;
-    if (dirtyCard.current && !window.confirm("В карточке есть несохранённые изменения. Перейти к другому документу или фрагменту без сохранения?")) return false;
+    if (!creating && id === documentId && !target) return true;
+    if ((dirtyCard.current || (creating && dirtyCreation.current)) && !window.confirm("В карточке есть несохранённые изменения. Перейти к другому документу или фрагменту без сохранения?")) return false;
     const timing = searchTiming.current;
     if (timing?.registryId === registryId) recordRetrieval("time_to_open", performance.now() - timing.started);
     searchTiming.current = null;
     window.history.pushState(null, "", window.location.href);
+    setCreating(false);
     setContentTarget(target); setDocumentId(id); setNavigationRevision(value => value + 1);
     return true;
   }
@@ -781,20 +822,28 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     startSearchTiming();
   }
   useEffect(() => {
-    const restore = () => {
+    const restore = (event: PopStateEvent & {actiDocumentGuarded?: boolean}) => {
       const location = window.location.pathname + window.location.search;
       // Section anchors also emit popstate. Keep the mounted card and draft for hash-only navigation.
-      if (location === documentLocation.current) return;
-      documentLocation.current = location;
+      if (location === documentLocation.current) {acceptedLocation.current = location + window.location.hash; return;}
       const params = new URLSearchParams(window.location.search);
+      const target = params.get("tab") === "content" ? {fileId: params.get("file") || undefined, blockId: params.get("block") || undefined, ordinal: params.has("ordinal") ? Number(params.get("ordinal")) : undefined} : undefined;
+      const replacingCard = cardNavigation.current !== JSON.stringify([window.location.pathname, params.get("document") || "", !!target, target?.fileId, target?.blockId, target?.ordinal]);
+      if (replacingCard && (dirtyCard.current || dirtyCreation.current) && !window.confirm("Есть несохранённые изменения документа. Перейти по истории без сохранения?")) {
+        window.history.pushState(null, "", acceptedLocation.current);
+        event.stopImmediatePropagation();
+        return;
+      }
+      event.actiDocumentGuarded = true;
+      documentLocation.current = location; acceptedLocation.current = location + window.location.hash;
       setRegistryId(params.get("registry_id") || ""); setDocumentId(params.get("document") || "");
-      setContentTarget(params.get("tab") === "content" ? {fileId: params.get("file") || undefined, blockId: params.get("block") || undefined, ordinal: params.has("ordinal") ? Number(params.get("ordinal")) : undefined} : undefined);
-      setNavigationRevision(value => value + 1);
+      setContentTarget(target);
+      if (replacingCard) {setCreating(false); setNavigationRevision(value => value + 1);}
       const query = new URLSearchParams(params); for (const key of ["document", "tab", "file", "block", "ordinal", "registry_id", "page", "cursor"]) query.delete(key);
       loadView(query.toString());
     };
-    window.addEventListener("popstate", restore);
-    return () => window.removeEventListener("popstate", restore);
+    window.addEventListener("popstate", restore, true);
+    return () => window.removeEventListener("popstate", restore, true);
   }, []);
   const close = () => {
     setDocumentId("");
@@ -821,24 +870,28 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     ) : <div className="empty-state">Выберите документ, чтобы увидеть карточку, файлы и историю.</div>;
   const createRegistries = (registries.data || []).filter(item => item.permissions.includes("create"));
   const createRegistry = createRegistries.find(item => item.id === createRegistryId) || createRegistries[0];
-  if (creating && createRegistry)
-    return (
-      <CreateDocument
-        key={createRegistry.id}
-        registries={createRegistries}
-        onRegistryChange={setCreateRegistryId}
-        registry={createRegistry}
-        types={types.data || []}
-        references={references.data || []}
-        onCreated={(id) => {
-          setCreating(false);
-          setSavedDocument({id, revision: 1});
-          setDocumentId(id);
-          chooseLayout("card");
-        }}
-        onClose={close}
-      />
-    );
+  function startCreation() {
+    if (creating) {if (layout.mode === "table") chooseLayout("split"); return;}
+    if (dirtyCard.current && !window.confirm("В карточке есть несохранённые изменения. Открыть создание нового документа?")) return;
+    priorCreateLayout.current = layout;
+    setCreateRegistryId(createRegistries.some(item => item.id === registryId) ? registryId : createRegistries[0].id);
+    setCreating(true);
+    if (layout.mode === "table") chooseLayout("split");
+  }
+  function cancelCreation() {
+    if (dirtyCreation.current && !window.confirm("В новом документе есть несохранённые изменения. Отменить создание?")) return;
+    setCreating(false);
+    if (priorCreateLayout.current) restoreLayout(priorCreateLayout.current);
+  }
+  const workspaceDetail = <>
+    <div hidden={creating}>{detail}</div>
+    {creating && createRegistry && <CreateDocument key={createRegistry.id} registries={createRegistries}
+      onRegistryChange={id => {if (!dirtyCreation.current || window.confirm("В новом документе есть несохранённые изменения. Сменить реестр?")) setCreateRegistryId(id);}}
+      onBeforeCreate={() => !dirtyCard.current || window.confirm("В выбранной карточке есть несохранённые изменения. Создать новый документ и закрыть её без сохранения?")}
+      onDirtyChange={reportCreationDirty} registry={createRegistry} types={types.data || []} references={references.data || []}
+      onCreated={id => {setCreating(false); setSavedDocument({id, revision: 1}); setDocumentId(id); setContentTarget(undefined); if (layout.mode === "table") chooseLayout("split");}}
+      onClose={cancelCreation}/>}
+  </>;
   return (
     <div className="documents-search documents-layout-page">
       <div className="toolbar documents-heading">
@@ -1036,11 +1089,11 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
             <label>Направление сортировки<select value={direction}  onChange={event => {setDirection(event.target.value); const next = new URLSearchParams(search); next.set("direction", event.target.value); setSearch("&" + next.toString()); }}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
 </div>
             <div className="document-view-actions"><DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
-            {!readOnly && createRegistries.length > 0 && <button className="primary" onClick={() => {setCreateRegistryId(createRegistries.some(item => item.id === registryId) ? registryId : createRegistries[0].id); setCreating(true);}}>Создать документ</button>}</div>
+            {!readOnly && createRegistries.length > 0 && <button className="primary" onClick={startCreation}>Создать документ</button>}</div>
           </div>
           <DocumentWorkspace onListEnd={list.appendError ? undefined : list.loadMore} feedKey={JSON.stringify(applied)} busy={list.loading} layout={layout} onChange={chooseLayout} onResize={resizeLayout} onRestore={restoreLayout}
-            selectedLabel={card.data?.title || resultDocuments.find(item => item.id === documentId)?.title || "Карточка"}
-            detail={detail}
+            selectedLabel={creating ? "Новый документ" : card.data?.title || resultDocuments.find(item => item.id === documentId)?.title || "Карточка"}
+            detail={workspaceDetail}
             count={<div className="document-results-heading"><h2>Документы</h2><span className="muted">Найдено: {list.data?.total ?? "…"}</span></div>}
             list={<>
               <DocumentResults results={list.data?.items || []} schemas={listSchemas.byVersion} sortSchemas={listSchemas.forType(applied.document_type_ids.length === 1 ? applied.document_type_ids[0] || "" : "")} types={types.data || []}

@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { App } from "../App";
@@ -279,4 +280,38 @@ it("records aggregate search-to-open timing without the query or personal dimens
   expect(bodies[0]).toEqual({registry_id: "r", operation: "search", duration_ms: 0});
   expect(bodies[1]).toEqual({registry_id: "r", operation: "time_to_open", duration_ms: expect.any(Number)});
   expect(JSON.stringify(bodies)).not.toContain("Частный поисковый текст");
+});
+
+it("guards sidebar navigation while inline creation has an unsaved publication draft", async () => {
+  window.history.replaceState(null, "", "/work");
+  setup(["editor"]);
+  fireEvent.click(await screen.findByRole("button", {name: "Создать документ"}));
+  const creation = document.querySelector(".document-create") as HTMLElement;
+  fireEvent.change(within(creation).getByLabelText("Тип документа"), {target: {value: "t"}});
+  fireEvent.click(await within(creation).findByLabelText("Общая база"));
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  fireEvent.click(screen.getByRole("button", {name: "Мой пароль"}));
+  expect(document.querySelector(".document-create")).toBe(creation);
+  expect(confirm).toHaveBeenCalled();
+  confirm.mockReturnValue(true);
+  fireEvent.click(screen.getByRole("button", {name: "Мой пароль"}));
+  expect(document.querySelector(".document-create")).toBeNull();
+  expect(await screen.findByLabelText("Текущий пароль")).toBeTruthy();
+});
+
+it("keeps inline creation and the previous route when workspace history navigation is cancelled", async () => {
+  window.history.replaceState(null, "", "/work");
+  setup(["editor"]);
+  fireEvent.click(await screen.findByRole("button", {name: "Создать документ"}));
+  const creation = document.querySelector(".document-create") as HTMLElement;
+  fireEvent.change(within(creation).getByLabelText("Тип документа"), {target: {value: "t"}});
+  fireEvent.click(await within(creation).findByLabelText("Общая база"));
+  const previous = window.location.pathname + window.location.search;
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  window.history.pushState(null, "", "/view");
+  fireEvent(window, new PopStateEvent("popstate"));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(window.location.pathname + window.location.search).toBe(previous);
+  expect(document.querySelector(".document-create")).toBe(creation);
+  expect(screen.getByRole("combobox", {name: "Рабочее пространство"})).toHaveProperty("value", "work");
 });

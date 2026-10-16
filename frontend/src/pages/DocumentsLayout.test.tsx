@@ -31,8 +31,9 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
         ...(mixedVersions ? [{id: "schema2", state: "published", document_type_id: "type", version: 2, schema: newer}] : [])];
     }
     else if (url.endsWith("/document-types")) data = [{id: "type", name: "Приказ"}];
-    else if (url.endsWith("/search")) data = {items: ["a", "b"].map((id, index) => ({document: {id, document_type_id: "type", schema_version_id: "schema", title: index ? "Бета" : "Альфа", reg_number: "Р-" + (index + 1), reg_date: "2026-10-16", values: {caption: "Альфа", x_kind: "Распоряжение", x_topic: "Благоустройство", x_owner: "opaque-id"}, display_values: {x_kind: "Распоряжение", x_topic: "Благоустройство", x_owner: "Сотрудник"}}, matches: []})), total: 40, next_cursor: "page-two", page_size: 20};
+    else if (url.endsWith("/search")) data = {items: ["a", "b"].map((id, index) => ({document: {id, document_type_id: "type", schema_version_id: "schema", title: index ? "Бета" : "Альфа", card_state: index ? "published" : "draft", reg_number: "Р-" + (index + 1), reg_date: "2026-10-16", values: {caption: "Альфа", x_kind: "Распоряжение", x_topic: "Благоустройство", x_owner: "opaque-id"}, display_values: {x_kind: "Распоряжение", x_topic: "Благоустройство", x_owner: "Сотрудник"}}, matches: []})), total: 40, next_cursor: "page-two", page_size: 20};
     else if (url.endsWith("/documents") && init?.method === "POST") data = {id: "a"};
+    else if (url.includes("/documents/a/content")) data = {items: [], total: 0, page: 1, page_size: 20};
     else if (url.includes("/documents/a/search-index")) data = {ready: true};
     else if (url.includes("/documents/a")) {
       if (init?.method === "PUT") revision++;
@@ -106,11 +107,14 @@ it("keeps one mounted card and its draft, active tab, selection, query and loade
   fireEvent.click(mode("Карточка")); fireEvent.click(mode("Вместе"));
   expect(screen.getByRole("button", {name: "Файлы и версии"}).className).toContain("active");
 });
-it("renders seven columns from each document's configured schema and sorts via the existing API", async () => {
+it("renders eight columns from each document's configured schema and sorts via the existing API", async () => {
   const fetch = setup();
   fireEvent.click(await screen.findByRole("radio", {name: "Таблица"}));
   await screen.findAllByText("Благоустройство");
-  expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+  expect(screen.getAllByRole("columnheader")).toHaveLength(8);
+  expect(screen.getByRole("columnheader", {name: "Состояние карточки"})).toBeTruthy();
+  expect(screen.queryByRole("button", {name: "Сортировать: Состояние карточки"})).toBeNull();
+  expect(within(await firstRow()).getByRole("gridcell", {name: "Состояние карточки: Черновик"})).toBeTruthy();
   const row = within(await firstRow());
   expect(row.getByText("Сотрудник")).toBeTruthy();
   expect(row.queryByText("opaque-id")).toBeNull();
@@ -189,27 +193,31 @@ it("places saved filters below search and creation beside the view switch with A
   fireEvent.click(within(toolbar).getByRole("button", {name: "Создать документ"}));
   expect(screen.getByLabelText("Реестр документа")).toHaveProperty("value", "r");
   fireEvent.change(screen.getByLabelText("Тип документа"), {target: {value: "type"}});
-  const create = await screen.findByRole("button", {name: "Создать документ"});
-  expect(screen.getByLabelText("Состояние карточки")).toHaveProperty("value", "draft");
-  expect(screen.getByLabelText("Внутренняя база")).toHaveProperty("checked", true);
-  expect(screen.getByLabelText("Общая база")).toHaveProperty("checked", false);
-  fireEvent.change(screen.getByLabelText("Состояние карточки"), {target: {value: "published"}});
-  fireEvent.click(screen.getByLabelText("Общая база"));
+  const creation = document.querySelector(".document-create") as HTMLElement;
+  const form = within(creation);
+  const create = await form.findByRole("button", {name: "Создать документ"});
+  expect(form.getByLabelText("Состояние карточки")).toHaveProperty("value", "draft");
+  expect(form.getByLabelText("Внутренняя база")).toHaveProperty("checked", true);
+  expect(form.getByLabelText("Общая база")).toHaveProperty("checked", false);
+  fireEvent.change(form.getByLabelText("Состояние карточки"), {target: {value: "published"}});
+  fireEvent.click(form.getByLabelText("Общая база"));
   fireEvent.click(create);
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/documents") && init?.method === "POST" && JSON.parse(String(init.body)).card_state === "published" && JSON.parse(String(init.body)).publication_targets.join(",") === "internal,shared")).toBe(true));
-  await waitFor(() => expect(mode("Карточка").getAttribute("aria-checked")).toBe("true"));
+  await waitFor(() => expect(mode("Вместе").getAttribute("aria-checked")).toBe("true"));
   fireEvent.click(await screen.findByRole("button", {name: "К списку"}));
   expect(mode("Таблица").getAttribute("aria-checked")).toBe("true");
 });
 
-it("edits lifecycle independently of legal fields inside the existing Publication section", async () => {
+it("keeps lifecycle in Main information and targets in the existing Publication section", async () => {
   const fetch = setup(false, true);
   fireEvent.click(await firstRow());
   fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
   const card = document.querySelector(".document-card") as HTMLElement;
   const publication = within(card).getByRole("heading", {name: "Публикация"}).closest("section")!;
   expect(within(publication).getByLabelText("Место публикации")).toBeTruthy();
-  fireEvent.change(within(publication).getByLabelText("Состояние карточки"), {target: {value: "published"}});
+  const main = within(card).getByRole("heading", {name: "Основное"}).closest("section")!;
+  expect(within(publication).queryByLabelText("Состояние карточки")).toBeNull();
+  fireEvent.change(within(main).getByLabelText("Состояние карточки"), {target: {value: "published"}});
   fireEvent.click(within(publication).getByLabelText("Общая база"));
   fireEvent.click(screen.getByRole("button", {name: "Сохранить карточку"}));
   await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT" && JSON.parse(String(init.body)).card_state === "published" && JSON.parse(String(init.body)).publication_targets.includes("shared"))).toBe(true));
@@ -223,4 +231,118 @@ it("treats user as a reader even when document grants include update and create"
   expect(screen.queryByRole("button", {name: "Создать документ"})).toBeNull();
   expect(screen.queryByRole("option", {name: "Черновик"})).toBeNull();
   expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).mode === "viewer" && JSON.parse(String(init?.body)).card_state === "published")).toBe(true);
+});
+
+it("creates inside the card pane, guards dirty navigation and restores the mounted selected draft on cancel", async () => {
+  const fetch = setup(false, true, "editor", true);
+  fireEvent.click(await firstRow());
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  const previousInput = screen.getByLabelText("Наименование") as HTMLInputElement;
+  fireEvent.change(previousInput, {target: {value: "Черновик выбранной карточки"}});
+  const query = screen.getByRole("searchbox");
+  fireEvent.change(query, {target: {value: "Несохранённый запрос"}});
+  const pane = screen.getByRole("region", {name: "Список документов"});
+  pane.scrollTop = 85;
+  fireEvent.click(mode("Таблица"));
+  const toolbar = screen.getByRole("group", {name: "Вид и сортировка документов"});
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  fireEvent.click(within(toolbar).getByRole("button", {name: "Создать документ"}));
+  expect(document.querySelector(".document-create")).toBeNull();
+  confirm.mockReturnValue(true);
+  const requests = fetch.mock.calls.filter(([url]) => url.endsWith("/search")).length;
+  fireEvent.click(within(toolbar).getByRole("button", {name: "Создать документ"}));
+  expect(mode("Вместе")).toHaveProperty("ariaChecked", "true");
+  expect(screen.getByRole("searchbox")).toBe(query);
+  expect(screen.getByRole("region", {name: "Список документов"})).toBe(pane);
+  expect(previousInput.isConnected).toBe(true);
+  const creation = document.querySelector(".document-create") as HTMLElement;
+  expect(screen.getByRole("region", {name: "Содержимое карточки"}).contains(creation)).toBe(true);
+  fireEvent.change(within(creation).getByLabelText("Тип документа"), {target: {value: "type"}});
+  const newInput = await within(creation).findByLabelText("Наименование");
+  fireEvent.change(newInput, {target: {value: "Новая несохранённая карточка"}});
+  for (const name of ["Таблица", "Карточка", "Вместе"]) fireEvent.click(mode(name));
+  expect(within(creation).getByLabelText("Наименование")).toBe(newInput);
+  confirm.mockReturnValue(false);
+  fireEvent.click(screen.getByRole("row", {name: /Выбрать документ «Бета»/}));
+  expect(document.querySelector(".document-create")).toBe(creation);
+  expect(window.dispatchEvent(new Event("acti:before-workspace-navigation", {cancelable: true}))).toBe(false);
+  expect(window.dispatchEvent(new Event("beforeunload", {cancelable: true}))).toBe(false);
+  fireEvent.click(within(creation).getByRole("button", {name: "Отмена создания"}));
+  expect(document.querySelector(".document-create")).toBe(creation);
+  confirm.mockReturnValue(true);
+  fireEvent.click(within(creation).getByRole("button", {name: "Отмена создания"}));
+  expect(document.querySelector(".document-create")).toBeNull();
+  expect(mode("Таблица")).toHaveProperty("ariaChecked", "true");
+  expect(previousInput.isConnected).toBe(true);
+  expect(previousInput.value).toBe("Черновик выбранной карточки");
+  expect((query as HTMLInputElement).value).toBe("Несохранённый запрос");
+  expect(pane.scrollTop).toBe(85);
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).length).toBe(requests);
+});
+
+it.each(["row", "create"])("guards the retained selected draft before replacing it through %s from pristine creation", async operation => {
+  const fetch = setup(false, true, "editor", true);
+  fireEvent.click(await firstRow());
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  const previousInput = screen.getByLabelText("Наименование") as HTMLInputElement;
+  fireEvent.change(previousInput, {target: {value: "Несохранённая выбранная карточка"}});
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  fireEvent.click(within(screen.getByRole("group", {name: "Вид и сортировка документов"})).getByRole("button", {name: "Создать документ"}));
+  const creation = document.querySelector(".document-create") as HTMLElement;
+  fireEvent.change(within(creation).getByLabelText("Тип документа"), {target: {value: "type"}});
+  await within(creation).findByLabelText("Наименование");
+  confirm.mockClear(); confirm.mockReturnValue(false);
+  if (operation === "row") fireEvent.click(screen.getByRole("row", {name: /Выбрать документ «Бета»/}));
+  else fireEvent.click(within(creation).getByRole("button", {name: "Создать документ"}));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(document.querySelector(".document-create")).toBe(creation);
+  expect(previousInput.isConnected).toBe(true);
+  expect(previousInput.value).toBe("Несохранённая выбранная карточка");
+  expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/documents") && init?.method === "POST")).toBe(false);
+  expect(fetch.mock.calls.some(([url]) => url.includes("/documents/b?"))).toBe(false);
+  fireEvent.click(within(creation).getByRole("button", {name: "Отмена создания"}));
+  expect(previousInput.isConnected).toBe(true);
+  expect(screen.getByLabelText("Наименование")).toBe(previousInput);
+});
+
+it.each([false, true])("restores URL and mounted draft when history replacement is cancelled (creation=%s)", async creating => {
+  setup(false, true, "editor", true);
+  fireEvent.click(await firstRow());
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  let form = document.querySelector(".document-card") as HTMLElement;
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  if (creating) {
+    fireEvent.click(within(screen.getByRole("group", {name: "Вид и сортировка документов"})).getByRole("button", {name: "Создать документ"}));
+    form = document.querySelector(".document-create") as HTMLElement;
+    fireEvent.change(within(form).getByLabelText("Тип документа"), {target: {value: "type"}});
+    await within(form).findByLabelText("Наименование");
+  }
+  const input = within(form).getByLabelText("Наименование") as HTMLInputElement;
+  fireEvent.change(input, {target: {value: "Черновик для истории"}});
+  const original = window.location.pathname + window.location.search;
+  confirm.mockClear(); confirm.mockReturnValue(false);
+  const anchor = within(form).getByRole("navigation", {name: "Разделы формы"}).querySelector("a")!.getAttribute("href")!;
+  window.history.pushState(null, "", original + anchor);
+  fireEvent(window, new PopStateEvent("popstate"));
+  expect(confirm).not.toHaveBeenCalled();
+  expect(within(form).getByLabelText("Наименование")).toBe(input);
+  const prior = window.location.pathname + window.location.search + window.location.hash;
+  window.history.pushState(null, "", "/work?document=b");
+  fireEvent(window, new PopStateEvent("popstate"));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(window.location.pathname + window.location.search + window.location.hash).toBe(prior);
+  expect(input.isConnected).toBe(true);
+  expect(input.value).toBe("Черновик для истории");
+});
+
+it("restores the content tab on same-document history even without a file or block target", async () => {
+  setup();
+  fireEvent.click(await firstRow());
+  await screen.findByRole("button", {name: "Редактировать карточку"});
+  window.history.pushState(null, "", "/work?document=a&tab=content");
+  fireEvent(window, new PopStateEvent("popstate"));
+  await waitFor(() => expect(screen.getByRole("button", {name: "Содержание"}).className).toContain("active"));
+  window.history.pushState(null, "", "/work?document=a");
+  fireEvent(window, new PopStateEvent("popstate"));
+  await waitFor(() => expect(screen.getByRole("button", {name: "Карточка"}).className).toContain("active"));
 });

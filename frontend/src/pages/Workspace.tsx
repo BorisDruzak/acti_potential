@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { Layout, type Space } from "../components/Layout";
 import { RegistriesAdmin, ReferencesAdmin, TypesAdmin } from "./Admin";
@@ -36,18 +36,27 @@ export function Workspace() {
           : defaultSpace;
   }
   const [space, setSpaceState] = useState<Space>(resolve);
+  const currentSpace = useRef(space);
+  currentSpace.current = space;
+  const lastWorkspaceLocation = useRef(window.location.pathname + window.location.search + window.location.hash);
   const [section, setSection] = useState(
     space === "admin" ? "Обзор системы" : "Документы",
   );
+  function allowNavigation() {return window.dispatchEvent(new Event("acti:before-workspace-navigation", {cancelable: true}));}
+  function chooseSection(next: string) {if (next !== section && allowNavigation()) setSection(next);}
   function setSpace(next: Space) {
+    if (next === space || !allowNavigation()) return;
     setSpaceState(next);
     setSection(next === "admin" ? "Обзор системы" : "Документы");
     window.history.pushState(null, "", "/" + next);
+    lastWorkspaceLocation.current = window.location.pathname + window.location.search + window.location.hash;
   }
   useEffect(() => {
     window.history.replaceState(null, "", "/" + space + window.location.search);
-    const pop = () => {
+    const pop = (event: PopStateEvent & {actiDocumentGuarded?: boolean}) => {
       const next = resolve();
+      if (next !== currentSpace.current && !event.actiDocumentGuarded && !allowNavigation()) {window.history.pushState(null, "", lastWorkspaceLocation.current); return;}
+      lastWorkspaceLocation.current = window.location.pathname + window.location.search + window.location.hash;
       setSpaceState(next);
       setSection(next === "admin" ? "Обзор системы" : "Документы");
     };
@@ -122,7 +131,7 @@ export function Workspace() {
   return (
     <Layout
       section={section}
-      setSection={setSection}
+      setSection={chooseSection}
       space={space}
       setSpace={setSpace}
     >
