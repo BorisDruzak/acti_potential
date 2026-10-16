@@ -105,7 +105,7 @@ def summary(session, document, actor, schema=None):
     }
 
 
-def document_summary(session, document, actor, schema=None, mode=None):
+def document_summary(session, document, actor, schema=None, mode=None, *, permissions=None, display_cache=None):
     schema = schema or get_schema(session, document)
     result = summary(session, document, actor, schema)
     visible = redact_values(schema, raw_values(document, schema), actor, mode)
@@ -119,8 +119,8 @@ def document_summary(session, document, actor, schema=None, mode=None):
     result["values"] = visible
     from app.registry.document_export import display_values
 
-    result["display_values"] = display_values(session, schema, visible, actor, mode)
-    result["permissions"] = sorted(document_permissions(session, actor, document))
+    result["display_values"] = display_values(session, schema, visible, actor, mode, cache=display_cache)
+    result["permissions"] = sorted(document_permissions(session, actor, document) if permissions is None else permissions)
     return result
 
 

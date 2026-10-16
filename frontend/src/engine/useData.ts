@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
-export function useData<T>(path: string | null) {
+export function useData<T>(path: string | null, request?: {body: unknown; csrfToken: string; retainOnReload?: boolean}) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
+  const body = request ? JSON.stringify(request.body) : undefined;
+  const csrfToken = request?.csrfToken;
+  const retainOnReload = request?.retainOnReload;
+  const previousKey = useRef("");
   useEffect(() => {
-    setData(null);
+    const key = JSON.stringify([path, body, csrfToken]);
+    if (!retainOnReload || previousKey.current !== key || !path) setData(null);
+    previousKey.current = key;
     setError("");
     if (!path) {
       setLoading(false);
@@ -16,7 +22,9 @@ export function useData<T>(path: string | null) {
     }
     const controller = new AbortController();
     setLoading(true);
-    apiRequest<T>(path, { signal: controller.signal })
+    apiRequest<T>(path, { signal: controller.signal, ...(body !== undefined ? {
+      method: "POST", body, headers: {"X-CSRF-Token": csrfToken || ""},
+    } : {}) })
       .then((value) => {
         if (!controller.signal.aborted) setData(value);
       })
@@ -27,7 +35,7 @@ export function useData<T>(path: string | null) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [path, revision]);
+  }, [path, revision, body, csrfToken, retainOnReload]);
   return { data, error, loading, reload };
 }
 export function useAction() {

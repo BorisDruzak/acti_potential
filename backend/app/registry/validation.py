@@ -44,6 +44,7 @@ FIELD_KEYS = frozenset(
         "write_roles",
         "filterable",
         "exportable",
+        "searchable",
         "visible_when",
         "required_when",
         "children",
@@ -235,7 +236,7 @@ def validate_schema(value: dict, previous: dict | None = None) -> dict:
             raise ValueError("Unsupported field type")
         if "description" in field and not _text(field["description"], 5000):
             raise ValueError("Invalid description")
-        for flag in ("required", "editable", "filterable", "exportable"):
+        for flag in ("required", "editable", "filterable", "exportable", "searchable"):
             if flag in field and type(field[flag]) is not bool:
                 raise ValueError("Field flags must be booleans")
         for key, allowed in (("modes", MODES), ("read_roles", ROLES), ("write_roles", ROLES)):

@@ -13,6 +13,9 @@ x-app: &app
     ACTI_STORAGE_ROOT: /documents
     ACTI_SOURCE_SHA: ${ACTI_SOURCE_SHA}
     ACTI_TRUSTED_PROXY_CIDRS: ${ACTI_TRUSTED_PROXY_CIDRS:-}
+    ACTI_SEARCH_ALGORITHM_VERSION: ${ACTI_SEARCH_ALGORITHM_VERSION:-lexical-2}
+    ACTI_SEARCH_WEIGHTS: ${ACTI_SEARCH_WEIGHTS:-null}
+    ACTI_SEARCH_SYNONYMS: ${ACTI_SEARCH_SYNONYMS:-null}
   volumes:
     - type: bind
       source: /srv/acti/documents/objects

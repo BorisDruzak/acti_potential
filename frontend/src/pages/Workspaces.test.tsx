@@ -66,7 +66,7 @@ function setup(roles: string[], mustChange = false) {
       else if (url.includes("/document-types"))
         data = [{ id: "t", code: "test", name: "Тестовый тип" }];
       else if (url.includes("/references")) data = [];
-      else if (url.includes("/documents?"))
+      else if (url.endsWith("/search"))
         data = {
           items: [
             {
@@ -167,7 +167,7 @@ it("reader route exposes no mutation controls even when returned permissions inc
 it("viewer cannot open administration by typing its route", async () => {
   window.history.replaceState(null, "", "/admin");
   setup(["viewer"]);
-  await screen.findByRole("heading", { name: "Мои реестры" });
+  await screen.findByRole("heading", { name: "Документы" });
   await waitFor(() => expect(window.location.pathname).toBe("/view"));
   expect(screen.queryByRole("button", { name: "Типы документов" })).toBeNull();
 });
@@ -262,10 +262,9 @@ it("boolean extra filter uses typed control and sends false rather than dropping
   await waitFor(() =>
     expect(
       fetch.mock.calls.some(
-        ([url]) =>
-          url.includes("filters=") &&
-          new URL(url, "https://example.test").searchParams.get("filters") ===
-            '{"publish":false}',
+        ([url, init]) =>
+          url.endsWith("/search") &&
+          JSON.stringify(JSON.parse(String(init?.body)).filters) === '{"publish":false}',
       ),
     ).toBe(true),
   );

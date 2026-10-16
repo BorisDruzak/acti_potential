@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
@@ -16,6 +16,7 @@ import {
   type SchemaVersion,
   type Values,
 } from "../engine/schema";
+import { searchBody, type SearchScope } from "../engine/search";
 import { useAction, useData } from "../engine/useData";
 import { CardNumberAssignment } from "./NumberBook";
 import { DocumentContent } from "./DocumentContent";
@@ -592,35 +593,53 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const references = useData<ReferenceSet[]>(
     "/references?mode=" + (readOnly ? "viewer" : "editor"),
   );
-  const [registryId, setRegistryId] = useState("");
+  const initial = new URLSearchParams(window.location.search);
+  const [registryId, setRegistryId] = useState(() => initial.get("registry_id") || "");
   const [documentId, setDocumentId] = useState(() => new URLSearchParams(window.location.search).get("document") || "");
   const [navigationRevision, setNavigationRevision] = useState(0);
+  const [savedDocument, setSavedDocument] = useState<{id: string; revision: number} | null>(null);
   const [creating, setCreating] = useState(false);
-  const [q, setQ] = useState("");
-  const [contentQ, setContentQ] = useState("");
-  const [fuzzy, setFuzzy] = useState(true);
+  const [q, setQ] = useState(() => initial.get("q") || initial.get("text") || "");
+  const [scope, setScope] = useState<SearchScope>(() => (initial.get("scope") as SearchScope) || "all");
+  const [versionScope, setVersionScope] = useState(() => initial.get("version_scope") || "current");
+  const [advanced, setAdvanced] = useState(false);
+  const [cursor, setCursor] = useState(() => initial.get("cursor") || "");
+  const [previousCursors, setPreviousCursors] = useState<string[]>([]);
+  const [fuzzy, setFuzzy] = useState(() => initial.get("fuzzy") !== "false");
   const [contentTarget, setContentTarget] = useState<ContentTarget | undefined>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("tab") === "content" ? {fileId: params.get("file") || undefined, blockId: params.get("block") || undefined, ordinal: params.has("ordinal") ? Number(params.get("ordinal")) : undefined} : undefined;
   });
-  const [number, setNumber] = useState("");
-  const [status, setStatus] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [typeId, setTypeId] = useState("");
-  const [filterKey, setFilterKey] = useState("");
-  const [filterValue, setFilterValue] = useState<unknown>(null);
-  const [sort, setSort] = useState("updated_at");
-  const [direction, setDirection] = useState("desc");
-  const [filterOp, setFilterOp] = useState("eq");
-  const [filterEnd, setFilterEnd] = useState("");
+  const [number, setNumber] = useState(() => initial.get("reg_number") || "");
+  const [status, setStatus] = useState(() => initial.get("status") || "");
+  const [from, setFrom] = useState(() => initial.get("date_from") || "");
+  const [to, setTo] = useState(() => initial.get("date_to") || "");
+  const [typeId, setTypeId] = useState(() => initial.get("document_type_id") || "");
+  const initialFilter = (() => {try {return Object.entries(JSON.parse(initial.get("filters") || "{}"))[0] || ["", null];} catch {return ["", null];}})();
+  const initialFilterKey = String(initialFilter[0]);
+  const initialFilterSpec = initialFilter[1] as {op?: string; value?: unknown} | null;
+  const [filterKey, setFilterKey] = useState(initialFilterKey);
+  const [filterValue, setFilterValue] = useState<unknown>(() => initialFilterSpec && typeof initialFilterSpec === "object" ? (initialFilterSpec.op === "between" && Array.isArray(initialFilterSpec.value) ? initialFilterSpec.value[0] : initialFilterSpec.value) : initialFilterSpec);
+  const [sort, setSort] = useState(() => initial.get("sort") || "auto");
+  const [direction, setDirection] = useState(() => initial.get("direction") || "desc");
+  const [filterOp, setFilterOp] = useState(() => initialFilterSpec && typeof initialFilterSpec === "object" ? initialFilterSpec.op || "eq" : "eq");
+  const [filterEnd, setFilterEnd] = useState(() => initialFilterSpec?.op === "between" && Array.isArray(initialFilterSpec.value) ? String(initialFilterSpec.value[1]) : "");
   const [viewName, setViewName] = useState("");
   const [savedViews, setSavedViews] = useState<{name: string; registry: string; query: string}[]>(() => {
     try { const data = JSON.parse(localStorage.getItem(`acti.views.v1.${auth.user?.id}.${readOnly ? "viewer" : "editor"}`) || "[]"); return Array.isArray(data) ? data.filter(item => typeof item?.name === "string" && typeof item?.registry === "string" && typeof item?.query === "string") : []; } catch { return []; }
   });
   const exportAction = useAction();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(() => Math.max(1, Number(initial.get("page")) || 1));
+  const [search, setSearch] = useState(() => {const params = new URLSearchParams(window.location.search); for (const key of ["document", "tab", "file", "block", "ordinal", "registry_id", "page", "cursor"]) params.delete(key); return "&" + params.toString();});
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    if (registryId) params.set("registry_id", registryId);
+    if (documentId) params.set("document", documentId);
+    if (contentTarget) {params.set("tab", "content"); if (contentTarget.fileId) params.set("file", contentTarget.fileId); if (contentTarget.blockId) params.set("block", contentTarget.blockId); if (contentTarget.ordinal !== undefined) params.set("ordinal", String(contentTarget.ordinal));}
+    if (cursor) params.set("cursor", cursor);
+    if (page > 1) params.set("page", String(page));
+    window.history.replaceState(null, "", window.location.pathname + (params.size ? "?" + params.toString() : ""));
+  }, [search, registryId, documentId, contentTarget, cursor, page]);
   const searchTiming = useRef<{registryId: string; started: number} | null>(null);
   function recordRetrieval(operation: "search" | "time_to_open", duration_ms: number) {
     if (!registryId) return;
@@ -631,7 +650,8 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     const timing = searchTiming.current;
     if (timing?.registryId === registryId) recordRetrieval("time_to_open", performance.now() - timing.started);
     searchTiming.current = null;
-    setContentTarget(target); setDocumentId(id);
+    window.history.pushState(null, "", window.location.href);
+    setContentTarget(target); setDocumentId(id); setNavigationRevision(value => value + 1);
   }
   const registry = registries.data?.find((item) => item.id === registryId);
   const versions = useData<SchemaVersion[]>(
@@ -651,31 +671,38 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
         (field) => field.filterable && !field.visible_when && !["file", "group"].includes(field.type),
       ) || [];
   const filterField = filterFields.find((field) => field.key === filterKey);
-  const list = useData<{
-    items: (Card | ContentHit)[];
-    total: number;
-    page: number;
-    page_size: number;
-  }>(
-    registryId && !documentId && !creating
-      ? (new URLSearchParams(search).has("text") ? "/content/search?registry_id=" : "/documents?registry_id=") +
-          registryId +
-          "&page=" +
-          page +
-          "&page_size=20&mode=" +
-          (readOnly ? "viewer" : "editor") +
-          search
-      : null,
+  const applied = searchBody(search, registryId, readOnly ? "viewer" : "editor", cursor);
+  const list = useData<{items: ContentHit[]; total: number; page_size: number; next_cursor: string | null}>(
+    !creating ? "/search" : null,
+    {body: applied, csrfToken: auth.user?.csrf_token || "", retainOnReload: true},
   );
   const card = useData<Card>(
     documentId
       ? "/documents/" + documentId + "?mode=" + (readOnly ? "viewer" : "editor")
       : null,
   );
+  useEffect(() => {
+    if (!savedDocument) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    let attempts = 0;
+    async function refresh() {
+      try {
+        const state = await apiRequest<{ready: boolean}>("/documents/" + savedDocument!.id + "/search-index", {signal: controller.signal});
+        if (controller.signal.aborted) return;
+        if (state.ready) {list.reload(); setSavedDocument(null);}
+        else if (++attempts < 30) timer = setTimeout(refresh, 1000);
+        else setSavedDocument(null);
+      } catch { if (!controller.signal.aborted) setSavedDocument(null); }
+    }
+    void refresh();
+    return () => {controller.abort(); clearTimeout(timer);};
+  }, [savedDocument, list.reload]);
   function applySearch() {
+    window.history.pushState(null, "", window.location.href);
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    if (contentQ.trim()) {params.set("text", contentQ.trim()); params.set("fuzzy", String(fuzzy));}
+    params.set("scope", scope); params.set("fuzzy", String(fuzzy)); params.set("version_scope", versionScope);
     if (number) params.set("reg_number", number);
     if (status) params.set("status", status);
     if (from) params.set("date_from", from);
@@ -692,7 +719,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       params.set("filters", JSON.stringify({ [filterKey]: filterOp === "eq" ? filterValue : {op: filterOp, value: filterOp === "between" ? [filterValue, filterEnd] : filterValue} }));
     }
     if (filterKey && ["present", "absent"].includes(filterOp)) params.set("filters", JSON.stringify({[filterKey]: {op: filterOp}}));
-    setPage(1);
+    setPage(1); setCursor(""); setPreviousCursors([]);
     setSearch("&" + params.toString());
     startSearchTiming();
   }
@@ -702,20 +729,30 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   }
   function loadView(query: string) {
     const params = new URLSearchParams(query);
-    setQ(params.get("q") || ""); setNumber(params.get("reg_number") || ""); setStatus(params.get("status") || ""); setFrom(params.get("date_from") || ""); setTo(params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "updated_at"); setDirection(params.get("direction") || "desc");
-    setContentQ(params.get("text") || ""); setFuzzy(params.get("fuzzy") !== "false");
+    setQ(params.get("q") || params.get("text") || ""); setNumber(params.get("reg_number") || ""); setStatus(params.get("status") || ""); setFrom(params.get("date_from") || ""); setTo(params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "auto"); setDirection(params.get("direction") || "desc");
+    setScope((params.get("scope") as SearchScope) || "all"); setVersionScope(params.get("version_scope") || "current"); setFuzzy(params.get("fuzzy") !== "false");
     try { const [key, value] = Object.entries(JSON.parse(params.get("filters") || "{}"))[0] || ["", null]; setFilterKey(key); const typed = value as {op?: string; value?: unknown} | null; setFilterOp(typed && typeof typed === "object" ? typed.op || "eq" : "eq"); setFilterValue(typed && typeof typed === "object" ? (Array.isArray(typed.value) && typed.op === "between" ? typed.value[0] : typed.value) : value); setFilterEnd(typed?.op === "between" && Array.isArray(typed.value) ? String(typed.value[1]) : ""); } catch { setFilterKey(""); setFilterValue(null); }
-    setPage(1); setSearch("&" + query);
+    setPage(1); setCursor(""); setPreviousCursors([]); setSearch("&" + query);
     startSearchTiming();
   }
+  useEffect(() => {
+    const restore = () => {
+      const params = new URLSearchParams(window.location.search);
+      setRegistryId(params.get("registry_id") || ""); setDocumentId(params.get("document") || "");
+      setContentTarget(params.get("tab") === "content" ? {fileId: params.get("file") || undefined, blockId: params.get("block") || undefined, ordinal: params.has("ordinal") ? Number(params.get("ordinal")) : undefined} : undefined);
+      setNavigationRevision(value => value + 1);
+      const query = new URLSearchParams(params); for (const key of ["document", "tab", "file", "block", "ordinal", "registry_id", "page", "cursor"]) query.delete(key);
+      loadView(query.toString()); setCursor(params.get("cursor") || ""); setPage(Math.max(1, Number(params.get("page")) || 1));
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
   const close = () => {
     setDocumentId("");
     setContentTarget(undefined);
     setCreating(false);
-    list.reload();
   };
-  if (documentId)
-    return (
+  const detail = documentId ? (
       <>
         <Feedback {...card} />
         {card.error && <button onClick={close}>К реестрам</button>}
@@ -725,14 +762,14 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             card={card.data}
             readOnly={readOnly}
             references={references.data || []}
-            onSaved={card.reload}
+            onSaved={() => {card.reload(); setSavedDocument({id: card.data!.id, revision: card.data!.revision});}}
             onClose={close}
             contentTarget={contentTarget}
             onNavigate={value => {setContentTarget(value.contentTarget); setDocumentId(value.documentId); setNavigationRevision(current => current + 1);}}
           />
         )}
       </>
-    );
+    ) : <div className="empty-state">Выберите документ, чтобы увидеть карточку, файлы и историю.</div>;
   if (creating && registry)
     return (
       <CreateDocument
@@ -753,7 +790,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           <span className="eyebrow">
             {readOnly ? "ПРОСМОТР ДОКУМЕНТОВ" : "РАБОТА С ДОКУМЕНТАМИ"}
           </span>
-          <h1>{registry ? registry.name : "Мои реестры"}</h1>
+          <h1>{registry ? registry.name : "Документы"}</h1>
         </div>
         {!readOnly && registry?.permissions.includes("create") && (
           <button className="primary" onClick={() => setCreating(true)}>
@@ -765,7 +802,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
         error={registries.error || types.error || references.error}
         loading={registries.loading}
       />
-      <div className="registry-tabs">
+      <div className="registry-tabs" aria-label="Быстрый фильтр по реестру"><button className={!registryId ? "active" : ""} onClick={() => {setRegistryId(""); setCursor(""); setPage(1);}}>Все реестры</button>
         {registries.data
           ?.filter((item) => item.permissions.includes("read"))
           .map((item) => (
@@ -777,12 +814,12 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 setPage(1);
                 setSearch("");
                 setQ("");
-                setContentQ(""); setFuzzy(true); setContentTarget(undefined);
+                setScope("all"); setFuzzy(true); setContentTarget(undefined); setCursor(""); setPreviousCursors([]);
                 setNumber("");
                 setStatus("");
                 setFrom("");
                 setTo("");
-                setSort("updated_at");
+                setSort("auto");
                 setDirection("desc"); setFilterOp("eq"); setFilterEnd("");
                 setTypeId("");
                 setFilterKey("");
@@ -800,14 +837,14 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             : "Вам пока не предоставлен доступ к реестрам. Обратитесь к администратору."}
         </div>
       )}
-      {registry && (
+      {(registry || registries.data?.some(item => item.permissions.includes("read"))) && (
         <>
           <details className="panel"><summary>Сохранённые фильтры и сортировки</summary>
             <div className="inline-form"><label>Название представления<input value={viewName} onChange={event => setViewName(event.target.value)} /></label><button disabled={!viewName.trim() || !search} onClick={() => {persistViews([...savedViews.filter(item => !(item.registry === registryId && item.name === viewName.trim())), {name: viewName.trim(), registry: registryId, query: search.slice(1)}]); setViewName("");}}>Сохранить текущий поиск</button></div>
             {savedViews.filter(item => item.registry === registryId).map(item => <div className="button-row" key={item.name}><button onClick={() => loadView(item.query)}>{item.name}</button><button aria-label={`Удалить представление: ${item.name}`} onClick={() => persistViews(savedViews.filter(current => current !== item))}>Удалить</button></div>)}
           </details>
           <form
-            className="panel filters"
+            className="panel search-form"
             onSubmit={(event) => {
               event.preventDefault();
               applySearch();
@@ -818,12 +855,14 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               <input
                 type="search"
                 value={q}
-                placeholder="Название или реквизиты"
+                placeholder="Номер, название, реквизиты или фраза из файла"
+                maxLength={255}
                 onChange={(event) => setQ(event.target.value)}
               />
             </label>
-            <label>Поиск по содержанию<input type="search" maxLength={255} value={contentQ} placeholder="Фраза из документа" onChange={event => setContentQ(event.target.value)} /></label>
-            <label className="checkbox-label"><input type="checkbox" checked={fuzzy} onChange={event => setFuzzy(event.target.checked)}/>Учитывать опечатки</label>
+            <label>Где искать<select value={scope} onChange={event => setScope(event.target.value as SearchScope)}><option value="all">Везде</option><option value="metadata">Реквизиты</option><option value="content">Содержание документов</option></select></label>
+            <div className="button-row"><button className="primary">Найти</button><button type="button" onClick={() => {setQ(""); const next = new URLSearchParams(search); next.delete("q"); next.delete("text"); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}>Очистить запрос</button><button type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>Фильтры</button></div>
+            <div className="search-quick-filters">
             <label>
               Регистрационный номер
               <input
@@ -860,13 +899,13 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 value={typeId}
                 onChange={(event) => {
                   setTypeId(event.target.value);
-                  setFilterKey(""); setFilterOp("eq"); setFilterEnd(""); setSort("updated_at");
+                  setFilterKey(""); setFilterOp("eq"); setFilterEnd(""); setSort("auto");
                 }}
               >
                 <option value="">Все типы</option>
                 {types.data
                   ?.filter((type) =>
-                    registry.document_type_ids.includes(type.id),
+                    !registry || registry.document_type_ids.includes(type.id),
                   )
                   .map((type) => (
                     <option key={type.id} value={type.id}>
@@ -875,22 +914,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                   ))}
               </select>
             </label>
-            <label>
-              Сортировка
-              <select
-                value={sort}
-                disabled={!!contentQ.trim()}
-                onChange={(event) => setSort(event.target.value)}
-              >
-                <option value="updated_at">Последние изменения</option>
-                <option value="reg_date">Дата регистрации</option>
-                <option value="reg_number">Номер</option>
-                <option value="title">Название</option>
-                {filterFields.filter(field => !field.system && field.type !== "multi_reference").map(field => <option key={field.key} value={`custom:${field.key}`}>{field.label}</option>)}
-              </select>
-            </label>
-            <label>Направление сортировки<select value={direction} disabled={!!contentQ.trim()} onChange={event => setDirection(event.target.value)}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
-            {!!contentQ.trim() && <p className="muted">Результаты поиска по содержанию упорядочены по релевантности.</p>}
+            </div>
+            <details open={advanced} onToggle={event => setAdvanced(event.currentTarget.open)}><summary>Расширенные фильтры</summary><div className="filters">
+            <label className="checkbox-label"><input type="checkbox" checked={fuzzy} onChange={event => setFuzzy(event.target.checked)}/>Учитывать опечатки</label>
+            <label>Версии файлов<select value={versionScope} onChange={event => setVersionScope(event.target.value)}><option value="current">Актуальные</option><option value="all">Все доступные</option></select></label>
             {filterFields.length > 0 && (
               <>
                 <label>
@@ -951,33 +978,58 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 )}
               </>
             )}
-            <button className="primary">Найти</button>
+            </div></details>
           </form>
+          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "status", "date_from", "date_to", "document_type_id", "filters"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", status: "Статус", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : value} ×</button>)}</div>
+          <div className="search-sort">            <label>
+              Сортировка
+              <select
+                value={sort}
+
+                onChange={(event) => {setSort(event.target.value); const next = new URLSearchParams(search); next.set("sort", event.target.value); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}
+              >
+                <option value="auto">Автоматически</option><option value="relevance">Релевантность</option><option value="updated_at">Последние изменения</option>
+                <option value="reg_date">Дата регистрации</option>
+                <option value="reg_number">Номер</option>
+                <option value="title">Название</option>
+                {filterFields.filter(field => !field.system && field.type !== "multi_reference").map(field => <option key={field.key} value={`custom:${field.key}`}>{field.label}</option>)}
+              </select>
+            </label>
+            <label>Направление сортировки<select value={direction}  onChange={event => {setDirection(event.target.value); const next = new URLSearchParams(search); next.set("direction", event.target.value); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
+</div>
           <Feedback {...list} />
-          {new URLSearchParams(search).has("text") && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
+          {!!applied.query && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
           <Feedback {...exportAction} />
-          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`${new URLSearchParams(search).has("text") ? "/content/search/export" : "/documents/export"}?registry_id=${encodeURIComponent(registryId)}&format=${format}&mode=${readOnly ? "viewer" : "editor"}${search}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
+          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
           {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
-          <div className="toolbar">
+          <div className="search-workspace"><section className="search-results" aria-label="Результаты поиска"><div className="toolbar">
             <h2>Документы</h2>
             <span className="muted">Найдено: {list.data?.total ?? "…"}</span>
           </div>
-          <div className="table-wrap">
+          {configuredColumns.length === 0 ? <ol className="search-hit-list">{list.data?.items.map(result => {
+            const item = "document" in result ? result.document : result;
+            return <li key={item.id}><article className={documentId === item.id ? "search-hit selected" : "search-hit"}>
+              <div className="match-source">{item.reg_number || "Без номера"} · {item.reg_date || "Без даты"} · {types.data?.find(type => type.id === item.document_type_id)?.name || "Документ"}</div>
+              <h3>{item.title || "Документ"}</h3>{item.status && <span className="status-badge">{item.status}</span>}
+              {"document" in result && <ContentMatches matches={result.matches.slice(0, 2)} query={applied.query} onOpen={target => openSearchResult(item.id, target)}/>}
+              <button className="text-button" aria-pressed={documentId === item.id} onClick={() => openSearchResult(item.id)}>Открыть карточку</button>
+            </article></li>;
+          })}</ol> : <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   {configuredColumns.length ? configuredColumns.map(column => <th key={column.key}>{column.label}</th>) : <><th>Номер</th><th>Дата</th><th>Название</th></>}
                   <th>Редакция</th>
-                  {new URLSearchParams(search).has("text") && <th>Найденные фрагменты</th>}
+                  {!!applied.query && <th>Найденные фрагменты</th>}
                   <th>Действия</th>
                 </tr>
               </thead>
               <tbody>
                 {list.data?.items.map((result) => {const item = "document" in result ? result.document : result; return (
-                  <tr key={item.id}>
+                  <tr key={item.id} className={documentId === item.id ? "selected" : ""}>
                     {configuredColumns.length ? configuredColumns.map(column => <td key={column.key}>{displayListValue(item.display_values?.[column.key] ?? item.values?.[column.key])}</td>) : <><td>{item.reg_number || "—"}</td><td>{item.reg_date || "—"}</td><td>{item.title || "Документ"}</td></>}
                     <td>{item.revision}</td>
-                    {"document" in result && <td><ContentMatches matches={result.matches} query={new URLSearchParams(search).get("text") || ""} onOpen={target => openSearchResult(item.id, target)}/></td>}
+                    {"document" in result && <td><ContentMatches matches={result.matches} query={applied.query} onOpen={target => openSearchResult(item.id, target)}/></td>}
                     <td>
                       <button onClick={() => openSearchResult(item.id)}>
                         Открыть карточку
@@ -987,7 +1039,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 );})}
               </tbody>
             </table>
-          </div>
+          </div>}
           {list.data?.items.length === 0 && (
             <div className="empty-state">
               Документов по выбранным условиям пока нет.
@@ -996,20 +1048,20 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           <div className="pagination">
             <button
               disabled={page === 1 || list.loading}
-              onClick={() => setPage(page - 1)}
+              onClick={() => {setCursor(previousCursors.at(-1) || ""); setPage(previousCursors.length ? page - 1 : 1); setPreviousCursors(values => values.slice(0, -1));}}
             >
               Назад
             </button>
             <span>Страница {page}</span>
             <button
               disabled={
-                !list.data || page * 20 >= list.data.total || list.loading
+                !list.data?.next_cursor || list.loading
               }
-              onClick={() => setPage(page + 1)}
+              onClick={() => {setPreviousCursors(values => [...values, cursor]); setCursor(list.data?.next_cursor || ""); setPage(page + 1);}}
             >
               Вперёд
             </button>
-          </div>
+          </div></section><aside className="search-detail" aria-label="Карточка выбранного документа">{detail}</aside></div>
         </>
       )}
     </>

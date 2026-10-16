@@ -5,7 +5,7 @@ import { Documents } from "./Documents";
 import { AuditAdmin } from "./AdminIdentity";
 import type { FormSchema } from "../engine/schema";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 
 function setup(content: "documents" | "audit" = "documents", download = true) {
   const schema: FormSchema = { sections: [{ key: "main", title: "Реквизиты", fields: [
@@ -21,7 +21,7 @@ function setup(content: "documents" | "audit" = "documents", download = true) {
     { id: "g1", name: "row-first.txt", version: 1, field_key: "rows.0.attachment", size: 3, mime: "text/plain", created_at: "2026-10-15T00:00:00Z" },
     { id: "g2", name: "row-second.txt", version: 1, field_key: "rows.1.attachment", size: 3, mime: "text/plain", created_at: "2026-10-15T00:00:00Z" },
   ];
-  const fetch = vi.fn(async (url: string) => {
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     let data: unknown;
     if (url.endsWith("/users/me")) data = { id: "u", display_name: "Тест", roles: ["admin"], csrf_token: "csrf" };
     else if (url.includes("/admin/audit")) data = { items: [{ id: "a", created_at: "2026-10-15T00:00:00Z", actor_id: "u", action: "document.created", object_type: "document", object_id: "d", details: {}, request_id: "req" }], total: 1, page: 1, page_size: 30 };
@@ -33,8 +33,11 @@ function setup(content: "documents" | "audit" = "documents", download = true) {
       { id: "h2", revision: 2, values: { title: "Документ", original: ["f1", "f2"] }, created_at: "2026-10-15T01:00:00Z", created_by: "u" },
     ];
     else if (url.includes("/documents/d")) data = { id: "d", registry_id: "A", document_type_id: "t", schema_version_id: "s", title: "Документ", revision: 2, current_version: 2, values: { title: "Документ", original: ["f1", "f2"] }, permissions: ["read", "update", "upload", ...(download ? ["download"] : [])], files, schema };
-    else if (url.includes("/documents?")) data = { items: [{ id: "d", title: "Документ", revision: 2 }], total: 1, page: 1, page_size: 20 };
+    else if (url.endsWith("/search")) data = { items: [{ id: "d", title: "Документ", revision: 2 }], total: 1, page: 1, page_size: 20 };
     else throw new Error("Unexpected request: " + url);
+    if (url.endsWith("/search") && data && typeof data === "object" && "items" in data) {
+      const page = data as {items: unknown[]}; page.items = page.items.map(document => ({document, matches: [], score: 0, match_count: 0}));
+    }
     return new Response(JSON.stringify(data));
   });
   vi.stubGlobal("fetch", fetch);
@@ -99,14 +102,14 @@ it("resets date and sort controls when switching registries to an unfiltered que
   fireEvent.change(screen.getByLabelText("Дата по"), { target: { value: "2026-10-15" } });
   fireEvent.change(screen.getByLabelText("Сортировка"), { target: { value: "title" } });
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("date_from=2026-10-01"))).toBe(true));
+  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).date_from === "2026-10-01")).toBe(true));
   fireEvent.click(screen.getByRole("button", { name: "Реестр B" }));
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("registry_id=B"))).toBe(true));
+  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).registry_ids[0] === "B")).toBe(true));
   expect((screen.getByLabelText("Дата с") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Дата по") as HTMLInputElement).value).toBe("");
-  expect((screen.getByLabelText("Сортировка") as HTMLSelectElement).value).toBe("updated_at");
+  expect((screen.getByLabelText("Сортировка") as HTMLSelectElement).value).toBe("auto");
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
-  await waitFor(() => expect(fetch.mock.calls.at(-1)?.[0]).toContain("sort=updated_at"));
+  await waitFor(() => expect(JSON.parse(String(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).at(-1)?.[1]?.body)).sort).toBe("auto"));
   expect(fetch.mock.calls.at(-1)?.[0]).not.toContain("date_from");
 });
 
@@ -115,12 +118,12 @@ it("applies the status filter and clears it when changing registry", async () =>
   fireEvent.click(await screen.findByRole("button", { name: "Реестр A" }));
   fireEvent.change(screen.getByLabelText("Статус"), { target: { value: "Зарегистрирован" } });
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) =>
-    new URL(url, "https://example.test").searchParams.get("status") === "Зарегистрирован",
+  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) =>
+    url.endsWith("/search") && JSON.parse(String(init?.body)).status === "Зарегистрирован",
   )).toBe(true));
   fireEvent.click(screen.getByRole("button", { name: "Реестр B" }));
   expect((screen.getByLabelText("Статус") as HTMLInputElement).value).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
-  await waitFor(() => expect(fetch.mock.calls.at(-1)?.[0]).toContain("registry_id=B"));
+  await waitFor(() => expect(JSON.parse(String(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).at(-1)?.[1]?.body)).registry_ids).toEqual(["B"]));
   expect(new URL(fetch.mock.calls.at(-1)![0], "https://example.test").searchParams.has("status")).toBe(false);
 });

@@ -7,8 +7,10 @@ from sqlalchemy import func, select
 
 from app.api.dependencies import current_actor, current_admin, db_session
 from app.api.errors import fail
+from app.content.contracts import SearchInput, SearchRead
+from app.content.engine import search_errors
 from app.content.indexing import queue_file
-from app.content.models import ContentExtraction, DocumentBlock
+from app.content.models import ContentExtraction, DocumentBlock, DocumentIndexState
 from app.content.search import (
     ContentExportParameters,
     ContentSearchParameters,
@@ -24,6 +26,68 @@ router = APIRouter()
 Db = Annotated[object, Depends(db_session, scope="function")]
 Actor = Annotated[object, Depends(current_actor)]
 Mode = Literal["editor", "viewer"]
+
+
+@router.get("/documents/{document_id}/search-index")
+def document_search_index(document_id: UUID, session: Db, actor: Actor):
+    document = get_document(session, actor, document_id)
+    state = session.get(DocumentIndexState, document.id)
+    return {
+        "ready": bool(
+            state and state.document_revision == document.revision and state.index_version == 2
+        )
+    }
+
+
+@router.post("/search", response_model=SearchRead)
+def unified_search(params: SearchInput, request: Request, session: Db, actor: Actor):
+    from app.content.engine import execute_search
+
+    settings = request.app.state.settings
+    return execute_search(
+        session,
+        actor,
+        params,
+        secret=settings.session_secret.get_secret_value(),
+        weights=settings.search_weights,
+        synonyms=settings.search_synonyms,
+        algorithm=settings.search_algorithm_version,
+    )
+
+
+@router.get("/search/export")
+@search_errors
+def unified_export(
+    request: Request,
+    session: Db,
+    actor: Actor,
+    parameters: str = Query(max_length=16000),
+    format: Literal["csv", "xlsx"] = "csv",
+    columns: str | None = None,
+):
+    from pydantic import ValidationError
+
+    from app.content.engine import candidate_query, configure_search
+    from app.registry.document_export import export_documents_response
+    from app.registry.document_search import ExportParameters
+
+    try:
+        params = SearchInput.model_validate_json(parameters)
+    except (ValidationError, ValueError):
+        fail(422, "invalid_search", "Неверные условия поиска")
+    settings = request.app.state.settings
+    configure_search(session)
+    query, sources, _ = candidate_query(
+        session, actor, params, weights=settings.search_weights, synonyms=settings.search_synonyms
+    )
+    if sources and params.sort in {"auto", "relevance"}:
+        from app.registry.models import Document
+
+        query = query.order_by(None).order_by(sources[1].c.score.desc(), Document.id)
+    export_params = ExportParameters(
+        **params.legacy_filters().model_dump(), format=format, columns=columns
+    )
+    return export_documents_response(request, session, actor, export_params, document_query=query)
 
 
 class ContentBlockRead(BaseModel):
@@ -198,6 +262,7 @@ def search(session: Db, actor: Actor, params: Annotated[ContentSearchParameters,
 
 
 @router.get("/content/search/export")
+@search_errors
 def export(
     request: Request, session: Db, actor: Actor, params: Annotated[ContentExportParameters, Query()]
 ):
