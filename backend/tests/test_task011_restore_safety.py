@@ -106,11 +106,66 @@ def test_manifest_detects_sequence_state_change_even_when_tables_match():
 
 def test_manifest_sql_covers_every_table_and_sequence_without_changing_source():
     sql = restore.manifest_sql(["documents", 'quoted"name'], ["outbox_delivery_ordinal_seq"])
-    assert "REPEATABLE READ READ ONLY" in sql and 'public."quoted""name"' in sql
+    assert "REPEATABLE READ READ ONLY" in sql and '"public"."quoted""name"' in sql
     assert "sha256" in sql and "is_called" in sql and "last_value" in sql
     assert not any(
         word in sql.upper() for word in ("INSERT ", "UPDATE ", "DELETE ", "NEXTVAL(", "SETVAL(")
     )
+
+
+def test_keycloak_manifest_uses_separate_quoted_identifiers_and_legacy_public_keys():
+    sql = restore.manifest_sql(
+        [["public", "users"], ["keycloak", 'realm.with"quote']],
+        [["keycloak", "counter.seq"]],
+    )
+    assert "'name','users'" in sql and "'name','keycloak.realm.with\"quote'" in sql
+    assert 'FROM "public"."users" t' in sql
+    assert 'FROM "keycloak"."realm.with""quote" t' in sql
+    assert 'FROM "keycloak"."counter.seq";' in sql
+    assert '"keycloak.realm.with' not in sql
+    assert restore.relation_identity("users")[0] == "users"
+
+
+@pytest.mark.parametrize(
+    "value", [["pg_catalog", "users"], ["foreign", "x"], ["public"], None, ["keycloak", ""]]
+)
+def test_manifest_rejects_foreign_or_incomplete_schema_references(value):
+    with pytest.raises(restore.RestoreSafetyError):
+        restore.manifest_sql([value], [])
+
+
+def test_keycloak_catalog_is_complete_and_rejects_ambiguous_prefixed_keys(tmp_path, monkeypatch):
+    receipt, path = sample_receipt(tmp_path, monkeypatch)
+    verifier = restore.Verifier(receipt, path)
+    catalog = {
+        "tables": [["public", "alembic_version"], ["public", "document_files"], ["keycloak", "realm"]],
+        "sequences": [["keycloak", "counter_seq"]],
+    }
+    expected = {
+        "tables": {name: {"count": 0, "digest": "a" * 64} for name in ("alembic_version", "document_files", "keycloak.realm")},
+        "sequences": {"keycloak.counter_seq": {"last_value": "1", "is_called": False}},
+    }
+    rows = [
+        json.dumps({"kind": "table" if kind == "tables" else "sequence", "name": name, **row})
+        for kind, entries in expected.items()
+        for name, row in entries.items()
+    ]
+    calls = []
+
+    def sql(database, query):
+        calls.append(query)
+        return json.dumps(catalog).encode() if len(calls) == 1 else "\n".join(rows).encode()
+
+    monkeypatch.setattr(verifier, "sql", sql)
+    assert verifier.manifest(restore.SOURCE_DATABASE) == expected
+    assert "n.nspname IN ('public','keycloak')" in calls[0]
+    assert '"keycloak"."realm"' in calls[1]
+    assert '"keycloak"."counter_seq"' in calls[1]
+    catalog["tables"].append(["public", "keycloak.realm"])
+    calls.clear()
+    with pytest.raises(restore.RestoreSafetyError, match="ambiguous_manifest_relation"):
+        verifier.manifest(restore.SOURCE_DATABASE)
+    assert len(calls) == 1
 
 
 def test_foreign_toc_and_duplicate_or_incomplete_manifest_rejected():
@@ -354,6 +409,44 @@ def test_clone_api_cannot_launch_before_credentials_are_revoked(tmp_path, monkey
     monkeypatch.setattr(verifier, "docker", lambda *args, **kwargs: calls.append(args))
     with pytest.raises(restore.RestoreSafetyError, match="cloned_credentials_not_revoked"):
         verifier.launch({})
+    assert calls == []
+
+
+def test_clone_denies_identity_provider_connect_even_with_public_defaults(tmp_path, monkeypatch):
+    receipt, path = sample_receipt(tmp_path, monkeypatch)
+    ownership = {"oid": "424242", "marker": restore.PURPOSE + ":" + receipt["run_id"]}
+    receipt.update(database_ownership=ownership, database_app_role='app"role')
+    verifier = restore.Verifier(receipt, path)
+    monkeypatch.setattr(verifier, "save", lambda: None)
+    monkeypatch.setattr(verifier, "database_marker", lambda: ownership)
+    calls = []
+    monkeypatch.setattr(verifier, "sql", lambda *args: calls.append(args))
+    verifier.restrict_clone_access()
+    assert len(calls) == 1 and calls[0][0] == "postgres"
+    query = calls[0][1]
+    assert 'REVOKE CONNECT ON DATABASE "acti_restore_test" FROM PUBLIC' in query
+    assert 'GRANT CONNECT ON DATABASE "acti_restore_test" TO "app""role"' in query
+    assert 'FROM "acti_keycloak"' in query
+    assert "has_database_privilege('acti_keycloak','acti_restore_test','CONNECT')" in query
+    assert "shobj_description" in query and ownership["marker"] in query
+    assert 'ALTER DATABASE "acti_restore_test" CONNECTION LIMIT -1' in query
+    assert receipt["identity_provider_clone_access_blocked"] is True
+
+
+@pytest.mark.parametrize("role,foreign", [("acti_keycloak", False), (None, False), ("app", True)])
+def test_clone_connect_guard_refuses_foreign_database_or_identity_provider_role(
+    tmp_path, monkeypatch, role, foreign
+):
+    receipt, path = sample_receipt(tmp_path, monkeypatch)
+    ownership = {"oid": "424242", "marker": restore.PURPOSE + ":" + receipt["run_id"]}
+    receipt.update(database_ownership=ownership, database_app_role=role)
+    verifier = restore.Verifier(receipt, path)
+    monkeypatch.setattr(verifier, "save", lambda: None)
+    monkeypatch.setattr(verifier, "database_marker", lambda: {**ownership, "oid": "7"} if foreign else ownership)
+    calls = []
+    monkeypatch.setattr(verifier, "sql", lambda *args: calls.append(args))
+    with pytest.raises(restore.RestoreSafetyError):
+        verifier.restrict_clone_access()
     assert calls == []
 
 
@@ -637,6 +730,18 @@ def schema_fingerprints(tmp_path, monkeypatch, before, after):
     outputs = iter([json.dumps(before).encode(), json.dumps(after).encode()])
     monkeypatch.setattr(verifier, "sql", lambda database, query: next(outputs))
     return verifier.schema(restore.SOURCE_DATABASE), verifier.schema(restore.TARGET_DATABASE)
+
+
+@pytest.mark.parametrize("kind", ["relations", "columns", "constraints", "indexes", "triggers", "functions", "views", "enums", "sequences", "policies"])
+def test_keycloak_schema_fingerprint_detects_corruption_in_every_catalog_section(
+    tmp_path, monkeypatch, kind
+):
+    before = sample_schema_definition()
+    before[kind] = (before[kind] or []) + [["keycloak.realm", "original", "definition"]]
+    after = json.loads(json.dumps(before))
+    after[kind][-1][1] = "corrupted"
+    source, restored = schema_fingerprints(tmp_path, monkeypatch, before, after)
+    assert source != restored
 
 
 @pytest.mark.parametrize(
