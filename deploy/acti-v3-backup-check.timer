@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly ACTI v3 full external backup read check
+
+[Timer]
+OnCalendar=Sun *-*-* 06:15:00 Asia/Yekaterinburg
+Persistent=true
+RandomizedDelaySec=5m
+Unit=acti-v3-backup-check.service
+
+[Install]
+WantedBy=timers.target

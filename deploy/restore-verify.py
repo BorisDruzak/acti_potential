@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Same-VM disposable restore/read proof; never an external disaster-recovery claim.
+"""Guarded backup bundles and same-VM disposable restore/read proof.
 
 Run as root on the ACTI VM. ``prepare --expected-sha SHA`` leaves a protected
 receipt for the coordinator's HTTPS browser smoke. ``cleanup --receipt PATH
@@ -37,6 +37,8 @@ ORIGIN = "https://localhost:9444"
 APP_UID = 10001
 DIAGNOSTIC_FILE = None
 DIAGNOSTIC_LIMIT = 1024**2
+BUNDLE_MARKER = ".acti-backup-owner"
+BUNDLE_FORMAT = "acti-backup-v1"
 
 
 class RestoreSafetyError(RuntimeError):
@@ -122,10 +124,13 @@ def no_symlinks(path):
     return path
 
 
-def protected(path, *, directory=False):
+def protected(path, *, directory=False, shared_read=False):
     path = no_symlinks(path)
     info = path.stat()
-    require(info.st_uid == 0 and not info.st_mode & 0o077, "private_path_permissions")
+    require(
+        info.st_uid == 0 and not info.st_mode & (0o022 if shared_read else 0o077),
+        "private_path_permissions",
+    )
     require(
         stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode),
         "unexpected_private_path_type",
@@ -283,6 +288,151 @@ def storage_reference(row):
         "invalid_file_digest",
     )
     return key, size, digest
+
+
+def validate_bundle_metadata(metadata, expected_sha):
+    require(isinstance(metadata, dict), "invalid_bundle_metadata")
+    require(metadata.get("format") == BUNDLE_FORMAT, "foreign_bundle_format")
+    canonical_uuid(metadata.get("run_id"))
+    require(metadata.get("source_sha") == expected_sha, "bundle_source_sha_mismatch")
+    require(
+        re.fullmatch(r"[0-9a-f]{64}", metadata.get("dump_sha256", "")),
+        "invalid_dump_digest",
+    )
+    manifest = metadata.get("manifest")
+    require(
+        isinstance(manifest, dict) and set(manifest) == {"tables", "sequences"},
+        "invalid_bundle_manifest",
+    )
+    require(
+        all(isinstance(manifest[key], dict) for key in manifest),
+        "invalid_bundle_manifest",
+    )
+    require(
+        {"alembic_version", "document_files"} <= set(manifest["tables"]),
+        "not_current_acti_schema",
+    )
+    for name, row in manifest["tables"].items():
+        identifier(name)
+        require(
+            isinstance(row, dict)
+            and set(row) == {"count", "digest"}
+            and type(row["count"]) is int
+            and row["count"] >= 0
+            and isinstance(row["digest"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", row["digest"]),
+            "invalid_bundle_table",
+        )
+    for name, row in manifest["sequences"].items():
+        identifier(name)
+        require(
+            isinstance(row, dict)
+            and set(row) == {"last_value", "is_called"}
+            and isinstance(row["last_value"], str)
+            and re.fullmatch(r"-?[0-9]+", row["last_value"])
+            and type(row["is_called"]) is bool,
+            "invalid_bundle_sequence",
+        )
+    schema = metadata.get("schema")
+    require(
+        isinstance(schema, dict)
+        and set(schema) == {"revision", "digest"}
+        and isinstance(schema["revision"], list)
+        and bool(schema["revision"])
+        and all(
+            isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_]+", value)
+            for value in schema["revision"]
+        )
+        and isinstance(schema["digest"], str)
+        and re.fullmatch(r"[0-9a-f]{64}", schema["digest"]),
+        "invalid_bundle_schema",
+    )
+    references = metadata.get("references")
+    require(isinstance(references, list), "invalid_bundle_references")
+    require(
+        all(
+            isinstance(row, dict) and set(row) == {"storage_key", "size", "sha256"}
+            for row in references
+        ),
+        "invalid_bundle_references",
+    )
+    checked = [storage_reference(row) for row in references]
+    require(
+        len({row[0] for row in checked}) == len(checked), "duplicate_storage_reference"
+    )
+    require(
+        metadata.get("copies")
+        == {"files": len(checked), "bytes": sum(row[1] for row in checked)},
+        "bundle_totals_mismatch",
+    )
+    require(
+        manifest["tables"]["document_files"]["count"] == len(checked),
+        "bundle_reference_count_mismatch",
+    )
+    return metadata
+
+
+def verify_reference_files(source, references):
+    """Verify a closed set of files without copying, extraction or source writes."""
+    source = protected(source, directory=True)
+    checked = [storage_reference(row) for row in references]
+    require(
+        {path.name for path in source.iterdir()} == {row[0] for row in checked},
+        "bundle_object_set_mismatch",
+    )
+    for key, size, digest in checked:
+        path = protected(source / key, shared_read=True)
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            before = os.fstat(stream.fileno())
+            require(
+                stat.S_ISREG(before.st_mode) and before.st_size == size,
+                "bundle_object_size_mismatch",
+            )
+            require(
+                hashlib.file_digest(stream, "sha256").hexdigest() == digest,
+                "bundle_object_digest_mismatch",
+            )
+            after = os.fstat(stream.fileno())
+            require(
+                (before.st_ino, before.st_size, before.st_mtime_ns)
+                == (after.st_ino, after.st_size, after.st_mtime_ns),
+                "bundle_object_changed",
+            )
+
+
+def load_bundle(source, expected_sha):
+    source = Path(source)
+    require(source.is_absolute(), "relative_bundle_source")
+    source = protected(source, directory=True)
+    allowed = {"bundle.json", BUNDLE_MARKER, "snapshot.dump", "objects"}
+    names = {path.name for path in source.iterdir()}
+    require(
+        names in (allowed, allowed | {"recovery"}),
+        "bundle_layout_mismatch",
+    )
+    if "recovery" in names:
+        recovery = protected(source / "recovery", directory=True)
+        for path in recovery.rglob("*"):
+            protected(path, directory=path.is_dir())
+    metadata_path = protected(source / "bundle.json")
+    require(metadata_path.stat().st_size <= 64 * 1024**2, "bundle_metadata_too_large")
+    metadata = validate_bundle_metadata(
+        json.loads(metadata_path.read_text(encoding="utf-8")), expected_sha
+    )
+    require(
+        protected(source / BUNDLE_MARKER).read_text(encoding="utf-8")
+        == metadata["run_id"],
+        "bundle_owner_mismatch",
+    )
+    with protected(source / "snapshot.dump").open("rb") as stream:
+        require(
+            hashlib.file_digest(stream, "sha256").hexdigest()
+            == metadata["dump_sha256"],
+            "bundle_dump_digest_mismatch",
+        )
+    verify_reference_files(source / "objects", metadata["references"])
+    return metadata
 
 
 def copy_references(source, destination, references, *, app_uid=APP_UID):
@@ -490,11 +640,50 @@ class Verifier:
         )
         return result
 
+    def references(self, database):
+        return [
+            json.loads(line)
+            for line in self.sql(
+                database,
+                "SELECT json_build_object('storage_key',storage_key,'size',size,'sha256',sha256) FROM public.document_files ORDER BY storage_key;",
+            ).splitlines()
+        ]
+
+    def schema(self, database):
+        # Semantic public-schema fingerprint: no owner/OID/physical-storage identities.
+        # pg_get_* renders against a fixed search path, independent of connection defaults.
+        query = """
+BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL search_path = public, pg_catalog;
+SELECT json_build_object(
+ 'revision', (SELECT json_agg(version_num ORDER BY version_num) FROM public.alembic_version),
+ 'relations', (SELECT json_agg(json_build_array(c.relname,c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity,c.relreplident,c.reloptions) ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S')),
+ 'columns', (SELECT json_agg(json_build_array(c.relname,a.attname,a.attnum,format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attidentity,a.attgenerated,pg_get_expr(d.adbin,d.adrelid)) ORDER BY c.relname,a.attnum) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE n.nspname='public' AND a.attnum>0 AND NOT a.attisdropped AND c.relkind IN ('r','p','v','m')),
+ 'constraints', (SELECT json_agg(json_build_array(c.relname,k.conname,pg_get_constraintdef(k.oid,false),k.convalidated,k.condeferrable,k.condeferred) ORDER BY c.relname,k.conname) FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'),
+ 'indexes', (SELECT json_agg(pg_get_indexdef(i.indexrelid) ORDER BY c.relname,ic.relname) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'),
+ 'triggers', (SELECT json_agg(json_build_array(c.relname,t.tgname,pg_get_triggerdef(t.oid,false),t.tgenabled) ORDER BY c.relname,t.tgname) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal),
+ 'functions', (SELECT json_agg(pg_get_functiondef(p.oid) ORDER BY p.proname,pg_get_function_identity_arguments(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind IN ('f','p')),
+ 'views', (SELECT json_agg(json_build_array(c.relname,pg_get_viewdef(c.oid,false)) ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('v','m')),
+ 'enums', (SELECT json_agg(json_build_array(t.typname,e.enumlabel,e.enumsortorder) ORDER BY t.typname,e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'),
+ 'sequences', (SELECT json_agg(json_build_array(sequence_name,data_type,start_value,minimum_value,maximum_value,increment,cycle_option) ORDER BY sequence_name) FROM information_schema.sequences WHERE sequence_schema='public'),
+ 'policies', (SELECT json_agg(json_build_array(tablename,policyname,permissive,roles,cmd,qual,with_check) ORDER BY tablename,policyname) FROM pg_policies WHERE schemaname='public')
+);
+COMMIT;
+"""
+        definition = json.loads(self.sql(database, query))
+        return {
+            "revision": definition["revision"],
+            "digest": hashlib.sha256(
+                json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+        }
+
     def stable_dump(self):
         target = Path(self.receipt["pg_copy"]) / "snapshot.dump"
         for attempt in range(3):
             self.stage("dump.before_manifest")
             before = self.manifest(SOURCE_DATABASE)
+            schema_before = self.schema(SOURCE_DATABASE)
             partial = target.with_suffix(".partial")
             fd = os.open(
                 partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
@@ -516,8 +705,9 @@ class Verifier:
                     output.flush()
                     os.fsync(output.fileno())
                 self.stage("dump.after_manifest")
+                schema_after = self.schema(SOURCE_DATABASE)
                 after = self.manifest(SOURCE_DATABASE)
-                if before == after:
+                if before == after and schema_before == schema_after:
                     with partial.open("rb") as source:
                         self.stage("dump.toc")
                         toc = self.docker(
@@ -535,6 +725,7 @@ class Verifier:
                             source, "sha256"
                         ).hexdigest()
                     self.receipt["manifest"] = before
+                    self.receipt["schema"] = schema_before
                     self.receipt["stable_dump_attempts"] = attempt + 1
                     self.save()
                     return target
@@ -543,7 +734,104 @@ class Verifier:
             time.sleep(0.5)
         raise RestoreSafetyError("source_changed_during_all_dump_attempts")
 
-    def restore(self, dump):
+    def export_bundle(self):
+        dump = self.stable_dump()
+        bundle = Path(self.receipt["documents_copy"]) / "bundle"
+        bundle.mkdir(mode=0o700)
+        objects = bundle / "objects"
+        objects.mkdir(mode=0o700)
+        references = self.references(SOURCE_DATABASE)
+        required = (
+            sum(storage_reference(row)[1] for row in references) + dump.stat().st_size
+        )
+        require(
+            shutil.disk_usage(bundle).free
+            >= required + max(required // 10, 64 * 1024**2),
+            "insufficient_bundle_space",
+        )
+        self.stage("export.copy_originals")
+        copies = copy_references(
+            DOCUMENTS_ROOT / "objects", objects, references, app_uid=None
+        )
+        # Cover the interval used to enumerate and copy originals, including sequence state.
+        assert_same_manifest(self.receipt["manifest"], self.manifest(SOURCE_DATABASE))
+        require(
+            self.receipt["schema"] == self.schema(SOURCE_DATABASE),
+            "source_schema_changed",
+        )
+        require(
+            references == self.references(SOURCE_DATABASE), "source_references_changed"
+        )
+        with dump.open("rb") as source:
+            fd = os.open(
+                bundle / "snapshot.dump",
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+            )
+            with os.fdopen(fd, "wb") as target:
+                shutil.copyfileobj(source, target, length=1024**2)
+                target.flush()
+                os.fsync(target.fileno())
+        metadata = {
+            "format": BUNDLE_FORMAT,
+            "run_id": self.receipt["run_id"],
+            "source_sha": self.receipt["source_sha"],
+            "dump_sha256": self.receipt["dump_sha256"],
+            "manifest": self.receipt["manifest"],
+            "schema": self.receipt["schema"],
+            "references": references,
+            "copies": copies,
+        }
+        validate_bundle_metadata(metadata, self.receipt["source_sha"])
+        marker_fd = os.open(
+            bundle / BUNDLE_MARKER,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        with os.fdopen(marker_fd, "w", encoding="utf-8") as stream:
+            stream.write(self.receipt["run_id"])
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Metadata is the final publication marker. No partial export can be loaded.
+        write_json(bundle / "bundle.json", metadata)
+        load_bundle(bundle, self.receipt["source_sha"])
+        directory_fd = os.open(bundle, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        self.receipt.update(status="exported", bundle_source=str(bundle), copies=copies)
+        self.save()
+
+    def restore_bundle(self, source):
+        bundle = load_bundle(source, self.receipt["source_sha"])
+        self.receipt.update(
+            manifest=bundle["manifest"],
+            schema=bundle["schema"],
+            dump_sha256=bundle["dump_sha256"],
+            external_bundle=True,
+            external_bundle_run_id=bundle["run_id"],
+        )
+        self.save()
+        dump = Path(source) / "snapshot.dump"
+        with dump.open("rb") as stream:
+            verify_toc(
+                self.docker(
+                    "exec",
+                    "-i",
+                    self.receipt["postgres_container"],
+                    "pg_restore",
+                    "--list",
+                    stdin=stream,
+                )
+            )
+        self.restore(
+            dump,
+            originals_source=Path(source) / "objects",
+            expected_references=bundle["references"],
+        )
+
+    def restore(self, dump, *, originals_source=None, expected_references=None):
         self.stage("restore.database_create")
         require(self.database_marker() is None, "restore_database_already_exists")
         self.receipt["database_creation_started"] = True
@@ -591,18 +879,27 @@ class Verifier:
             )
         self.stage("restore.manifest_compare")
         assert_same_manifest(self.receipt["manifest"], self.manifest(TARGET_DATABASE))
-        references = [
-            json.loads(line)
-            for line in self.sql(
-                TARGET_DATABASE,
-                "SELECT json_build_object('storage_key',storage_key,'size',size,'sha256',sha256) FROM public.document_files ORDER BY storage_key;",
-            ).splitlines()
-        ]
+        if "schema" in self.receipt:
+            require(
+                self.receipt["schema"] == self.schema(TARGET_DATABASE),
+                "restored_schema_mismatch",
+            )
+        references = self.references(TARGET_DATABASE)
+        if expected_references is not None:
+            require(references == expected_references, "restored_references_mismatch")
+        require(
+            not self.receipt.get("external_bundle") or originals_source is not None,
+            "external_originals_required",
+        )
         objects = Path(self.receipt["documents_copy"]) / "objects"
         objects.mkdir(mode=0o750)
         self.stage("restore.copy_originals")
         self.receipt["copies"] = copy_references(
-            DOCUMENTS_ROOT / "objects", objects, references
+            originals_source
+            if originals_source is not None
+            else DOCUMENTS_ROOT / "objects",
+            objects,
+            references,
         )
         os.chown(objects, APP_UID, APP_UID)
         self.receipt["restored_manifest_verified"] = True
@@ -1027,10 +1324,18 @@ class Verifier:
             self.docker("network", "rm", network_id)
 
 
-def prepare(expected_sha, runtime_env, state_root):
+def prepare(
+    expected_sha, runtime_env, state_root, *, bundle_source=None, export_only=False
+):
     global DIAGNOSTIC_FILE
     require(os.name == "posix" and os.geteuid() == 0, "root_linux_required")
     require(re.fullmatch(r"[0-9a-f]{40}", expected_sha), "invalid_expected_sha")
+    require(
+        not (export_only and bundle_source is not None), "export_bundle_input_forbidden"
+    )
+    bundle = (
+        load_bundle(bundle_source, expected_sha) if bundle_source is not None else None
+    )
     env = parse_env(protected(runtime_env).read_text(encoding="utf-8"))
     require(env.get("ACTI_SOURCE_SHA") == expected_sha, "runtime_source_sha_mismatch")
     release = no_symlinks(env["ACTI_RELEASE_DIR"])
@@ -1075,6 +1380,8 @@ def prepare(expected_sha, runtime_env, state_root):
         "containers": {},
         "status": "initializing",
         "mounts": expected_mounts,
+        "export_only": export_only,
+        "external_bundle": bundle is not None,
     }
     verifier = Verifier(receipt, state / "receipt.json")
     verifier.save()
@@ -1100,7 +1407,10 @@ def prepare(expected_sha, runtime_env, state_root):
             )
             ids[kind] = cid
         receipt["postgres_container"] = ids["postgres"]
-        require(verifier.database_marker() is None, "restore_database_already_exists")
+        if not export_only:
+            require(
+                verifier.database_marker() is None, "restore_database_already_exists"
+            )
         receipt["images"] = {}
         for kind in ("api", "frontend"):
             image = (
@@ -1186,8 +1496,9 @@ def prepare(expected_sha, runtime_env, state_root):
         ]
         require(len(internal) == 1, "production_internal_network_not_unique")
         receipt["production_network"] = internal[0]
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", PORT))
+        if not export_only:
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", PORT))
         size = int(
             verifier.sql(
                 SOURCE_DATABASE, "SELECT pg_database_size(current_database());"
@@ -1207,9 +1518,16 @@ def prepare(expected_sha, runtime_env, state_root):
             (directory / MARKER).write_text(run_id, encoding="utf-8")
             os.chmod(directory / MARKER, 0o600)
         verifier.save()
-        verifier.restore(verifier.stable_dump())
-        verifier.revoke_cloned_credentials()
-        verifier.launch(env)
+        if export_only:
+            verifier.export_bundle()
+        else:
+            if bundle is None:
+                verifier.restore(verifier.stable_dump())
+            else:
+                # Revalidate after setup; use the downloaded closed set exclusively.
+                verifier.restore_bundle(bundle_source)
+            verifier.revoke_cloned_credentials()
+            verifier.launch(env)
         return verifier
     except Exception as error:
         receipt["failure_stage"] = receipt.get("stage", "initializing")
@@ -1230,19 +1548,28 @@ def prepare(expected_sha, runtime_env, state_root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    create = sub.add_parser("prepare")
-    create.add_argument("--expected-sha", required=True)
-    create.add_argument(
-        "--runtime-env", type=Path, default=Path("/etc/acti-v3/runtime.env")
-    )
-    create.add_argument("--state-root", type=Path, default=STATE_ROOT)
+    for command in ("prepare", "export"):
+        create = sub.add_parser(command)
+        create.add_argument("--expected-sha", required=True)
+        create.add_argument(
+            "--runtime-env", type=Path, default=Path("/etc/acti-v3/runtime.env")
+        )
+        create.add_argument("--state-root", type=Path, default=STATE_ROOT)
+        if command == "prepare":
+            create.add_argument("--bundle-source", type=Path)
     remove = sub.add_parser("cleanup")
     remove.add_argument("--receipt", required=True, type=Path)
     remove.add_argument("--run-id", required=True)
     args = parser.parse_args()
     try:
-        if args.command == "prepare":
-            verifier = prepare(args.expected_sha, args.runtime_env, args.state_root)
+        if args.command in {"prepare", "export"}:
+            verifier = prepare(
+                args.expected_sha,
+                args.runtime_env,
+                args.state_root,
+                bundle_source=getattr(args, "bundle_source", None),
+                export_only=args.command == "export",
+            )
         else:
             require(os.name == "posix" and os.geteuid() == 0, "root_linux_required")
             receipt_path = protected(args.receipt)
@@ -1266,6 +1593,11 @@ def main():
                     "files": receipt.get("copies", {}).get("files", 0),
                     "bytes": receipt.get("copies", {}).get("bytes", 0),
                     "external_disaster_recovery": False,
+                    "external_bundle": receipt.get("external_bundle", False),
+                    "bundle_source": receipt.get("bundle_source"),
+                    "receipt": str(verifier.receipt_path),
+                    "schema": receipt.get("schema"),
+                    "dump_sha256": receipt.get("dump_sha256"),
                     "cleanup_verified": receipt.get("cleanup_verified", False),
                     "cloned_credentials_revoked": receipt.get(
                         "cloned_credentials_revoked", False
