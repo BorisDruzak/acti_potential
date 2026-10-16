@@ -31,7 +31,7 @@ function setup() {
   return fetch;
 }
 
-it("applies decimal ranges, versioned list columns and exports only permitted selected columns", async () => {
+it("keeps decimal filters and configured export columns in the document workspace", async () => {
   const fetch = setup();
   fireEvent.click(await screen.findByRole("button", {name: "Реестр"}));
   fireEvent.change(screen.getByLabelText("Тип"), {target: {value: "t"}});
@@ -43,13 +43,14 @@ it("applies decimal ranges, versioned list columns and exports only permitted se
   fireEvent.change(screen.getByLabelText("Сортировка"), {target: {value: "custom:amount"}});
   fireEvent.change(screen.getByLabelText("Направление сортировки"), {target: {value: "asc"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
-  await screen.findByRole("columnheader", {name: "Размер"});
+  fireEvent.click(screen.getByRole("radio", {name: "Таблица"}));
+  await screen.findByRole("columnheader", {name: /Наименование документа/});
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).filters?.amount?.value[0] === "1.20")).toBe(true));
   fireEvent.click(screen.getByRole("button", {name: "Экспорт CSV"}));
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/search/export?") && new URL(url, "https://test.invalid").searchParams.get("columns") === "amount")).toBe(true));
   const exported = fetch.mock.calls.find(([url]) => url.includes("/search/export?"))![0];
   expect(JSON.parse(new URL(exported, "https://test.invalid").searchParams.get("parameters")!).sort).toBe("custom:amount");
-  expect(screen.getByText("Открыто")).toBeTruthy();
+  expect(screen.getAllByRole("columnheader")).toHaveLength(7);
 });
 
 it("saves and restores filters per user and workspace without storing result data", async () => {

@@ -1,0 +1,9 @@
+# Document workspace
+
+The working documents page uses one persisted layout state: `table`, `split` (default), or `card`. The same result table and DocumentCard stay mounted while panes are hidden, preserving card drafts and tabs. Layout preferences are scoped to the authenticated user and editor/viewer workspace. Search parameters, selected document and cursor remain owned by Documents; layout changes do not submit a search. Each pane retains scroll positions for each layout.
+
+Click selects a row; double-click or Enter opens the full card. Arrow keys, Home and End select rows. The three-position control supports arrow keys, Home and End. Collapsed rails return to the split layout; the card's return action restores the preceding list layout. Below 650px the split layout stacks its independently scrolling panes. The expanded table scrolls horizontally inside its pane.
+
+The table has seven presentation columns. Title, registration number/date and document type use existing ACL-filtered search summaries. The three optional business columns resolve against each document's immutable published schema: an exact normalized list-view column label is an explicit alias; otherwise an unambiguous field label is used. No legacy keys are inferred. Missing, inaccessible, condition-hidden or unresolved values render as an em dash. Identity and reference values require resolved display values; raw identifiers are not a display fallback.
+
+Standard sortable headers use the existing search API. Configured columns support sorting only when a single document type is selected and all its loaded published schemas map the column to the same unconditional, filterable scalar field. This avoids sorting one schema version's values while presenting another version's different field. Existing form configuration, filter controls and configured export columns retain their contracts. No API, database migration, numbering or document revision contract changes are required.

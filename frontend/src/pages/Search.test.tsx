@@ -25,9 +25,9 @@ it("uses one search field and retains the list, query and URL when opening a res
   expect(screen.getAllByRole("searchbox")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(requests.some(r => r.url.endsWith("/search") && (r.body as {query?: string})?.query === "озеленение")).toBe(true));
-  fireEvent.click(await screen.findByRole("button", {name: "Открыть карточку"}));
+  fireEvent.click(await screen.findByRole("row", {name: /Выбрать документ/}));
   await screen.findByRole("button", {name: "Содержание"});
-  expect(screen.getByRole("button", {name: "Открыть карточку"})).toBeTruthy();
+  expect(screen.getByRole("row", {name: /Выбрать документ/})).toBeTruthy();
   expect((screen.getByLabelText("Поиск") as HTMLInputElement).value).toBe("озеленение");
   expect(new URLSearchParams(window.location.search).get("q")).toBe("озеленение");
   expect(new URLSearchParams(window.location.search).get("document")).toBe("document");
@@ -47,12 +47,12 @@ it("refreshes retained search results after a saved revision is indexed", async 
   }));
   function Ready() {return useAuth().user ? <Documents /> : null;}
   render(<AuthProvider><Ready /></AuthProvider>);
-  fireEvent.click(await screen.findByRole("button", {name: "Открыть карточку"}));
+  fireEvent.click(await screen.findByRole("row", {name: /Выбрать документ/}));
   fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
   fireEvent.click(screen.getByRole("button", {name: "Сохранить карточку"}));
   await waitFor(() => expect(indexed).toBe(true));
   await waitFor(() => expect(screen.getAllByText("Обновлено").length).toBeGreaterThan(0));
-  expect(screen.getByRole("button", {name: "Открыть карточку"})).toBeTruthy();
+  expect(screen.getByRole("row", {name: /Выбрать документ/})).toBeTruthy();
 });
 
 it("restores another file in the same document on browser history navigation", async () => {

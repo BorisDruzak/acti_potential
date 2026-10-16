@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
@@ -20,7 +20,9 @@ import { searchBody, type SearchScope } from "../engine/search";
 import { useAction, useData } from "../engine/useData";
 import { CardNumberAssignment } from "./NumberBook";
 import { DocumentContent } from "./DocumentContent";
-import { ContentMatches } from "../components/ContentMatches";
+import { DocumentLayoutSwitch, DocumentWorkspace, useDocumentLayout } from "../components/DocumentWorkspace";
+import { DocumentResults } from "../components/DocumentResults";
+import { useDocumentSchemas } from "../engine/documentPresentation";
 import type { ContentHit, ContentTarget } from "../engine/content";
 import { DocumentRelations, RelationStatusHistory } from "./DocumentRelations";
 import type { RelationNavigation } from "../engine/relations";
@@ -75,6 +77,7 @@ function DocumentCard({
   onClose,
   contentTarget,
   onNavigate,
+  onDirtyChange,
 }: {
   card: Card;
   readOnly: boolean;
@@ -83,6 +86,7 @@ function DocumentCard({
   onClose: () => void;
   contentTarget?: ContentTarget;
   onNavigate: (value: RelationNavigation) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const auth = useAuth();
   const action = useAction();
@@ -114,6 +118,8 @@ function DocumentCard({
     editing &&
     (JSON.stringify(values) !== JSON.stringify(card.values) ||
       Object.keys(pendingFiles).length > 0);
+  useEffect(() => {onDirtyChange?.(hasUnsavedChanges);}, [hasUnsavedChanges, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   function changeValues(next: Values) {
     setPendingFiles((current) =>
       prunePendingFiles(
@@ -588,6 +594,9 @@ function NewDocumentForm({
 
 export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const auth = useAuth();
+  const {layout, choose: chooseLayout, back: backToResults} = useDocumentLayout(auth.user?.id || "anonymous", readOnly);
+  const dirtyCard = useRef(false);
+  const reportDirty = useCallback((value: boolean) => {dirtyCard.current = value;}, []);
   const registries = useData<Registry[]>("/registries");
   const types = useData<DocumentType[]>("/document-types");
   const references = useData<ReferenceSet[]>(
@@ -647,11 +656,14 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   }
   function startSearchTiming() {searchTiming.current = {registryId, started: performance.now()}; recordRetrieval("search", 0);}
   function openSearchResult(id: string, target?: ContentTarget) {
+    if (id === documentId && !target) return true;
+    if (dirtyCard.current && !window.confirm("В карточке есть несохранённые изменения. Перейти к другому документу или фрагменту без сохранения?")) return false;
     const timing = searchTiming.current;
     if (timing?.registryId === registryId) recordRetrieval("time_to_open", performance.now() - timing.started);
     searchTiming.current = null;
     window.history.pushState(null, "", window.location.href);
     setContentTarget(target); setDocumentId(id); setNavigationRevision(value => value + 1);
+    return true;
   }
   const registry = registries.data?.find((item) => item.id === registryId);
   const versions = useData<SchemaVersion[]>(
@@ -676,6 +688,15 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     !creating ? "/search" : null,
     {body: applied, csrfToken: auth.user?.csrf_token || "", retainOnReload: true},
   );
+  const resultDocuments = (list.data?.items || []).map(result => "document" in result ? result.document : result as unknown as Card);
+  const listSchemas = useDocumentSchemas(resultDocuments, auth.user?.id || "anonymous", readOnly, layout.mode === "table");
+  function sortResults(key: string) {
+    const nextDirection = applied.sort === key && applied.direction === "asc" ? "desc" : "asc";
+    setSort(key); setDirection(nextDirection);
+    const next = new URLSearchParams(search); next.set("sort", key); next.set("direction", nextDirection);
+    setSearch("&" + next.toString()); setCursor(""); setPage(1); setPreviousCursors([]);
+  }
+  function openFullResult(id: string) {if (openSearchResult(id)) chooseLayout("card");}
   const card = useData<Card>(
     documentId
       ? "/documents/" + documentId + "?mode=" + (readOnly ? "viewer" : "editor")
@@ -763,9 +784,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             readOnly={readOnly}
             references={references.data || []}
             onSaved={() => {card.reload(); setSavedDocument({id: card.data!.id, revision: card.data!.revision});}}
-            onClose={close}
+            onClose={backToResults}
+            onDirtyChange={reportDirty}
             contentTarget={contentTarget}
-            onNavigate={value => {setContentTarget(value.contentTarget); setDocumentId(value.documentId); setNavigationRevision(current => current + 1);}}
+            onNavigate={value => {openSearchResult(value.documentId, value.contentTarget);}}
           />
         )}
       </>
@@ -784,19 +806,21 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       />
     );
   return (
-    <div className="documents-search">
-      <div className="toolbar">
+    <div className="documents-search documents-layout-page">
+      <div className="toolbar documents-heading">
         <div>
           <span className="eyebrow">
             {readOnly ? "ПРОСМОТР ДОКУМЕНТОВ" : "РАБОТА С ДОКУМЕНТАМИ"}
           </span>
           <h1>{registry ? registry.name : "Документы"}</h1>
         </div>
+        <div className="documents-heading-actions"><DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
         {!readOnly && registry?.permissions.includes("create") && (
           <button className="primary" onClick={() => setCreating(true)}>
             Создать документ
           </button>
         )}
+        </div>
       </div>
       <Feedback
         error={registries.error || types.error || references.error}
@@ -1002,44 +1026,15 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           <Feedback {...exportAction} />
           <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
           {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
-          <div className="search-workspace"><section className="search-results" aria-label="Результаты поиска"><div className="toolbar">
-            <h2>Документы</h2>
-            <span className="muted">Найдено: {list.data?.total ?? "…"}</span>
-          </div>
-          {configuredColumns.length === 0 ? <ol className="search-hit-list">{list.data?.items.map(result => {
-            const item = "document" in result ? result.document : result;
-            return <li key={item.id}><article className={documentId === item.id ? "search-hit selected" : "search-hit"}>
-              <div className="match-source">{item.reg_number || "Без номера"} · {item.reg_date || "Без даты"} · {types.data?.find(type => type.id === item.document_type_id)?.name || "Документ"}</div>
-              <h3>{item.title || "Документ"}</h3>{item.status && <span className="status-badge">{item.status}</span>}
-              {"document" in result && <ContentMatches matches={result.matches.slice(0, 2)} query={applied.query} onOpen={target => openSearchResult(item.id, target)}/>}
-              <button className="text-button" aria-pressed={documentId === item.id} onClick={() => openSearchResult(item.id)}>Открыть карточку</button>
-            </article></li>;
-          })}</ol> : <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  {configuredColumns.length ? configuredColumns.map(column => <th key={column.key}>{column.label}</th>) : <><th>Номер</th><th>Дата</th><th>Название</th></>}
-                  <th>Редакция</th>
-                  {!!applied.query && <th>Найденные фрагменты</th>}
-                  <th>Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data?.items.map((result) => {const item = "document" in result ? result.document : result; return (
-                  <tr key={item.id} className={documentId === item.id ? "selected" : ""}>
-                    {configuredColumns.length ? configuredColumns.map(column => <td key={column.key}>{displayListValue(item.display_values?.[column.key] ?? item.values?.[column.key])}</td>) : <><td>{item.reg_number || "—"}</td><td>{item.reg_date || "—"}</td><td>{item.title || "Документ"}</td></>}
-                    <td>{item.revision}</td>
-                    {"document" in result && <td><ContentMatches matches={result.matches} query={applied.query} onOpen={target => openSearchResult(item.id, target)}/></td>}
-                    <td>
-                      <button onClick={() => openSearchResult(item.id)}>
-                        Открыть карточку
-                      </button>
-                    </td>
-                  </tr>
-                );})}
-              </tbody>
-            </table>
-          </div>}
+          <DocumentWorkspace mode={layout.mode} onChange={chooseLayout}
+            selectedLabel={card.data?.title || resultDocuments.find(item => item.id === documentId)?.title || "Карточка"}
+            detail={detail}
+            count={<div className="document-results-heading"><h2>Документы</h2><span className="muted">Найдено: {list.data?.total ?? "…"}</span></div>}
+            list={<>
+              <DocumentResults results={list.data?.items || []} schemas={listSchemas.byVersion} sortSchemas={listSchemas.forType(applied.document_type_ids.length === 1 ? applied.document_type_ids[0] || "" : "")} types={types.data || []}
+                roles={auth.user?.roles || []} readOnly={readOnly} selected={documentId} query={applied.query}
+                sort={applied.sort} direction={applied.direction} typeId={applied.document_type_ids.length === 1 ? applied.document_type_ids[0] || "" : ""}
+                onSort={sortResults} onSelect={openSearchResult} onOpen={openFullResult}/>
           {list.data?.items.length === 0 && (
             <div className="empty-state">
               Документов по выбранным условиям пока нет.
@@ -1061,16 +1056,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             >
               Вперёд
             </button>
-          </div></section><aside className="search-detail" aria-label="Карточка выбранного документа">{detail}</aside></div>
+          </div>
+            </>}/>
         </>
       )}
     </div>
   );
-}
-
-function displayListValue(value: unknown): string {
-  if (value === undefined || value === null || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Да" : "Нет";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 }

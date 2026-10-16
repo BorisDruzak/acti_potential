@@ -145,7 +145,7 @@ it("reader route exposes no mutation controls even when returned permissions inc
     await screen.findByRole("button", { name: "Тестовый реестр" }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Открыть карточку" }),
+    await screen.findByRole("row", {name: /Выбрать документ/}),
   );
   await screen.findByText("UUID: d");
   expect(screen.queryByRole("button", { name: "Создать документ" })).toBeNull();
@@ -178,7 +178,7 @@ it("entering card edit mode never turns the clicked button into a submit button"
     await screen.findByRole("button", { name: "Тестовый реестр" }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Открыть карточку" }),
+    await screen.findByRole("row", {name: /Выбрать документ/}),
   );
   const editButton = (await screen.findByRole("button", {
     name: "Редактировать карточку",
@@ -215,7 +215,7 @@ it("atomically saves a file selected during editing with the updated card values
     await screen.findByRole("button", { name: "Тестовый реестр" }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Открыть карточку" }),
+    await screen.findByRole("row", {name: /Выбрать документ/}),
   );
   fireEvent.click(
     await screen.findByRole("button", { name: "Редактировать карточку" }),
@@ -276,7 +276,7 @@ it("records aggregate search-to-open timing without the query or personal dimens
   fireEvent.click(await screen.findByRole("button", {name: "Тестовый реестр"}));
   fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Частный поисковый текст"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
-  fireEvent.click(await screen.findByRole("button", {name: "Открыть карточку"}));
+  fireEvent.click(await screen.findByRole("row", {name: /Выбрать документ/}));
   await screen.findByRole("heading", {name: "Тестовый документ"});
   await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url.endsWith("/usage/retrieval"))).toHaveLength(2));
   const bodies = fetch.mock.calls.filter(([url]) => url.endsWith("/usage/retrieval")).map(([, init]) => JSON.parse(String(init.body)));
