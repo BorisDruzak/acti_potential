@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    literal_column,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
@@ -104,4 +105,41 @@ class DocumentIndexState(Base):
     __tablename__ = "content_index_states"
     document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id"), primary_key=True)
     document_revision: Mapped[int] = mapped_column(Integer)
+    index_version: Mapped[int] = mapped_column(Integer, default=2, server_default="2")
     indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChunkRecord(Base):
+    """Compact source map only; text remains in immutable DocumentBlock."""
+
+    __tablename__ = "content_chunks"
+    __table_args__ = (UniqueConstraint("extraction_id", "algorithm_version", "ordinal"),)
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id"), index=True)
+    extraction_id: Mapped[UUID] = mapped_column(ForeignKey("content_extractions.id"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    ranges: Mapped[list] = mapped_column(JSONB)
+    block_ids: Mapped[list] = mapped_column(JSONB)
+    page: Mapped[int | None] = mapped_column(Integer)
+    anchor: Mapped[str] = mapped_column(String(255))
+    checksum: Mapped[str] = mapped_column(String(64))
+    algorithm_version: Mapped[str] = mapped_column(String(30))
+
+
+# Fixed-size fingerprint avoids btree tuple limits for long metadata. Exact
+# normalized text equality is always rechecked after the indexed hash lookup.
+MetadataFragment.__table__.append_constraint(
+    Index(
+        "ix_metadata_fragments_number_fingerprint",
+        func.md5(
+            func.regexp_replace(
+                func.replace(
+                    func.lower(MetadataFragment.text), literal_column("'ё'"), literal_column("'е'")
+                ),
+                literal_column("'[^[:alnum:]]'"),
+                literal_column("''"),
+                literal_column("'g'"),
+            )
+        ),
+    )
+)

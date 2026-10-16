@@ -328,7 +328,8 @@ def test_canonical_openapi_is_typed_versioned_and_matches_checked_export():
     for path, methods in document["paths"].items():
         assert path.startswith(SERVICE_PREFIX + "/")
         for method, operation in methods.items():
-            assert method == "get" and operation["security"] == [{"ServiceBearer": []}]
+            assert method == ("post" if path.endswith(("/search", "/retrieval")) else "get")
+            assert operation["security"] == [{"ServiceBearer": []}]
             content = operation["responses"]["200"]["content"]
             if path.endswith("/download"):
                 assert content["application/octet-stream"]["schema"] == {

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.openapi.utils import get_openapi
 
 from app.api.schemas import ERROR_RESPONSES, ErrorEnvelope
-from app.service_api import events, retrieval
+from app.service_api import events, retrieval, search
 from app.service_api.auth import current_service
 
 router = APIRouter(
@@ -12,6 +12,7 @@ router = APIRouter(
 )
 router.include_router(retrieval.router)
 router.include_router(events.router)
+router.include_router(search.router)
 
 
 def schema():

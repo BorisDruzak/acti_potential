@@ -17,26 +17,32 @@ MAX_EXPORT_ROWS = 10000
 MAX_EXPORT_TEXT = 16 * 1024 * 1024
 
 
-def display_values(session, schema, values, actor, mode=None, *, exporting=False):
+def display_values(session, schema, values, actor, mode=None, *, exporting=False, cache=None):
     def display(field, value):
         if value is None:
             return None
         kind = field["type"]
         if kind == "group":
             nested = {"sections": [{"fields": field.get("children", [])}]}
-            return [display_values(session, nested, row, actor, mode, exporting=exporting)
+            return [display_values(session, nested, row, actor, mode, exporting=exporting, cache=cache)
                     for row in value]
         if kind in {"reference", "multi_reference", "department"}:
             def label(identifier):
+                if cache is not None:
+                    return cache.get((kind, str(identifier)), str(identifier))
                 item = session.get(ReferenceItem, UUID(str(identifier)))
                 return item.label if item else str(identifier)
             return [label(v) for v in value] if kind == "multi_reference" else label(value)
         if kind == "user":
+            if cache is not None:
+                return cache.get((kind, str(value)), str(value))
             from app.identity.models import User
 
             user = session.get(User, UUID(str(value)))
             return user.display_name if user else str(value)
         if kind == "document":
+            if cache is not None:
+                return cache.get((kind, str(value)), "Недоступный документ")
             try:
                 linked = get_document(session, actor, UUID(str(value)))
                 linked_schema = get_schema(session, linked)
@@ -49,6 +55,8 @@ def display_values(session, schema, values, actor, mode=None, *, exporting=False
             except HTTPException:
                 return "Недоступный документ"
         if kind == "file":
+            if cache is not None:
+                return [cache[(kind, str(identifier))] for identifier in value if (kind, str(identifier)) in cache]
             names = []
             for identifier in value:
                 item = session.get(DocumentFile, UUID(str(identifier)))
@@ -65,8 +73,10 @@ def display_values(session, schema, values, actor, mode=None, *, exporting=False
     }
 
 
-def export_documents_response(request, session, actor, params, *, document_ids=None):
+def export_documents_response(request, session, actor, params, *, document_ids=None, document_query=None):
     query, fields = search_query(session, actor, params)
+    if document_query is not None:
+        query = document_query
     if document_ids is not None:
         query = query.where(Document.id.in_(document_ids))
     total = count_rows(session, query)

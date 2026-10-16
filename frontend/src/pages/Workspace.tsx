@@ -46,7 +46,7 @@ export function Workspace() {
     window.history.pushState(null, "", "/" + next);
   }
   useEffect(() => {
-    window.history.replaceState(null, "", "/" + space);
+    window.history.replaceState(null, "", "/" + space + window.location.search);
     const pop = () => {
       const next = resolve();
       setSpaceState(next);
