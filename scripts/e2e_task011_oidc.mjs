@@ -146,6 +146,7 @@ export async function runTask011Oidc({browser, origin, admin, idp, outputDir, re
       assert.equal(location.pathname, '/');
       assert.equal(location.search, '');
       await page.getByRole('button', {name: 'Выйти', exact: true}).waitFor();
+      await page.getByRole('heading', {name: /^(Обзор системы|Мои реестры)$/}).waitFor();
       const cookies = await page.context().cookies(origin);
       const session = cookies.find(cookie => cookie.name === 'acti_session');
       assert.ok(session?.secure && session.httpOnly && session.sameSite === 'Lax', 'Secure server session cookie');
@@ -208,7 +209,9 @@ export async function runTask011Oidc({browser, origin, admin, idp, outputDir, re
         await page.getByLabel('Новый пароль', {exact: true}).fill(account.password);
         await page.getByLabel('Повторите новый пароль', {exact: true}).fill(account.password);
         await page.getByRole('button', {name: 'Изменить пароль', exact: true}).click();
-        await page.getByRole('heading', {name: 'Мои реестры', exact: true}).waitFor();
+        await page.getByRole('heading', {
+          name: account.role === 'admin' ? 'Обзор системы' : 'Мои реестры', exact: true,
+        }).waitFor();
         const current = await json(page, '/users/me');
         assert.equal(current.id, account.id);
         assert.equal(current.must_change_password, false);

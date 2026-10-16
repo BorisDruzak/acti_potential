@@ -264,7 +264,7 @@ def configure(values, helper):
     save_state(state)
     values.update({"ACTI_OIDC_ENABLED": "true", "ACTI_OIDC_ISSUER": base + "/realms/acti",
                    "ACTI_OIDC_CLIENT_ID": "acti-web", "ACTI_OIDC_CLIENT_SECRET": state["client_secret"],
-                   "ACTI_OIDC_LABEL": "Единый вход ACTI (пилот)"})
+                   "ACTI_OIDC_LABEL": "единый вход ACTI"})
     values.pop("ACTI_IDP_BOOTSTRAP_ADMIN", None)
     values.pop("ACTI_IDP_BOOTSTRAP_PASSWORD", None)
     values.pop("KC_BOOTSTRAP_ADMIN_USERNAME", None)

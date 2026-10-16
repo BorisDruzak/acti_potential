@@ -26,6 +26,15 @@ def require(condition, code):
         raise RuntimeError(code)
 
 
+def require_owned_component(components, proof):
+    require(len(components) <= 1, "ambiguous_ldap_provider")
+    if components:
+        require(isinstance(proof, dict) and proof.get("owner") == MARKER
+                and proof.get("component_id") == components[0].get("id"), "foreign_ldap_provider")
+    else:
+        require(proof is None, "owned_ldap_provider_missing")
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise RuntimeError("idp_admin_redirect_forbidden")
@@ -77,14 +86,15 @@ def main():
     realm = call("GET", "/admin/realms/acti", token=token)
     components = call("GET", "/admin/realms/acti/components?" + urlencode({
         "type": "org.keycloak.storage.UserStorageProvider", "name": "acti-ad-readonly"}), token=token)
-    require(len(components) <= 1, "ambiguous_ldap_provider")
-    if components:
-        require(components[0].get("config", {}).get("actiManaged") == [MARKER], "foreign_ldap_provider")
+    proof_path = ROOT / "idp/federation-proof.json"
+    owned = json.loads(helper.protected(proof_path).read_text()) if proof_path.exists() else None
+    # Keycloak filters unknown component properties; pin ownership outside its config.
+    require_owned_component(components, owned)
     reader = ldap["reader_sam"]
     search_filter = ("(sAMAccountName=" + reader + ")" if args.reader_test else
                      "(&(objectCategory=person)(!(sAMAccountName=" + reader + ")))")
     raw = {
-        "actiManaged": MARKER, "enabled": "true", "priority": "0", "vendor": "ad",
+        "enabled": "true", "priority": "0", "vendor": "ad",
         "editMode": "READ_ONLY", "importEnabled": "true", "syncRegistrations": "false",
         "connectionUrl": ldap["ldap_url"], "startTls": "false", "authType": "simple",
         "bindDn": ldap["reader_dn"], "bindCredential": ldap["password"],
@@ -110,14 +120,14 @@ def main():
         "type": "org.keycloak.storage.UserStorageProvider", "name": "acti-ad-readonly"}), token=token)
     require(len(components) == 1 and components[0]["config"].get("editMode") == ["READ_ONLY"]
             and components[0]["config"].get("syncRegistrations") == ["false"], "ldap_readonly_not_confirmed")
-    proof = {"status": "configured", "mode": "reader_test" if args.reader_test else "staff",
+    proof = {"owner": MARKER, "status": "configured", "mode": "reader_test" if args.reader_test else "staff",
              "read_only": True, "scheduled_sync": False, "ad_writes": False,
              "component_id": components[0]["id"]}
-    path = ROOT / "idp/federation-proof.json"
+    path = proof_path
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w") as stream:
         json.dump(proof, stream)
-    print(json.dumps({key: value for key, value in proof.items() if key != "component_id"}))
+    print(json.dumps({key: value for key, value in proof.items() if key not in {"component_id", "owner"}}))
 
 
 if __name__ == "__main__":

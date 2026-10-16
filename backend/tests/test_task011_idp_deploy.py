@@ -1,14 +1,36 @@
 """Deployment boundaries for the optional identity provider."""
 
+import importlib.util
 import json
 import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_idp_profile_never_exposes_provider_or_worker_secrets():
+def test_ldap_provider_changes_require_pinned_private_ownership():
+    spec = importlib.util.spec_from_file_location("acti_ldap_deploy", ROOT / "deploy/configure-ad-federation.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    owned = {"owner": module.MARKER, "component_id": "owned-component"}
+    module.require_owned_component([{"id": "owned-component"}], owned)
+    module.require_owned_component([], None)
+    for components, proof in (
+        ([{"id": "foreign-component"}], owned),
+        ([{"id": "owned-component"}], None),
+        ([{"id": "owned-component"}], {**owned, "owner": "foreign"}),
+        ([], owned),
+        ([{"id": "owned-component"}, {"id": "other"}], owned),
+    ):
+        with pytest.raises(RuntimeError):
+            module.require_owned_component(components, proof)
+
+
+@pytest.mark.parametrize("bootstrap", [False, True])
+def test_idp_profile_never_exposes_provider_or_worker_secrets(bootstrap):
     env = dict(os.environ, POSTGRES_IMAGE="postgres:16", REDIS_IMAGE="redis:7",
                POSTGRES_PASSWORD="synthetic", ACTI_DATABASE_URL="postgresql://example",
                ACTI_MIGRATION_DATABASE_URL="postgresql://example", ACTI_APP_PASSWORD="synthetic",
@@ -16,6 +38,11 @@ def test_idp_profile_never_exposes_provider_or_worker_secrets():
                NODE_IMAGE="node:24", NGINX_IMAGE="nginx:stable", ACTI_SESSION_SECRET="synthetic",
                ACTI_SOURCE_SHA="test", ACTI_OIDC_CLIENT_SECRET="synthetic-oidc-secret",
                ACTI_IDP_DB_PASSWORD="synthetic-idp-db-secret")
+    for key in ("KC_BOOTSTRAP_ADMIN_USERNAME", "KC_BOOTSTRAP_ADMIN_PASSWORD"):
+        env.pop(key, None)
+    if bootstrap:
+        env.update(KC_BOOTSTRAP_ADMIN_USERNAME="synthetic-bootstrap",
+                   KC_BOOTSTRAP_ADMIN_PASSWORD="synthetic-bootstrap-secret")
     config = json.loads(subprocess.check_output(
         ["docker", "compose", "--profile", "idp", "-f", str(ROOT / "deploy/compose.yaml"),
          "config", "--format", "json"], env=env, text=True))
@@ -31,8 +58,10 @@ def test_idp_profile_never_exposes_provider_or_worker_secrets():
     assert "--http-enabled=true" in provider["command"]
     assert provider["environment"]["KC_HOSTNAME"] == "https://example.invalid/idp"
     # Keycloak rejects present-but-empty bootstrap values after initial setup.
-    assert provider["environment"].get("KC_BOOTSTRAP_ADMIN_USERNAME") is None
-    assert provider["environment"].get("KC_BOOTSTRAP_ADMIN_PASSWORD") is None
+    assert provider["environment"].get("KC_BOOTSTRAP_ADMIN_USERNAME") == (
+        "synthetic-bootstrap" if bootstrap else None)
+    assert provider["environment"].get("KC_BOOTSTRAP_ADMIN_PASSWORD") == (
+        "synthetic-bootstrap-secret" if bootstrap else None)
     for name in ("worker", "migrate"):
         assert not any(key.startswith("ACTI_OIDC_") for key in services[name]["environment"])
         assert "identity" not in services[name]["networks"]
