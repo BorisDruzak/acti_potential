@@ -1,0 +1,21 @@
+[Unit]
+Description=ACTI v3 full encrypted external repository integrity check
+After=acti-v3.service docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/acti/postgresql /srv/acti/documents
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/local/sbin/acti-v3-external-backup check
+TimeoutStartSec=2h
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=100%
+MemoryMax=2G
+PrivateTmp=yes
+ProtectHome=yes
+NoNewPrivileges=yes

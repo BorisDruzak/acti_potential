@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily ACTI v3 external backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 Asia/Yekaterinburg
+Persistent=true
+RandomizedDelaySec=5m
+Unit=acti-v3-backup.service
+
+[Install]
+WantedBy=timers.target
