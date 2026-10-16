@@ -137,6 +137,7 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     await vp.getByText('Найдено: 37',{exact:true}).waitFor();
     await vp.getByRole('button',{name:'Вперёд',exact:true}).click();
     await vp.getByText('Страница 2',{exact:true}).waitFor();
+    await vp.waitForFunction(()=>document.querySelectorAll('.search-hit-list > li').length===17);
     const resultList=vp.locator('.search-results');
     await resultList.getByRole('button',{name:'Открыть карточку',exact:true}).nth(6).scrollIntoViewIfNeeded();
     const scrollBefore=await resultList.evaluate(element=>element.scrollTop);
@@ -160,7 +161,7 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     assert.equal((await fs.readFile(csvPath,'utf8')).includes('ЗАКРЫТЫЙМАРКЕРSEARCH'),false);
     await download(vp,'Экспорт XLSX','search.xlsx');
     pass('two-pane selection URL reload and ACL-safe CSV XLSX exports');
-    await vp.getByLabel('Поиск',{exact:true}).fill('городском благоустройстве');
+    await vp.getByLabel('Поиск',{exact:true}).fill('"городском благоустройстве"');
     await vp.getByRole('button',{name:'Найти',exact:true}).click();
     await vp.getByText('Найдено: 1',{exact:true}).waitFor();
     await vp.getByRole('button',{name:'Открыть фрагмент источника',exact:true}).first().click();
@@ -202,6 +203,9 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     assert.deepEqual(h.runtimeErrors,[]);
     pass('administrator index diagnostics controlled rebuild and no browser runtime errors');
     return {status:'PASS',source_sha:platform.source_sha,scenarios:h.results};
+  } catch(error) {
+    await fs.writeFile(path.join(outputDir,'failure.txt'),String(error.stack || error).split(origin).join('[pilot]'));
+    throw error;
   } finally {
     if (ap && service) {
       if(token)await json(ap,`/admin/service-accounts/${service.id}/tokens/${token.id}/revoke`,'POST',{reason:'Завершение синтетической проверки'},204);

@@ -1432,3 +1432,21 @@ details .dynamic-form {
 .search-hit h3 {font-size: 1.1rem; line-height: 1.4; margin: .4rem 0;}
 .search-hit .content-text {font-size: .92rem; color: #425652; margin: .5rem 0; line-height: 1.5;}
 .search-hit .status-badge {display: inline-block; font-size: .8rem; margin: .2rem 0; padding: .15rem .5rem; border-radius: 1rem; background: #edf2f0;}
+
+.documents-search > .toolbar {margin-top: 0; margin-bottom: .5rem;}
+.documents-search > .registry-tabs {margin: .75rem 0;}
+.documents-search .search-saved-views {padding: .65rem 1rem; margin-bottom: .5rem;}
+.documents-search .search-form {padding: 1rem; gap: .65rem; grid-template-columns: minmax(220px, 1fr) minmax(160px, 190px) auto;}
+.documents-search .search-form > .button-row {grid-column: auto; margin: 0;}
+.documents-search .active-search-filters, .documents-search .search-sort {margin: .5rem 0;}
+.documents-search > p.muted {margin: .4rem 0;}
+.documents-search > .button-row {margin: .5rem 0;}
+.search-detail .tabs {flex-wrap: wrap; overflow: visible; margin: .75rem 0;}
+.search-detail .tabs button {white-space: normal;}
+@media (max-width: 1200px) {
+  .documents-search .search-form {grid-template-columns: minmax(220px, 1fr) minmax(160px, 190px);}
+  .documents-search .search-form > .button-row {grid-column: 1 / -1;}
+}
+@media (max-width: 600px) {
+  .documents-search .search-form {grid-template-columns: minmax(0, 1fr); padding: .75rem;}
+}

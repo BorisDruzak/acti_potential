@@ -784,7 +784,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       />
     );
   return (
-    <>
+    <div className="documents-search">
       <div className="toolbar">
         <div>
           <span className="eyebrow">
@@ -839,7 +839,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
       )}
       {(registry || registries.data?.some(item => item.permissions.includes("read"))) && (
         <>
-          <details className="panel"><summary>Сохранённые фильтры и сортировки</summary>
+          <details className="panel search-saved-views"><summary>Сохранённые фильтры и сортировки</summary>
             <div className="inline-form"><label>Название представления<input value={viewName} onChange={event => setViewName(event.target.value)} /></label><button disabled={!viewName.trim() || !search} onClick={() => {persistViews([...savedViews.filter(item => !(item.registry === registryId && item.name === viewName.trim())), {name: viewName.trim(), registry: registryId, query: search.slice(1)}]); setViewName("");}}>Сохранить текущий поиск</button></div>
             {savedViews.filter(item => item.registry === registryId).map(item => <div className="button-row" key={item.name}><button onClick={() => loadView(item.query)}>{item.name}</button><button aria-label={`Удалить представление: ${item.name}`} onClick={() => persistViews(savedViews.filter(current => current !== item))}>Удалить</button></div>)}
           </details>
@@ -1064,7 +1064,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           </div></section><aside className="search-detail" aria-label="Карточка выбранного документа">{detail}</aside></div>
         </>
       )}
-    </>
+    </div>
   );
 }
 
