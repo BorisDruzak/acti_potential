@@ -178,6 +178,9 @@ p {
   margin-top: 8px;
   justify-content: space-between;
 }
+.oidc-login button {
+  width: 100%;
+}
 .login-help {
   font-size: 12px;
   margin-top: 24px;

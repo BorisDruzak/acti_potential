@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
-from app.identity.models import AuthSession, LocalCredential, Role, User, UserRole
+from app.identity.models import AuthSession, ExternalIdentity, LocalCredential, Role, User, UserRole
 from app.identity.policy import Actor
 from app.identity.service import AuthenticationError
 
@@ -25,12 +25,13 @@ class IssuedSession:
     expires_at: datetime
 
 
-def issue_session(session, user_id, now: datetime) -> IssuedSession:
+def issue_session(session, user_id, now: datetime, *, external_identity_id=None) -> IssuedSession:
     token = secrets.token_urlsafe(32)
     expires = now + timedelta(hours=12)
     session.add(
         AuthSession(
-            user_id=user_id, token_hash=token_digest(token), created_at=now, expires_at=expires
+            user_id=user_id, token_hash=token_digest(token), created_at=now, expires_at=expires,
+            external_identity_id=external_identity_id,
         )
     )
     session.flush()
@@ -46,6 +47,10 @@ def resolve_actor(session, token: str, now: datetime) -> Actor:
     user = session.get(User, row.user_id)
     if not user or not user.active:
         raise AuthenticationError()
+    if row.external_identity_id is not None:
+        identity = session.get(ExternalIdentity, row.external_identity_id)
+        if not identity or not identity.active or identity.user_id != user.id:
+            raise AuthenticationError()
     roles = session.scalars(select(Role.code).join(UserRole).where(UserRole.user_id == user.id))
     credential = session.get(LocalCredential, user.id)
     return Actor(

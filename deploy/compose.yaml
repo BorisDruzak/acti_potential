@@ -76,6 +76,27 @@ services:
         condition: service_healthy
   api:
     <<: *app
+    environment:
+      <<: *app-env
+      ACTI_OIDC_ENABLED: ${ACTI_OIDC_ENABLED:-false}
+      ACTI_OIDC_ISSUER: ${ACTI_OIDC_ISSUER:-}
+      ACTI_OIDC_CLIENT_ID: ${ACTI_OIDC_CLIENT_ID:-}
+      ACTI_OIDC_CLIENT_SECRET: ${ACTI_OIDC_CLIENT_SECRET:-}
+      ACTI_OIDC_CA_FILE: /etc/acti-ca/ca.crt
+      ACTI_OIDC_LABEL: ${ACTI_OIDC_LABEL:-Корпоративная учётная запись}
+    volumes:
+      - type: bind
+        source: /srv/acti/documents/objects
+        target: /documents
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/acti-v3/tls/ca.crt
+        target: /etc/acti-ca/ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [internal, identity]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -137,7 +158,55 @@ services:
     restart: "no"
     security_opt: [no-new-privileges:true]
     networks: [internal, edge]
+  keycloak:
+    # Keycloak 26.8.1, linux/amd64. Optional, enabled only after provisioning.
+    image: acti-keycloak:26.8.1
+    build:
+      context: .
+      dockerfile: keycloak.Dockerfile
+    profiles: [idp]
+    command: [start, --optimized, --http-enabled=true, --http-relative-path=/idp, --http-management-relative-path=/, --proxy-headers=xforwarded, --cache=local]
+    environment:
+      KC_HOSTNAME: ${ACTI_ORIGIN}/idp
+      KC_HOSTNAME_STRICT: "true"
+      KC_DB_URL: jdbc:postgresql://postgres:5432/acti
+      KC_DB_SCHEMA: keycloak
+      KC_DB_USERNAME: acti_keycloak
+      KC_DB_PASSWORD: ${ACTI_IDP_DB_PASSWORD:-}
+      KC_DB_POOL_INITIAL_SIZE: "1"
+      KC_DB_POOL_MIN_SIZE: "1"
+      KC_DB_POOL_MAX_SIZE: "8"
+      KC_TRUSTSTORE_PATHS: /etc/acti-idp-trust
+      # Unresolved null entries are omitted, rather than passed as empty strings.
+      KC_BOOTSTRAP_ADMIN_USERNAME:
+      KC_BOOTSTRAP_ADMIN_PASSWORD:
+      JAVA_OPTS_KC_HEAP: -XX:InitialRAMPercentage=20 -XX:MaxRAMPercentage=60
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 1536m
+    cpus: 1.5
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp, /opt/keycloak/data]
+    volumes:
+      - type: bind
+        source: /etc/acti-v3/idp/trust
+        target: /etc/acti-idp-trust
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; head -n 1 <&3 | grep -q '200'"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+    restart: "no"
+    networks: [internal, identity]
 networks:
   internal:
     internal: true
   edge: {}
+  identity: {}

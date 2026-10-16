@@ -27,6 +27,8 @@ EVENT_FIELDS = {
     for name in SCHEMA_EVENTS
 }
 EVENT_FIELDS["platform.admin_created"] = frozenset({"user_id"})
+for _event in ("identity.external_linked", "identity.external_unlinked"):
+    EVENT_FIELDS[_event] = frozenset({"identity_id"})
 for _event in ("reference.item.created", "reference.item.updated"):
     EVENT_FIELDS[_event] = EVENT_FIELDS[_event] | {"reference_set_id"}
 for _event in (

@@ -21,7 +21,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 POSTGRES_ROOT = Path("/srv/acti/postgresql")
@@ -39,6 +39,7 @@ DIAGNOSTIC_FILE = None
 DIAGNOSTIC_LIMIT = 1024**2
 BUNDLE_MARKER = ".acti-backup-owner"
 BUNDLE_FORMAT = "acti-backup-v1"
+DATABASE_SCHEMAS = {"public", "keycloak"}
 
 
 class RestoreSafetyError(RuntimeError):
@@ -68,6 +69,23 @@ def identifier(value):
 def literal(value):
     require(isinstance(value, str) and "\x00" not in value, "invalid_sql_literal")
     return "'" + value.replace("'", "''") + "'"
+
+
+def relation_identity(value):
+    """Keep legacy public manifest keys; never parse a dotted name as SQL."""
+    if isinstance(value, str):
+        schema, name = "public", value
+    else:
+        require(
+            isinstance(value, (list, tuple)) and len(value) == 2,
+            "invalid_manifest_relation",
+        )
+        schema, name = value
+    require(isinstance(schema, str) and schema in DATABASE_SCHEMAS, "foreign_schema")
+    require(isinstance(name, str) and bool(name), "invalid_manifest_relation")
+    qualified = identifier(schema) + "." + identifier(name)
+    key = name if schema == "public" else schema + "." + name
+    return key, qualified
 
 
 def clone_database_url(value):
@@ -225,21 +243,22 @@ def manifest_sql(tables, sequences):
         "SET LOCAL extra_float_digits=3;",
     ]
     for table in tables:
-        name = "public." + identifier(table)
+        key, name = relation_identity(table)
         commands.append(
             "SELECT json_build_object('kind','table','name',"
-            + literal(table)
+            + literal(key)
             + ",'count',count(*),'digest',encode(sha256(convert_to(COALESCE(string_agg(h,'' ORDER BY h COLLATE \"C\"),''),'UTF8')),'hex')) "
             + "FROM (SELECT encode(sha256(convert_to(to_jsonb(t)::text,'UTF8')),'hex') AS h FROM "
             + name
             + " t) hashed;"
         )
     for sequence in sequences:
+        key, name = relation_identity(sequence)
         commands.append(
             "SELECT json_build_object('kind','sequence','name',"
-            + literal(sequence)
-            + ",'last_value',last_value::text,'is_called',is_called) FROM public."
-            + identifier(sequence)
+            + literal(key)
+            + ",'last_value',last_value::text,'is_called',is_called) FROM "
+            + name
             + ";"
         )
     commands.append("COMMIT;")
@@ -743,15 +762,23 @@ class Verifier:
         catalog = json.loads(
             self.sql(
                 database,
-                "SELECT json_build_object('tables',COALESCE(json_agg(relname ORDER BY relname) FILTER (WHERE relkind IN ('r','p','m')),'[]'::json),'sequences',COALESCE(json_agg(relname ORDER BY relname) FILTER (WHERE relkind='S'),'[]'::json)) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public';",
+                "SELECT json_build_object('tables',COALESCE(json_agg(json_build_array(n.nspname,c.relname) ORDER BY n.nspname,c.relname) FILTER (WHERE relkind IN ('r','p','m')),'[]'::json),'sequences',COALESCE(json_agg(json_build_array(n.nspname,c.relname) ORDER BY n.nspname,c.relname) FILTER (WHERE relkind='S'),'[]'::json)) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','keycloak');",
             )
+        )
+        keys = {
+            kind: [relation_identity(value)[0] for value in catalog[kind]]
+            for kind in ("tables", "sequences")
+        }
+        require(
+            all(len(values) == len(set(values)) for values in keys.values()),
+            "ambiguous_manifest_relation",
         )
         result = parse_manifest(
             self.sql(database, manifest_sql(catalog["tables"], catalog["sequences"]))
         )
         require(
-            set(result["tables"]) == set(catalog["tables"])
-            and set(result["sequences"]) == set(catalog["sequences"]),
+            set(result["tables"]) == set(keys["tables"])
+            and set(result["sequences"]) == set(keys["sequences"]),
             "incomplete_manifest",
         )
         return result
@@ -766,23 +793,26 @@ class Verifier:
         ]
 
     def schema(self, database):
-        # Semantic public-schema fingerprint: no owner/OID/physical-storage identities.
+        # Semantic ACTI/IdP fingerprint: no owner/OID/physical-storage identities.
+        # Public-only bundles retain the previous definition and digest exactly.
+        # Keycloak upgrades leave dropped-column attnum gaps. pg_dump recreates only
+        # visible columns, so compare their order; keep all other column properties.
         # pg_get_* renders against a fixed search path, independent of connection defaults.
         query = """
 BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL search_path = public, pg_catalog;
 SELECT json_build_object(
  'revision', (SELECT json_agg(version_num ORDER BY version_num) FROM public.alembic_version),
- 'relations', (SELECT json_agg(json_build_array(c.relname,c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity,c.relreplident,c.reloptions) ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S')),
- 'columns', (SELECT json_agg(json_build_array(c.relname,a.attname,a.attnum,format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attidentity,a.attgenerated,pg_get_expr(d.adbin,d.adrelid)) ORDER BY c.relname,a.attnum) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE n.nspname='public' AND a.attnum>0 AND NOT a.attisdropped AND c.relkind IN ('r','p','v','m')),
- 'constraints', (SELECT json_agg(json_build_array(c.relname,k.conname,pg_get_constraintdef(k.oid,false),k.convalidated,k.condeferrable,k.condeferred) ORDER BY c.relname,k.conname) FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'),
- 'indexes', (SELECT json_agg(pg_get_indexdef(i.indexrelid) ORDER BY c.relname,ic.relname) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'),
- 'triggers', (SELECT json_agg(json_build_array(c.relname,t.tgname,pg_get_triggerdef(t.oid,false),t.tgenabled) ORDER BY c.relname,t.tgname) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal),
- 'functions', (SELECT json_agg(pg_get_functiondef(p.oid) ORDER BY p.proname,pg_get_function_identity_arguments(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind IN ('f','p')),
- 'views', (SELECT json_agg(json_build_array(c.relname,pg_get_viewdef(c.oid,false)) ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('v','m')),
- 'enums', (SELECT json_agg(json_build_array(t.typname,e.enumlabel,e.enumsortorder) ORDER BY t.typname,e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'),
- 'sequences', (SELECT json_agg(json_build_array(sequence_name,data_type,start_value,minimum_value,maximum_value,increment,cycle_option) ORDER BY sequence_name) FROM information_schema.sequences WHERE sequence_schema='public'),
- 'policies', (SELECT json_agg(json_build_array(tablename,policyname,permissive,roles,cmd,qual,with_check) ORDER BY tablename,policyname) FROM pg_policies WHERE schemaname='public')
+ 'relations', (SELECT json_agg(json_build_array(CASE WHEN n.nspname='public' THEN c.relname::text ELSE n.nspname||'.'||c.relname END,c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity,c.relreplident,c.reloptions) ORDER BY n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','keycloak') AND c.relkind IN ('r','p','v','m','S')),
+ 'columns', (SELECT json_agg(json_build_array(CASE WHEN n.nspname='public' THEN c.relname::text ELSE n.nspname||'.'||c.relname END,a.attname,CASE WHEN n.nspname='keycloak' THEN (SELECT count(*)::smallint FROM pg_attribute visible WHERE visible.attrelid=a.attrelid AND visible.attnum>0 AND NOT visible.attisdropped AND visible.attnum<=a.attnum) ELSE a.attnum END,format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attidentity,a.attgenerated,pg_get_expr(d.adbin,d.adrelid)) ORDER BY n.nspname,c.relname,a.attnum) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE n.nspname IN ('public','keycloak') AND a.attnum>0 AND NOT a.attisdropped AND c.relkind IN ('r','p','v','m')),
+ 'constraints', (SELECT json_agg(json_build_array(CASE WHEN n.nspname='public' THEN c.relname::text ELSE n.nspname||'.'||c.relname END,k.conname,pg_get_constraintdef(k.oid,false),k.convalidated,k.condeferrable,k.condeferred) ORDER BY n.nspname,c.relname,k.conname) FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','keycloak')),
+ 'indexes', (SELECT json_agg(pg_get_indexdef(i.indexrelid) ORDER BY n.nspname,c.relname,ic.relname) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','keycloak')),
+ 'triggers', (SELECT json_agg(json_build_array(CASE WHEN n.nspname='public' THEN c.relname::text ELSE n.nspname||'.'||c.relname END,t.tgname,pg_get_triggerdef(t.oid,false),t.tgenabled) ORDER BY n.nspname,c.relname,t.tgname) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','keycloak') AND NOT t.tgisinternal),
+ 'functions', (SELECT json_agg(pg_get_functiondef(p.oid) ORDER BY n.nspname,p.proname,pg_get_function_identity_arguments(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','keycloak') AND p.prokind IN ('f','p')),
+ 'views', (SELECT json_agg(json_build_array(CASE WHEN n.nspname='public' THEN c.relname::text ELSE n.nspname||'.'||c.relname END,pg_get_viewdef(c.oid,false)) ORDER BY n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','keycloak') AND c.relkind IN ('v','m')),
+ 'enums', (SELECT json_agg(json_build_array(CASE WHEN n.nspname='public' THEN t.typname::text ELSE n.nspname||'.'||t.typname END,e.enumlabel,e.enumsortorder) ORDER BY n.nspname,t.typname,e.enumsortorder) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname IN ('public','keycloak')),
+ 'sequences', (SELECT json_agg(json_build_array(CASE WHEN sequence_schema='public' THEN sequence_name::text ELSE sequence_schema||'.'||sequence_name END,data_type,start_value,minimum_value,maximum_value,increment,cycle_option) ORDER BY sequence_schema,sequence_name) FROM information_schema.sequences WHERE sequence_schema IN ('public','keycloak')),
+ 'policies', (SELECT json_agg(json_build_array(CASE WHEN schemaname='public' THEN tablename::text ELSE schemaname||'.'||tablename END,policyname,permissive,roles,cmd,qual,with_check) ORDER BY schemaname,tablename,policyname) FROM pg_policies WHERE schemaname IN ('public','keycloak'))
 );
 COMMIT;
 """
@@ -954,15 +984,11 @@ COMMIT;
         require(self.database_marker() is None, "restore_database_already_exists")
         self.receipt["database_creation_started"] = True
         self.save()
-        self.docker(
-            "exec",
-            self.receipt["postgres_container"],
-            "createdb",
-            "-U",
+        self.sql(
             "postgres",
-            "-T",
-            "template0",
-            TARGET_DATABASE,
+            "CREATE DATABASE "
+            + identifier(TARGET_DATABASE)
+            + " TEMPLATE template0 CONNECTION LIMIT 0;",
         )
         marker = PURPOSE + ":" + self.receipt["run_id"]
         self.sql(
@@ -979,6 +1005,7 @@ COMMIT;
         )
         self.receipt["database_ownership"] = ownership
         self.save()
+        self.restrict_clone_access()
         self.stage("restore.pg_restore")
         with dump.open("rb") as source:
             self.docker(
@@ -995,6 +1022,7 @@ COMMIT;
                 stdin=source,
                 timeout=600,
             )
+        self.restrict_clone_access()
         self.stage("restore.manifest_compare")
         assert_same_manifest(self.receipt["manifest"], self.manifest(TARGET_DATABASE))
         if "schema" in self.receipt:
@@ -1021,6 +1049,46 @@ COMMIT;
         )
         os.chown(objects, APP_UID, APP_UID)
         self.receipt["restored_manifest_verified"] = True
+        self.save()
+
+    def restrict_clone_access(self):
+        """The running IdP must never connect to the restored copy of its schema."""
+        ownership = self.receipt.get("database_ownership")
+        require(
+            ownership and ownership == self.database_marker(),
+            "database_ownership_not_proven",
+        )
+        role = self.receipt.get("database_app_role")
+        require(
+            isinstance(role, str) and role and role != "acti_keycloak",
+            "invalid_clone_app_role",
+        )
+        database = identifier(TARGET_DATABASE)
+        self.sql(
+            "postgres",
+            "BEGIN;\nDO $owned$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname="
+            + literal(TARGET_DATABASE)
+            + " AND oid="
+            + literal(ownership["oid"])
+            + "::oid AND shobj_description(oid,'pg_database')="
+            + literal(ownership["marker"])
+            + ") THEN RAISE EXCEPTION 'restore_database_not_owned'; END IF; END $owned$;\n"
+            + "REVOKE CONNECT ON DATABASE "
+            + database
+            + " FROM PUBLIC;\nGRANT CONNECT ON DATABASE "
+            + database
+            + " TO "
+            + identifier(role)
+            + ";\nDO $isolate$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='acti_keycloak') THEN EXECUTE "
+            + literal("REVOKE CONNECT ON DATABASE " + database + ' FROM "acti_keycloak"')
+            + "; IF has_database_privilege('acti_keycloak',"
+            + literal(TARGET_DATABASE)
+            + ",'CONNECT') THEN RAISE EXCEPTION 'identity_provider_clone_access'; END IF; END IF; END $isolate$;\n"
+            + "ALTER DATABASE "
+            + database
+            + " CONNECTION LIMIT -1;\nCOMMIT;",
+        )
+        self.receipt["identity_provider_clone_access_blocked"] = True
         self.save()
 
     def revoke_cloned_credentials(self):
@@ -1181,6 +1249,7 @@ COMMIT;
             "ACTI_STORAGE_ROOT": "/documents",
             "ACTI_SOURCE_SHA": self.receipt["source_sha"],
             "ACTI_TRUSTED_PROXY_CIDRS": "",
+            "ACTI_OIDC_ENABLED": "false",
         }
         env_path = self.receipt_path.parent / "clone.env"
         fd = os.open(
@@ -1500,6 +1569,7 @@ def prepare(
         "mounts": expected_mounts,
         "export_only": export_only,
         "external_bundle": bundle is not None,
+        "database_app_role": unquote(urlsplit(env["ACTI_DATABASE_URL"]).username),
     }
     verifier = Verifier(receipt, state / "receipt.json")
     verifier.save()
