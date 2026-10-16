@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
+import { SearchStatus } from "../components/SearchStatus";
 import { DynamicForm } from "../engine/DynamicForm";
 import {
   editableValues,
@@ -611,9 +612,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     return params.get("tab") === "content" ? {fileId: params.get("file") || undefined, blockId: params.get("block") || undefined, ordinal: params.has("ordinal") ? Number(params.get("ordinal")) : undefined} : undefined;
   });
   const [number, setNumber] = useState(() => initial.get("reg_number") || "");
+  const [registrationDate, setRegistrationDate] = useState(() => initial.get("reg_date") || "");
   const [status, setStatus] = useState(() => initial.get("status") || "");
-  const [from, setFrom] = useState(() => initial.get("date_from") || "");
-  const [to, setTo] = useState(() => initial.get("date_to") || "");
+  const [from, setFrom] = useState(() => initial.has("reg_date") ? "" : initial.get("date_from") || "");
+  const [to, setTo] = useState(() => initial.has("reg_date") ? "" : initial.get("date_to") || "");
   const [typeId, setTypeId] = useState(() => initial.get("document_type_id") || "");
   const initialFilter = (() => {try {return Object.entries(JSON.parse(initial.get("filters") || "{}"))[0] || ["", null];} catch {return ["", null];}})();
   const initialFilterKey = String(initialFilter[0]);
@@ -704,6 +706,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     if (q) params.set("q", q);
     params.set("scope", scope); params.set("fuzzy", String(fuzzy)); params.set("version_scope", versionScope);
     if (number) params.set("reg_number", number);
+    if (registrationDate) params.set("reg_date", registrationDate);
     if (status) params.set("status", status);
     if (from) params.set("date_from", from);
     if (to) params.set("date_to", to);
@@ -721,6 +724,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     if (filterKey && ["present", "absent"].includes(filterOp)) params.set("filters", JSON.stringify({[filterKey]: {op: filterOp}}));
     setPage(1); setCursor(""); setPreviousCursors([]);
     setSearch("&" + params.toString());
+    list.reload();
     startSearchTiming();
   }
   function persistViews(next: typeof savedViews) {
@@ -729,7 +733,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   }
   function loadView(query: string) {
     const params = new URLSearchParams(query);
-    setQ(params.get("q") || params.get("text") || ""); setNumber(params.get("reg_number") || ""); setStatus(params.get("status") || ""); setFrom(params.get("date_from") || ""); setTo(params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "auto"); setDirection(params.get("direction") || "desc");
+    setQ(params.get("q") || params.get("text") || ""); setNumber(params.get("reg_number") || ""); setRegistrationDate(params.get("reg_date") || ""); setStatus(params.get("status") || ""); setFrom(params.has("reg_date") ? "" : params.get("date_from") || ""); setTo(params.has("reg_date") ? "" : params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "auto"); setDirection(params.get("direction") || "desc");
     setScope((params.get("scope") as SearchScope) || "all"); setVersionScope(params.get("version_scope") || "current"); setFuzzy(params.get("fuzzy") !== "false");
     try { const [key, value] = Object.entries(JSON.parse(params.get("filters") || "{}"))[0] || ["", null]; setFilterKey(key); const typed = value as {op?: string; value?: unknown} | null; setFilterOp(typed && typeof typed === "object" ? typed.op || "eq" : "eq"); setFilterValue(typed && typeof typed === "object" ? (Array.isArray(typed.value) && typed.op === "between" ? typed.value[0] : typed.value) : value); setFilterEnd(typed?.op === "between" && Array.isArray(typed.value) ? String(typed.value[1]) : ""); } catch { setFilterKey(""); setFilterValue(null); }
     setPage(1); setCursor(""); setPreviousCursors([]); setSearch("&" + query);
@@ -816,6 +820,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
                 setQ("");
                 setScope("all"); setFuzzy(true); setContentTarget(undefined); setCursor(""); setPreviousCursors([]);
                 setNumber("");
+                setRegistrationDate("");
                 setStatus("");
                 setFrom("");
                 setTo("");
@@ -862,6 +867,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             </label>
             <label>Где искать<select value={scope} onChange={event => setScope(event.target.value as SearchScope)}><option value="all">Везде</option><option value="metadata">Реквизиты</option><option value="content">Содержание документов</option></select></label>
             <div className="button-row"><button className="primary">Найти</button><button type="button" onClick={() => {setQ(""); const next = new URLSearchParams(search); next.delete("q"); next.delete("text"); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}>Очистить запрос</button><button type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>Фильтры</button></div>
+            <SearchStatus loading={list.loading} startedAt={list.startedAt} durationMs={list.durationMs} error={list.error}/>
             <div className="search-quick-filters">
             <label>
               Регистрационный номер
@@ -871,6 +877,10 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               />
             </label>
             <label>
+              Дата регистрации
+              <input type="date" value={registrationDate} onChange={event => {setRegistrationDate(event.target.value); if (event.target.value) {setFrom(""); setTo("");}}}/>
+            </label>
+            <label>
               Статус
               <input
                 value={status}
@@ -878,17 +888,21 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
               />
             </label>
             <label>
-              Дата с
+              Дата регистрации с
               <input
                 type="date"
+                disabled={!!registrationDate}
+                title={registrationDate ? "Очистите точную дату регистрации, чтобы выбрать период" : undefined}
                 value={from}
                 onChange={(event) => setFrom(event.target.value)}
               />
             </label>
             <label>
-              Дата по
+              Дата регистрации по
               <input
                 type="date"
+                disabled={!!registrationDate}
+                title={registrationDate ? "Очистите точную дату регистрации, чтобы выбрать период" : undefined}
                 value={to}
                 onChange={(event) => setTo(event.target.value)}
               />
@@ -980,7 +994,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             )}
             </div></details>
           </form>
-          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "status", "date_from", "date_to", "document_type_id", "filters"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", status: "Статус", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : value} ×</button>)}</div>
+          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "date_from", "date_to", "document_type_id", "filters"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : value} ×</button>)}</div>
           <div className="search-sort">            <label>
               Сортировка
               <select
@@ -997,12 +1011,12 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             </label>
             <label>Направление сортировки<select value={direction}  onChange={event => {setDirection(event.target.value); const next = new URLSearchParams(search); next.set("direction", event.target.value); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
 </div>
-          <Feedback {...list} />
+          <Feedback error={list.error} />
           {!!applied.query && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
           <Feedback {...exportAction} />
           <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
           {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
-          <div className="search-workspace"><section className="search-results" aria-label="Результаты поиска"><div className="toolbar">
+          <div className="search-workspace"><section className="search-results" aria-label="Результаты поиска" aria-busy={list.loading}><div className="toolbar">
             <h2>Документы</h2>
             <span className="muted">Найдено: {list.data?.total ?? "…"}</span>
           </div>
