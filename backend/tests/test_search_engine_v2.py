@@ -67,6 +67,66 @@ def search(client, headers, **params):
     return response.json()
 
 
+def test_general_query_number_and_registration_date_are_intersected(client, factory):
+    from datetime import date
+
+    sample = actors_and_document(
+        factory,
+        [
+            {
+                "key": "title",
+                "label": "Название",
+                "type": "text",
+                "system": "title",
+                "filterable": True,
+            },
+            {
+                "key": "number",
+                "label": "Номер",
+                "type": "text",
+                "system": "reg_number",
+                "filterable": True,
+            },
+            {
+                "key": "date",
+                "label": "Дата",
+                "type": "date",
+                "system": "reg_date",
+                "filterable": True,
+            },
+        ],
+    )
+    with factory.begin() as db:
+        source = db.get(Document, sample["document"])
+        source.title, source.reg_number, source.reg_date = "Озеленение", "42-П", date(2026, 10, 16)
+        index_metadata(db, source.id)
+        for number, day in [("42-П", 17), ("43-П", 16)]:
+            document = Document(
+                registry_id=source.registry_id,
+                document_type_id=source.document_type_id,
+                schema_version_id=source.schema_version_id,
+                created_by=source.created_by,
+                title="Озеленение",
+                reg_number=number,
+                reg_date=date(2026, 10, day),
+            )
+            db.add(document)
+            db.flush()
+            index_metadata(db, document.id)
+    headers = sign_in_as(client, factory, sample["viewer"])
+    for query in ("", "озеленение"):
+        result = search(
+            client,
+            headers,
+            query=query,
+            reg_number="42-П",
+            date_from="2026-10-16",
+            date_to="2026-10-16",
+        )
+        assert result["total"] == 1
+        assert result["items"][0]["document"]["id"] == str(sample["document"])
+
+
 def test_unified_or_ranking_scopes_and_browse(client, factory):
     sample = corpus(factory)
     headers = sign_in_as(client, factory, sample["viewer"])

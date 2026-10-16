@@ -98,15 +98,15 @@ it("renders the object type returned by the audit API", async () => {
 it("resets date and sort controls when switching registries to an unfiltered query", async () => {
   const fetch = setup();
   fireEvent.click(await screen.findByRole("button", { name: "Реестр A" }));
-  fireEvent.change(screen.getByLabelText("Дата с"), { target: { value: "2026-10-01" } });
-  fireEvent.change(screen.getByLabelText("Дата по"), { target: { value: "2026-10-15" } });
+  fireEvent.change(screen.getByLabelText("Дата регистрации с"), { target: { value: "2026-10-01" } });
+  fireEvent.change(screen.getByLabelText("Дата регистрации по"), { target: { value: "2026-10-15" } });
   fireEvent.change(screen.getByLabelText("Сортировка"), { target: { value: "title" } });
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).date_from === "2026-10-01")).toBe(true));
   fireEvent.click(screen.getByRole("button", { name: "Реестр B" }));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).registry_ids[0] === "B")).toBe(true));
-  expect((screen.getByLabelText("Дата с") as HTMLInputElement).value).toBe("");
-  expect((screen.getByLabelText("Дата по") as HTMLInputElement).value).toBe("");
+  expect((screen.getByLabelText("Дата регистрации с") as HTMLInputElement).value).toBe("");
+  expect((screen.getByLabelText("Дата регистрации по") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Сортировка") as HTMLSelectElement).value).toBe("auto");
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));
   await waitFor(() => expect(JSON.parse(String(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).at(-1)?.[1]?.body)).sort).toBe("auto"));

@@ -40,8 +40,8 @@ export function DocumentLayoutSwitch({mode, onChange}: {mode: DocumentLayoutMode
   </div>;
 }
 type Position = {top: number; left: number};
-export function DocumentWorkspace({mode, onChange, list, detail, count, selectedLabel}: {
-  mode: DocumentLayoutMode; onChange: (mode: DocumentLayoutMode) => void; list: ReactNode; detail: ReactNode; count: ReactNode; selectedLabel: string;
+export function DocumentWorkspace({mode, onChange, list, detail, count, selectedLabel, busy = false}: {
+  mode: DocumentLayoutMode; onChange: (mode: DocumentLayoutMode) => void; list: ReactNode; detail: ReactNode; count: ReactNode; selectedLabel: string; busy?: boolean;
 }) {
   const listScroll = useRef<HTMLDivElement>(null);
   const detailScroll = useRef<HTMLDivElement>(null);
@@ -68,7 +68,7 @@ export function DocumentWorkspace({mode, onChange, list, detail, count, selected
   }, [mode]);
   function restore(panel: "list" | "detail") {focus.current = panel; onChange("split");}
   return <div className="document-workspace" data-layout={mode}>
-    <section className="document-list-pane" aria-label="Результаты поиска">
+    <section className="document-list-pane" aria-label="Результаты поиска" aria-busy={busy}>
       <button type="button" className="document-panel-rail list-rail" hidden={mode !== "card"}
         aria-label="Показать список документов" onClick={() => restore("list")}><span aria-hidden="true">›</span><span>Документы</span></button>
       <div className="document-list-body" hidden={mode === "card"}>

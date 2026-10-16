@@ -33,6 +33,57 @@ it("uses one search field and retains the list, query and URL when opening a res
   expect(new URLSearchParams(window.location.search).get("document")).toBe("document");
 });
 
+it("shows a running search clock, freezes its duration and resets on a repeated query", async () => {
+  let now = 1000;
+  vi.spyOn(performance, "now").mockImplementation(() => now);
+  const pending: ((response: Response) => void)[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/search") && JSON.parse(String(init?.body)).query === "таймер") {
+      return new Promise<Response>(resolve => pending.push(resolve));
+    }
+    const data = url.endsWith("/users/me") ? {id: "user", roles: ["viewer"], csrf_token: "csrf"} : url.endsWith("/registries") ? [{id: "registry", name: "Реестр", permissions: ["read"]}] : url.endsWith("/search") ? {items: [], total: 0} : [];
+    return new Response(JSON.stringify(data));
+  }));
+  function Ready() {return useAuth().user ? <Documents readOnly /> : null;}
+  render(<AuthProvider><Ready /></AuthProvider>);
+  fireEvent.change(await screen.findByLabelText("Поиск"), {target: {value: "таймер"}});
+  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  await waitFor(() => expect(pending).toHaveLength(1));
+  expect(screen.getByText("Идёт поиск…")).toBeTruthy();
+  now = 2250;
+  await screen.findByText("1,25 с");
+  pending[0](new Response(JSON.stringify({items: [], total: 0})));
+  await screen.findByText("Время поиска: 1,25 с");
+  now = 9000;
+  expect(screen.getByText("Время поиска: 1,25 с")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  await waitFor(() => expect(pending).toHaveLength(2));
+  expect(screen.getByText("Идёт поиск…")).toBeTruthy();
+  expect(screen.getByText("0,00 с")).toBeTruthy();
+  now = 9250;
+  pending[1](new Response(JSON.stringify({error: {code: "unavailable", message: "Поиск недоступен"}}), {status: 503}));
+  await screen.findByText("Поиск не выполнен · 0,25 с");
+  expect(screen.getByRole("alert").textContent).toBe("Поиск недоступен");
+});
+
+it("submits the general query, registration number and registration dates together", async () => {
+  const requests: unknown[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/search")) requests.push(JSON.parse(String(init?.body)));
+    const data = url.endsWith("/users/me") ? {id: "user", roles: ["viewer"], csrf_token: "csrf"} : url.endsWith("/registries") ? [{id: "registry", name: "Реестр", permissions: ["read"]}] : url.endsWith("/search") ? {items: [], total: 0} : [];
+    return new Response(JSON.stringify(data));
+  }));
+  function Ready() {return useAuth().user ? <Documents readOnly /> : null;}
+  render(<AuthProvider><Ready /></AuthProvider>);
+  fireEvent.change(await screen.findByLabelText("Поиск"), {target: {value: "озеленение"}});
+  fireEvent.change(screen.getByLabelText("Регистрационный номер"), {target: {value: "42-П"}});
+  fireEvent.change(screen.getByLabelText("Дата регистрации", {exact: true}), {target: {value: "2026-10-16"}});
+  expect((screen.getByLabelText("Дата регистрации с") as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({query: "озеленение", reg_number: "42-П", date_from: "2026-10-16", date_to: "2026-10-16"})));
+  expect(new URLSearchParams(window.location.search).get("reg_date")).toBe("2026-10-16");
+});
+
 it("refreshes retained search results after a saved revision is indexed", async () => {
   let saved = false, indexed = false;
   const card = () => ({id: "document", registry_id: "registry", document_type_id: "type", schema_version_id: "schema", revision: saved ? 2 : 1, current_version: 1, title: saved ? "Обновлено" : "Исходное", values: {}, display_values: {}, schema: {sections: []}, permissions: ["read", "update"], files: []});
