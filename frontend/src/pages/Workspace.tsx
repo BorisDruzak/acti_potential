@@ -13,8 +13,7 @@ import { Password } from "./Password";
 import { NumberBook } from "./NumberBook";
 import { ContentErrorsAdmin } from "./DocumentContent";
 import { Processes } from "./Processes";
-import { KnowledgeCatalog } from "./Knowledge";
-import { MyWork } from "./MyWork";
+import { UserHistory } from "./UserHistory";
 import { ServiceAccountsAdmin } from "./ServiceAccountsAdmin";
 import { OperationsAdmin } from "./OperationsAdmin";
 export function Workspace() {
@@ -38,11 +37,11 @@ export function Workspace() {
   }
   const [space, setSpaceState] = useState<Space>(resolve);
   const [section, setSection] = useState(
-    space === "admin" ? "Обзор системы" : "Мои реестры",
+    space === "admin" ? "Обзор системы" : "Документы",
   );
   function setSpace(next: Space) {
     setSpaceState(next);
-    setSection(next === "admin" ? "Обзор системы" : "Мои реестры");
+    setSection(next === "admin" ? "Обзор системы" : "Документы");
     window.history.pushState(null, "", "/" + next);
   }
   useEffect(() => {
@@ -50,18 +49,16 @@ export function Workspace() {
     const pop = () => {
       const next = resolve();
       setSpaceState(next);
-      setSection(next === "admin" ? "Обзор системы" : "Мои реестры");
+      setSection(next === "admin" ? "Обзор системы" : "Документы");
     };
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
   }, []);
   let content;
   if (section === "Мой пароль") content = <Password />;
-  else if (section === "Моя работа" || section === "Ход работы")
-    content = <MyWork key={space} readOnly={space === "view"}/>;
-  else if (section === "Шаблоны" || section === "Как делали раньше")
-    content = <KnowledgeCatalog key={section + space} kind={section === "Шаблоны" ? "templates" : "cases"} readOnly={space === "view"}/>;
-  else if (section === "Конструктор процессов" || section === "Процессы")
+  else if (section === "Моя работа")
+    content = <UserHistory key={space}/>;
+  else if (section === "Конструктор процессов")
     content = <Processes admin={space === "admin"} readOnly={space === "view"}/>;
   else if (section === "Серии номеров" || section === "Реестр номеров")
     content = <NumberBook admin={space === "admin"} readOnly={space === "view"} />;

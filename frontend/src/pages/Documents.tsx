@@ -753,7 +753,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           <span className="eyebrow">
             {readOnly ? "ПРОСМОТР ДОКУМЕНТОВ" : "РАБОТА С ДОКУМЕНТАМИ"}
           </span>
-          <h1>{registry ? registry.name : "Мои реестры"}</h1>
+          <h1>{registry ? registry.name : "Документы"}</h1>
         </div>
         {!readOnly && registry?.permissions.includes("create") && (
           <button className="primary" onClick={() => setCreating(true)}>

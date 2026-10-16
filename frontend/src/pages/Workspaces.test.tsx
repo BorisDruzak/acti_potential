@@ -167,7 +167,7 @@ it("reader route exposes no mutation controls even when returned permissions inc
 it("viewer cannot open administration by typing its route", async () => {
   window.history.replaceState(null, "", "/admin");
   setup(["viewer"]);
-  await screen.findByRole("heading", { name: "Мои реестры" });
+  await screen.findByRole("heading", { name: "Документы" });
   await waitFor(() => expect(window.location.pathname).toBe("/view"));
   expect(screen.queryByRole("button", { name: "Типы документов" })).toBeNull();
 });
