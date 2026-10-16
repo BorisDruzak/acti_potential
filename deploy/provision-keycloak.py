@@ -221,6 +221,16 @@ def configure(values, helper):
     actual_secret = request("GET", "/admin/realms/acti/clients/" + client["id"] + "/client-secret", token=token)
     require(secrets.compare_digest(actual_secret.get("value", ""), state["client_secret"]),
             "idp_client_secret_mismatch")
+    # Keycloak 26 drops undeclared attributes. The ownership marker is admin-only.
+    profile = request("GET", "/admin/realms/acti/users/profile", token=token)
+    markers = [item for item in profile["attributes"] if item["name"] == "actiManaged"]
+    if not markers:
+        profile["attributes"].append({"name": "actiManaged", "multivalued": False,
+                                      "permissions": {"view": ["admin"], "edit": ["admin"]}})
+        request("PUT", "/admin/realms/acti/users/profile", profile, token)
+    else:
+        require(len(markers) == 1 and markers[0].get("permissions") == {
+            "view": ["admin"], "edit": ["admin"]}, "unsafe_idp_ownership_attribute")
     for account in state["pilot_accounts"]:
         users = request("GET", "/admin/realms/acti/users?" + urlencode({
             "username": account["login"], "exact": "true"}), token=token)
