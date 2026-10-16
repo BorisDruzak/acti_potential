@@ -185,6 +185,7 @@ it("places saved filters below search and creation beside the view switch with A
   expect(search.compareDocumentPosition(views) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   const toolbar = screen.getByRole("group", {name: "Вид и сортировка документов"});
   expect(within(toolbar).getByLabelText("Реестр")).toHaveProperty("value", "");
+  fireEvent.click(mode("Таблица"));
   fireEvent.click(within(toolbar).getByRole("button", {name: "Создать документ"}));
   expect(screen.getByLabelText("Реестр документа")).toHaveProperty("value", "r");
   fireEvent.change(screen.getByLabelText("Тип документа"), {target: {value: "type"}});
@@ -196,6 +197,9 @@ it("places saved filters below search and creation beside the view switch with A
   fireEvent.click(screen.getByLabelText("Общая база"));
   fireEvent.click(create);
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/documents") && init?.method === "POST" && JSON.parse(String(init.body)).card_state === "published" && JSON.parse(String(init.body)).publication_targets.join(",") === "internal,shared")).toBe(true));
+  await waitFor(() => expect(mode("Карточка").getAttribute("aria-checked")).toBe("true"));
+  fireEvent.click(await screen.findByRole("button", {name: "К списку"}));
+  expect(mode("Таблица").getAttribute("aria-checked")).toBe("true");
 });
 
 it("edits lifecycle independently of legal fields inside the existing Publication section", async () => {

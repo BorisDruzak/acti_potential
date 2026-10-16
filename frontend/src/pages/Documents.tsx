@@ -834,6 +834,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
           setCreating(false);
           setSavedDocument({id, revision: 1});
           setDocumentId(id);
+          chooseLayout("card");
         }}
         onClose={close}
       />
