@@ -272,7 +272,7 @@ export async function runTask003({ browser, origin, admin, outputDir }) {
     await vp.getByText('Сохранённые фильтры и сортировки', { exact: true }).click();
     await vp.getByRole('button', { name: 'Task003 диапазон', exact: true }).click();
     await vp.getByText('Найдено: 1', { exact: true }).waitFor();
-    await vp.getByRole('button', { name: 'Открыть карточку', exact: true }).click();
+    await vp.getByRole('row', { name: /Выбрать документ/ }).click();
     assert.equal(await vp.getByRole('button', { name: 'Редактировать', exact: true }).count(), 0);
     assert.equal((await vp.locator('main').innerText()).includes('TASK003-SECRET'), false);
     await vp.screenshot({ path: path.join(outputDir, 'reader-card.png'), fullPage: true });
@@ -301,7 +301,7 @@ export async function runTask003({ browser, origin, admin, outputDir }) {
     assert.equal(JSON.stringify(historic.schema).includes('later'), false);
     await vp.reload();
     await vp.getByRole('button', { name: title, exact: true }).click();
-    await vp.getByRole('button', { name: 'Открыть карточку', exact: true }).click();
+    await vp.getByRole('row', { name: /Выбрать документ/ }).click();
     assert.equal((await vp.locator('main').innerText()).includes('Только версия 2'), false);
     result('published schema v2 retains historical v1 card');
 
@@ -312,7 +312,7 @@ export async function runTask003({ browser, origin, admin, outputDir }) {
     await mutation(ap, `/references/${ref.id}/items/${item.id}`, () => ap.getByRole('button', { name: 'Сохранить значение', exact: true }).click(), 'PATCH', 200);
     await vp.reload();
     await vp.getByRole('button', { name: title, exact: true }).click();
-    await vp.getByRole('button', { name: 'Открыть карточку', exact: true }).click();
+    await vp.getByRole('row', { name: /Выбрать документ/ }).click();
     await vp.getByText('Первое значение', { exact: false }).first().waitFor();
     result('inactive reference retains historical display');
 
@@ -332,7 +332,7 @@ export async function runTask003({ browser, origin, admin, outputDir }) {
     await vp.reload();
     const registries = await json(ap, '/registries');
     await vp.getByRole('button', { name: registries.find(value => value.id === legacyRegistry).name, exact: true }).click();
-    await vp.getByRole('button', { name: 'Открыть карточку', exact: true }).first().click();
+    await vp.getByRole('row', { name: /Выбрать документ/ }).first().click();
     await vp.getByText('Основные сведения', { exact: false }).first().waitFor();
     await vp.screenshot({ path: path.join(outputDir, 'acti-v2-reader.png'), fullPage: true });
     result('ACTI v2 published six section card reference rendering');

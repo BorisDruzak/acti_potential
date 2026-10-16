@@ -141,12 +141,12 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     await vp.getByText('Найдено: 37',{exact:true}).waitFor();
     await vp.getByRole('button',{name:'Вперёд',exact:true}).click();
     await vp.getByText('Страница 2',{exact:true}).waitFor();
-    await vp.waitForFunction(()=>document.querySelectorAll('.search-hit-list > li').length===17);
-    const resultList=vp.locator('.search-results');
-    await resultList.getByRole('button',{name:'Открыть карточку',exact:true}).nth(6).scrollIntoViewIfNeeded();
+    await vp.waitForFunction(()=>document.querySelectorAll('.document-results-table tbody tr').length===17);
+    const resultList=vp.getByRole('region',{name:'Список документов',exact:true});
+    await resultList.getByRole('row',{name:/Выбрать документ/}).nth(6).scrollIntoViewIfNeeded();
     const scrollBefore=await resultList.evaluate(element=>element.scrollTop);
     const cursorBefore=new URL(vp.url()).searchParams.get('cursor');assert.ok(scrollBefore>0&&cursorBefore);
-    await resultList.getByRole('button',{name:'Открыть карточку',exact:true}).nth(6).click();
+    await resultList.getByRole('row',{name:/Выбрать документ/}).nth(6).click();
     await vp.getByRole('button',{name:'Содержание',exact:true}).waitFor();
     assert.equal(new URL(vp.url()).searchParams.get('cursor'),cursorBefore);
     assert.ok(Math.abs(await resultList.evaluate(element=>element.scrollTop)-scrollBefore)<2);
@@ -154,9 +154,9 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     await vp.getByLabel('Поиск', {exact:true}).fill('благоустройство');
     await vp.getByLabel('Поиск', {exact:true}).press('Enter');
     await vp.getByText('Найдено: 2', {exact:true}).waitFor();
-    await vp.getByRole('button',{name:'Открыть карточку',exact:true}).first().click();
+    await vp.getByRole('row',{name:/Выбрать документ/}).first().click();
     await vp.getByRole('button',{name:'Содержание',exact:true}).waitFor();
-    assert.equal(await vp.getByRole('button',{name:'Открыть карточку',exact:true}).count(),2);
+    assert.equal(await vp.getByRole('row',{name:/Выбрать документ/}).count(),2);
     assert.equal(await vp.getByLabel('Поиск',{exact:true}).inputValue(),'благоустройство');
     await vp.reload(); await vp.getByRole('button',{name:'Содержание',exact:true}).waitFor();
     await dismissNavigation(vp);
@@ -183,7 +183,7 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
     await ep.getByLabel('Название SEARCH',{exact:false}).fill('Благоустройство обновлено SEARCH');
     await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).click();
-    await ep.locator('.search-results').getByRole('heading',{name:'Благоустройство обновлено SEARCH',exact:true}).waitFor();
+    await ep.getByRole('row',{name:/Выбрать документ «Благоустройство обновлено SEARCH/}).waitFor();
     pass('saved card refreshes retained search list after asynchronous indexing');
     service = await json(ap,'/admin/service-accounts','POST',{name:code, registry_ids:[registry.id], operations:['documents','content']},201);
     token = await json(ap,`/admin/service-accounts/${service.id}/tokens`,'POST',{reason:'Синтетическая проверка поиска', expires_in_days:1},201);

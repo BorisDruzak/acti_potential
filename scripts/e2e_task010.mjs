@@ -179,7 +179,7 @@ export async function runTask010({browser,request,origin,admin,outputDir,fixture
     }
     await vp.goto(`${origin}/view`);await vp.getByRole('button',{name:registry.name,exact:true}).click();await vp.getByLabel('Поиск',{exact:true}).fill(source.title);
     await measureUI('search',()=>vp.getByRole('button',{name:'Найти',exact:true}).click());
-    await measureUI('time_to_open',()=>vp.getByRole('row').filter({has:vp.getByText(source.title,{exact:true})}).getByRole('button',{name:'Открыть карточку',exact:true}).click());
+    await measureUI('time_to_open',()=>vp.getByRole('row').filter({has:vp.getByText(source.title,{exact:true})}).click());
     const measured=await json(ap,`/admin/operations/metrics?registry_id=${registry.id}`);assert.ok(measured.retrieval.time_to_open_count>(baselineMetrics.retrieval.time_to_open_count||0));
     await ap.screenshot({path:path.join(outputDir,'admin-service-scope-no-secret-viewport.png'),fullPage:false});
     pass('administrator creates service scope and issues a one-time credential through UI without recording its secret');

@@ -339,7 +339,7 @@ export async function runTask004({ browser, origin, admin, outputDir }) {
     await vp.getByLabel('Поиск', { exact: true }).fill(`${title} synthetic ACTI v2`);
     await vp.getByRole('button', { name: 'Найти', exact: true }).click();
     await vp.getByText('Найдено: 1', { exact: true }).waitFor();
-    await vp.getByRole('button', { name: 'Открыть карточку', exact: true }).click();
+    await vp.getByRole('row', { name: /Выбрать документ/ }).click();
     await vp.getByText('Постановление', { exact: true }).first().waitFor();
     await vp.getByText('000004', { exact: true }).first().waitFor();
     await vp.screenshot({ path: path.join(outputDir, 'acti-v2-unbound-legacy-number.png'), fullPage: true });
