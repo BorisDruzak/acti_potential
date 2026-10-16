@@ -34,7 +34,9 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await page.getByRole('button',{name:'Выйти',exact:true}).waitFor();
   }
   async function dismissNav(page) {
-    await page.mouse.move(1100,100);await page.keyboard.press('Escape');
+    // Wait for the React workspace, then click blank main padding to close the overlay.
+    // Moving the pointer before mount may not emit pointerenter; Escape requires sidebar focus.
+    await page.getByRole('main').click({position:{x:1000,y:10}});
     await page.waitForFunction(()=>document.getElementById('main-navigation')?.inert);
   }
   const pass=name=>{checks.push(name);console.log('PASS '+name);};
