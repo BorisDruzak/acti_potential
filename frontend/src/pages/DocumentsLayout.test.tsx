@@ -99,3 +99,49 @@ it("does not offer a page-dependent custom sort when another published version u
   await screen.findByText("Страница 2");
   expect(screen.queryByRole("button", {name: "Сортировать: Тема"})).toBeNull();
 });
+
+it("groups export inside collapsible search and places compact view controls directly above the panes", async () => {
+  setup();
+  await firstRow();
+  const searchPanel = screen.getByRole("group", {name: "Поиск документов"});
+  const toolbar = screen.getByRole("group", {name: "Вид и сортировка документов"});
+  expect(within(toolbar).getByRole("radiogroup", {name: "Отображение рабочей области"})).toBeTruthy();
+  expect(within(toolbar).getByLabelText("Сортировка")).toBeTruthy();
+  expect(searchPanel.contains(toolbar)).toBe(false);
+  fireEvent.click(within(searchPanel).getByText("Экспорт и импорт", {exact: true}));
+  expect(within(searchPanel).getByRole("button", {name: "Экспорт CSV"})).toBeTruthy();
+  const query = screen.getByRole("searchbox");
+  fireEvent.change(query, {target: {value: "Черновик запроса"}});
+  fireEvent.click(await firstRow());
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  const cardInput = screen.getByLabelText("Наименование");
+  fireEvent.change(cardInput, {target: {value: "Черновик карточки"}});
+  const toggle = within(searchPanel).getByText("Поиск", {exact: true, selector: "summary > span:first-child"});
+  fireEvent.click(toggle);
+  await waitFor(() => expect((searchPanel as HTMLDetailsElement).open).toBe(false));
+  await waitFor(() => expect(screen.queryByRole("searchbox")).toBeNull());
+  expect((screen.getByLabelText("Наименование") as HTMLInputElement).value).toBe("Черновик карточки");
+  fireEvent.click(toggle);
+  await waitFor(() => expect((searchPanel as HTMLDetailsElement).open).toBe(true));
+  expect(screen.getByRole("searchbox")).toBe(query);
+  expect((query as HTMLInputElement).value).toBe("Черновик запроса");
+  expect(screen.getByLabelText("Наименование")).toBe(cardInput);
+});
+
+it("searches all permitted registries without asking the user to pick just one", async () => {
+  const fetch = setup();
+  await firstRow();
+  expect(screen.queryByText("Выберите реестр для просмотра документов.")).toBeNull();
+  expect(screen.getByText("По всем доступным реестрам")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Реестр"}));
+  fireEvent.click(screen.getByRole("button", {name: "Все реестры"}));
+  fireEvent.change(screen.getByRole("searchbox"), {target: {value: "Общий запрос"}});
+  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).some(([, init]) => {
+    const body = JSON.parse(String(init?.body)); return body.query === "Общий запрос" && body.registry_ids.length === 0;
+  })).toBe(true));
+  const row = within(await firstRow());
+  expect(row.getByRole("gridcell", {name: "Наименование документа: Альфа"})).toBeTruthy();
+  expect(row.getByRole("gridcell", {name: "Регистрационный номер: Р-1"})).toBeTruthy();
+  expect(row.getByRole("gridcell", {name: "Дата регистрации: 2026-10-16"})).toBeTruthy();
+});

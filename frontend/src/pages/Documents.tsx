@@ -613,6 +613,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const [scope, setScope] = useState<SearchScope>(() => (initial.get("scope") as SearchScope) || "all");
   const [versionScope, setVersionScope] = useState(() => initial.get("version_scope") || "current");
   const [advanced, setAdvanced] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(true);
   const [cursor, setCursor] = useState(() => initial.get("cursor") || "");
   const [previousCursors, setPreviousCursors] = useState<string[]>([]);
   const [fuzzy, setFuzzy] = useState(() => initial.get("fuzzy") !== "false");
@@ -818,7 +819,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           </span>
           <h1>{registry ? registry.name : "Документы"}</h1>
         </div>
-        <div className="documents-heading-actions"><DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
+        <div className="documents-heading-actions">
         {!readOnly && registry?.permissions.includes("create") && (
           <button className="primary" onClick={() => setCreating(true)}>
             Создать документ
@@ -830,7 +831,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
         error={registries.error || types.error || references.error}
         loading={registries.loading}
       />
-      <div className="registry-tabs" aria-label="Быстрый фильтр по реестру"><button className={!registryId ? "active" : ""} onClick={() => {setRegistryId(""); setCursor(""); setPage(1);}}>Все реестры</button>
+      <div className="registry-tabs" aria-label="Быстрый фильтр по реестру"><button className={!registryId ? "active" : ""} onClick={() => {setRegistryId(""); setCursor(""); setPage(1); setPreviousCursors([]);}}>Все реестры</button>
         {registries.data
           ?.filter((item) => item.permissions.includes("read"))
           .map((item) => (
@@ -859,21 +860,20 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             </button>
           ))}
       </div>
-      {!registryId && (
-        <div className="empty-state">
-          {registries.data?.some((item) => item.permissions.includes("read"))
-            ? "Выберите реестр для просмотра документов."
-            : "Вам пока не предоставлен доступ к реестрам. Обратитесь к администратору."}
-        </div>
+      {!registries.loading && !registries.error && registries.data && !registries.data.some(item => item.permissions.includes("read")) && (
+        <div className="empty-state">Вам пока не предоставлен доступ к реестрам. Обратитесь к администратору.</div>
       )}
       {(registry || registries.data?.some(item => item.permissions.includes("read"))) && (
         <>
+          <details className="document-search-disclosure" aria-label="Поиск документов" open={searchOpen} onToggle={event => setSearchOpen(event.currentTarget.open)}>
+            <summary><span>Поиск</span><span className="search-scope-caption">{registryId ? registry ? `Реестр: ${registry.name}` : "Выбранный реестр недоступен" : "По всем доступным реестрам"}{!searchOpen && applied.query ? ` · ${applied.query}` : ""}</span></summary>
+            <div className="document-search-body" hidden={!searchOpen}>
           <details className="panel search-saved-views"><summary>Сохранённые фильтры и сортировки</summary>
             <div className="inline-form"><label>Название представления<input value={viewName} onChange={event => setViewName(event.target.value)} /></label><button disabled={!viewName.trim() || !search} onClick={() => {persistViews([...savedViews.filter(item => !(item.registry === registryId && item.name === viewName.trim())), {name: viewName.trim(), registry: registryId, query: search.slice(1)}]); setViewName("");}}>Сохранить текущий поиск</button></div>
             {savedViews.filter(item => item.registry === registryId).map(item => <div className="button-row" key={item.name}><button onClick={() => loadView(item.query)}>{item.name}</button><button aria-label={`Удалить представление: ${item.name}`} onClick={() => persistViews(savedViews.filter(current => current !== item))}>Удалить</button></div>)}
           </details>
           <form
-            className="panel search-form"
+            className="search-form"
             onSubmit={(event) => {
               event.preventDefault();
               applySearch();
@@ -1018,7 +1018,17 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             )}
             </div></details>
           </form>
+          {!!applied.query && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
+          <details className="search-transfer" aria-label="Экспорт и импорт документов"><summary>Экспорт и импорт</summary>
+          <Feedback {...exportAction} />
+          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
+          {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
+          </details>
+            </div>
+          </details>
           <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "date_from", "date_to", "document_type_id", "filters"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : value} ×</button>)}</div>
+          <Feedback error={list.error} />
+          <div className="document-results-toolbar" role="group" aria-label="Вид и сортировка документов">
           <div className="search-sort">            <label>
               Сортировка
               <select
@@ -1035,11 +1045,8 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
             </label>
             <label>Направление сортировки<select value={direction}  onChange={event => {setDirection(event.target.value); const next = new URLSearchParams(search); next.set("direction", event.target.value); setSearch("&" + next.toString()); setCursor(""); setPage(1);}}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
 </div>
-          <Feedback error={list.error} />
-          {!!applied.query && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
-          <Feedback {...exportAction} />
-          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
-          {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
+            <DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
+          </div>
           <DocumentWorkspace busy={list.loading} layout={layout} onChange={chooseLayout} onResize={resizeLayout} onRestore={restoreLayout}
             selectedLabel={card.data?.title || resultDocuments.find(item => item.id === documentId)?.title || "Карточка"}
             detail={detail}

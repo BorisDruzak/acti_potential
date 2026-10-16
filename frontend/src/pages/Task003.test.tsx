@@ -46,6 +46,7 @@ it("keeps decimal filters and configured export columns in the document workspac
   fireEvent.click(screen.getByRole("radio", {name: "Таблица"}));
   await screen.findByRole("columnheader", {name: /Наименование документа/});
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).filters?.amount?.value[0] === "1.20")).toBe(true));
+  fireEvent.click(screen.getByText("Экспорт и импорт", {exact: true}));
   fireEvent.click(screen.getByRole("button", {name: "Экспорт CSV"}));
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/search/export?") && new URL(url, "https://test.invalid").searchParams.get("columns") === "amount")).toBe(true));
   const exported = fetch.mock.calls.find(([url]) => url.includes("/search/export?"))![0];

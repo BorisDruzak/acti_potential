@@ -10,7 +10,7 @@ import {randomBytes} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 
 export async function runDocumentWorkspace({browser, origin, admin, outputDir, expectedSha}) {
-  const contexts=[], accounts=[], checks=[], errors=[];
+  const contexts=[], accounts=[], registries=[], checks=[], errors=[];
   let ap, registry, stage='setup';
   await fs.mkdir(outputDir,{recursive:true});
   async function pageFor() {
@@ -45,14 +45,14 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     stage='owned fixtures';
     const code='layout_'+Date.now().toString(36), me=await json(ap,'/users/me');
     const type=await json(ap,'/document-types','POST',{code,name:'Проверка компоновки '+code},201);
-    registry=await json(ap,'/registries','POST',{code,name:'Проверка документов '+code,document_type_ids:[type.id]},201);
+    registry=await json(ap,'/registries','POST',{code,name:'Проверка документов '+code,document_type_ids:[type.id]},201);registries.push(registry);
     const version=(await json(ap,`/document-types/${type.id}/versions`))[0];
     const schema={sections:[{key:'main',title:'Реквизиты',fields:[
       {key:'caption',label:'Наименование LAYOUT',type:'text',system:'title',editable:true,required:true,searchable:true,filterable:true},
       {key:'number',label:'Номер LAYOUT',type:'text',system:'reg_number',editable:true,filterable:true},
       {key:'day',label:'Дата LAYOUT',type:'date',system:'reg_date',editable:true,filterable:true},
-      {key:'custom_kind',label:'Классификация LAYOUT',type:'text',editable:true,filterable:true,read_roles:['editor']},
-      {key:'custom_topic',label:'Вопрос LAYOUT',type:'text',editable:true,filterable:true},
+      {key:'custom_kind',label:'Классификация LAYOUT',type:'text',editable:true,filterable:true,exportable:true,read_roles:['editor']},
+      {key:'custom_topic',label:'Вопрос LAYOUT',type:'text',editable:true,filterable:true,exportable:true},
       {key:'custom_owner',label:'Куратор LAYOUT',type:'user',editable:true},
       {key:'original',label:'Оригинал LAYOUT',type:'file',editable:true},
       ...Array.from({length:12},(_,i)=>({key:'extra'+i,label:'Сведения '+i,type:'textarea',editable:true})),
@@ -71,6 +71,12 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     for(let i=0;i<22;i++)docs.push(await json(ep,'/documents','POST',{registry_id:registry.id,document_type_id:type.id,schema_version_id:version.id,
       values:{caption:`Компоновка ${String(i+1).padStart(2,'0')}. Тестовый документ`,number:`LAYOUT-${i+1}`,day:'2026-10-16',custom_kind:'Закрытая классификация',custom_topic:'Организация работы',custom_owner:roles.editor.account.id,...Object.fromEntries(Array.from({length:12},(_,j)=>['extra'+j,'Синтетические сведения для проверки прокрутки.']))},
       ...(i===0?{files:[{field_key:'original',name:'layout.txt',mime:'text/plain',content_base64:Buffer.from('Synthetic layout acceptance document.').toString('base64')}]}:{})},201));
+    for(const hidden of [false,true]) {
+      const extra=await json(ap,'/registries','POST',{code:code+(hidden?'_hidden':'_extra'),name:'Проверка области поиска '+(hidden?'закрытый ':'доступный ')+code,document_type_ids:[type.id]},201);registries.push(extra);
+      await json(ap,`/admin/access/${extra.id}`,'PUT',{entries:[{user_id:me.id,permissions:['read','create','update','download']},...(hidden?[]:Object.values(roles).map(value=>({user_id:value.account.id,permissions:['read']})))]});
+      const probe=await json(ap,'/documents','POST',{registry_id:extra.id,document_type_id:type.id,schema_version_id:version.id,values:{caption:'Компоновка 00. '+(hidden?'Закрытая':'Доступная')+' запись',number:hidden?'HIDDEN-01':'EXTRA-01',day:'2026-10-16'}},201);
+      for(let i=0;i<60;i++){if((await json(ap,`/documents/${probe.id}/search-index`)).ready)break;await delay(500);}
+    }
     for(let i=0;i<60;i++){if((await json(ep,`/documents/${docs.at(-1).id}/search-index`)).ready)break;await delay(1000);}
     await ep.goto(`${origin}/work?registry_id=${registry.id}&document_type_id=${type.id}&sort=title&direction=asc`);await dismissNav(ep);
     const mode=name=>ep.getByRole('radio',{name,exact:true}),row=id=>ep.locator(`tr[data-document-id="${id}"]`);
@@ -79,6 +85,28 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await row(docs[0].id).click();await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
     assert.equal(await ep.getByRole('button',{name:'Открыть карточку',exact:true}).count(),0);
     pass('Default split, click selection and removal of per-row open buttons');
+    stage='collapsible search and compact toolbar';
+    const searchPanel=ep.getByRole('group',{name:'Поиск документов',exact:true});
+    const toolbar=ep.getByRole('group',{name:'Вид и сортировка документов',exact:true});
+    const searchToggle=searchPanel.locator(':scope > summary');
+    assert.equal(await toolbar.getByRole('radio').count(),3);assert((await toolbar.boundingBox()).height<=40);
+    await searchPanel.getByText('Экспорт и импорт',{exact:true}).click();
+    const downloading=ep.waitForEvent('download');await searchPanel.getByRole('button',{name:'Экспорт CSV',exact:true}).click();
+    const csv=await downloading;assert.equal(await csv.failure(),null);await csv.saveAs(path.join(outputDir,'documents.csv'));assert((await fs.stat(path.join(outputDir,'documents.csv'))).size>20);
+    const query=ep.getByRole('searchbox');await query.fill('Черновик запроса');
+    await searchToggle.click();assert.equal(await query.isVisible(),false);assert((await searchPanel.boundingBox()).height<45);
+    await ep.screenshot({path:path.join(outputDir,'collapsed-search.png'),fullPage:true,mask:[ep.locator('.account')]});
+    await searchToggle.click();assert.equal(await query.inputValue(),'Черновик запроса');await query.fill('');
+    await ep.getByRole('button',{name:'Все реестры',exact:true}).click();await ep.getByText('Найдено: 23',{exact:true}).waitFor();
+    await ep.getByText('По всем доступным реестрам',{exact:true}).waitFor();assert.equal(await ep.getByText('Выберите реестр для просмотра документов.',{exact:true}).count(),0);
+    const across=await json(ep,'/search','POST',{query:'Компоновка',registry_ids:[],document_type_ids:[type.id],sort:'title',direction:'asc',mode:'editor'});
+    assert.equal(across.total,23);assert.equal(new Set(across.items.map(hit=>hit.document.registry_id)).size,2);
+    assert(!across.items.some(hit=>hit.document.reg_number==='HIDDEN-01'));
+    await ep.getByRole('button',{name:registry.name,exact:true}).click();
+    await ep.getByLabel('Тип',{exact:true}).selectOption(type.id);await ep.getByRole('button',{name:'Найти',exact:true}).click();
+    await ep.getByLabel('Сортировка',{exact:true}).selectOption('title');await ep.getByLabel('Направление сортировки',{exact:true}).selectOption('asc');
+    await ep.getByText('Найдено: 22',{exact:true}).waitFor();
+    pass('Flat toolbar, collapsed search keeps draft query; CSV downloads from grouped controls; all registries spans two allowed registries and excludes a third');
     stage='mouse resizing and responsive columns';
     const separator=ep.getByRole('separator',{name:'Размер списка документов и карточки',exact:true});
     const workspace=ep.locator('.document-workspace');
@@ -119,6 +147,7 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).fill('Компоновка 01. Сохранённый документ');
     await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).evaluate(el=>window.layoutInput=el);
     await dragTo(.7);await dragTo(.35);
+    await searchToggle.click();await searchToggle.click();
     for(const name of ['Таблица','Карточка','Вместе'])await mode(name).click();
     assert.equal(await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).evaluate(el=>el===window.layoutInput),true);
     await ep.getByRole('button',{name:'Файлы и версии',exact:true}).click();await mode('Карточка').click();await mode('Вместе').click();assert((await ep.getByRole('button',{name:'Файлы и версии',exact:true}).getAttribute('class')).includes('active'));
@@ -164,7 +193,7 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
   } catch(error) {
     await fs.writeFile(path.join(outputDir,'failure.txt'),stage+'\n'+String(error.stack||error));throw error;
   } finally {
-    if(ap){if(registry)await json(ap,`/admin/access/${registry.id}`,'PUT',{entries:[]});for(const id of accounts)await json(ap,`/admin/users/${id}`,'PATCH',{active:false});}
+    if(ap){for(const owned of registries)await json(ap,`/admin/access/${owned.id}`,'PUT',{entries:[]});for(const id of accounts)await json(ap,`/admin/users/${id}`,'PATCH',{active:false});}
     for(const context of contexts){for(const page of context.pages())await page.screenshot({path:path.join(outputDir,`last-${contexts.indexOf(context)}.png`),fullPage:true,mask:[page.locator('.account')]}).catch(()=>{});await context.close();}
     await fs.writeFile(path.join(outputDir,'checks.json'),JSON.stringify({checks,stage,errors},null,2));
   }

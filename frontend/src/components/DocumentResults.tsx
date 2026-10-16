@@ -43,7 +43,9 @@ export function DocumentResults({results, schemas, sortSchemas, types, roles, re
       aria-label={`Выбрать документ «${item.title || "Документ"}»${item.reg_number ? ". Номер: " + item.reg_number : ""}`}
       aria-selected={selected === item.id} tabIndex={selected === item.id || (!rows.some(row => row.id === selected) && index === 0) ? 0 : -1}
       onClick={() => onSelect(item.id)} onDoubleClick={() => onOpen(item.id)} onKeyDown={event => keydown(event, index)}>
-      {documentColumns.map(column => <td key={column.key} role="gridcell" className={`column-${column.key}`}>
+      {documentColumns.map(column => <td key={column.key} role="gridcell" className={`column-${column.key}`} aria-label={`${column.label}: ${value(item, column.key)}`}>
+        {column.key === "reg_number" && <span className="document-compact-label" aria-hidden="true">№ </span>}
+        {column.key === "reg_date" && <span className="document-compact-label" aria-hidden="true">Дата: </span>}
         <span>{value(item, column.key)}</span>
         {column.key === "title" && query && "document" in results[index] && <div className="document-result-snippets"
           onClick={event => {if ((event.target as HTMLElement).closest("button, a")) event.stopPropagation();}}
