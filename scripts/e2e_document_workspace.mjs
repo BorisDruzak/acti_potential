@@ -103,8 +103,8 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     assert.equal(across.total,23);assert.equal(new Set(across.items.map(hit=>hit.document.registry_id)).size,2);
     assert(!across.items.some(hit=>hit.document.reg_number==='HIDDEN-01'));
     await ep.getByRole('button',{name:registry.name,exact:true}).click();
-    await ep.getByLabel('Тип',{exact:true}).selectOption(type.id);await ep.getByRole('button',{name:'Найти',exact:true}).click();
-    await ep.getByLabel('Сортировка',{exact:true}).selectOption('title');await ep.getByLabel('Направление сортировки',{exact:true}).selectOption('asc');
+    await ep.getByRole('combobox',{name:'Тип',exact:true}).selectOption(type.id);await ep.getByRole('button',{name:'Найти',exact:true}).click();
+    await ep.getByRole('combobox',{name:'Сортировка',exact:true}).selectOption('title');await ep.getByRole('combobox',{name:'Направление сортировки',exact:true}).selectOption('asc');
     await ep.getByText('Найдено: 22',{exact:true}).waitFor();
     pass('Flat toolbar, collapsed search keeps draft query; CSV downloads from grouped controls; all registries spans two allowed registries and excludes a third');
     stage='mouse resizing and responsive columns';
@@ -167,8 +167,11 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await ep.getByRole('button',{name:'Сортировать: Тема',exact:true}).waitFor();assert.equal(await ep.getByRole('columnheader').count(),7);
     const first=row(docs[0].id);await first.getByText('Сотрудник проверки editor',{exact:true}).waitFor();assert(!(await first.innerText()).includes(roles.editor.account.id));
     await ep.getByRole('button',{name:'Сортировать: Тема',exact:true}).click();assert.equal(await ep.getByRole('columnheader').filter({hasText:'Тема'}).getAttribute('aria-sort'),'ascending');
-    await first.dblclick();assert.equal(await mode('Карточка').getAttribute('aria-checked'),'true');await ep.getByRole('button',{name:'К списку',exact:true}).click();assert.equal(await mode('Таблица').getAttribute('aria-checked'),'true');
-    await first.focus();await ep.keyboard.press('Enter');await ep.getByRole('button',{name:'Показать список документов',exact:true}).click();await mode('Таблица').click();await ep.getByRole('button',{name:'Показать карточку документа',exact:true}).click();
+    await ep.waitForFunction(()=>document.querySelector('.document-list-pane')?.getAttribute('aria-busy')==='false');
+    // Equal topic values use the API's UUID tiebreaker; the original selection may now be on page two.
+    const visibleRow=ep.locator('tbody tr[data-document-id]').first();
+    await visibleRow.dblclick();assert.equal(await mode('Карточка').getAttribute('aria-checked'),'true');await ep.getByRole('button',{name:'К списку',exact:true}).click();assert.equal(await mode('Таблица').getAttribute('aria-checked'),'true');
+    await visibleRow.focus();await ep.keyboard.press('Enter');await ep.getByRole('button',{name:'Показать список документов',exact:true}).click();await mode('Таблица').click();await ep.getByRole('button',{name:'Показать карточку документа',exact:true}).click();
     pass('Seven configured columns, resolved user, sorting, double-click, Enter, return and rails; history and file remain available');
     stage='search and pagination';
     await ep.getByRole('searchbox').fill('Компоновка');await ep.getByRole('button',{name:'Найти',exact:true}).click();await ep.getByText('Найдено: 22',{exact:true}).waitFor();
