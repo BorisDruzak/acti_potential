@@ -595,7 +595,7 @@ function NewDocumentForm({
 
 export function Documents({ readOnly = false }: { readOnly?: boolean }) {
   const auth = useAuth();
-  const {layout, choose: chooseLayout, back: backToResults} = useDocumentLayout(auth.user?.id || "anonymous", readOnly);
+  const {layout, choose: chooseLayout, resize: resizeLayout, restore: restoreLayout, back: backToResults} = useDocumentLayout(auth.user?.id || "anonymous", readOnly);
   const dirtyCard = useRef(false);
   const reportDirty = useCallback((value: boolean) => {dirtyCard.current = value;}, []);
   const registries = useData<Registry[]>("/registries");
@@ -691,7 +691,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
     {body: applied, csrfToken: auth.user?.csrf_token || "", retainOnReload: true},
   );
   const resultDocuments = (list.data?.items || []).map(result => "document" in result ? result.document : result as unknown as Card);
-  const listSchemas = useDocumentSchemas(resultDocuments, auth.user?.id || "anonymous", readOnly, layout.mode === "table");
+  const listSchemas = useDocumentSchemas(resultDocuments, auth.user?.id || "anonymous", readOnly, layout.mode !== "card");
   function sortResults(key: string) {
     const nextDirection = applied.sort === key && applied.direction === "asc" ? "desc" : "asc";
     setSort(key); setDirection(nextDirection);
@@ -1040,7 +1040,7 @@ export function Documents({ readOnly = false }: { readOnly?: boolean }) {
           <Feedback {...exportAction} />
           <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
           {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
-          <DocumentWorkspace busy={list.loading} mode={layout.mode} onChange={chooseLayout}
+          <DocumentWorkspace busy={list.loading} layout={layout} onChange={chooseLayout} onResize={resizeLayout} onRestore={restoreLayout}
             selectedLabel={card.data?.title || resultDocuments.find(item => item.id === documentId)?.title || "Карточка"}
             detail={detail}
             count={<div className="document-results-heading"><h2>Документы</h2><span className="muted">Найдено: {list.data?.total ?? "…"}</span></div>}
