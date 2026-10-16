@@ -21,7 +21,7 @@ The documents screen retains the existing card/editor, files, content, relations
 - [x] 3. Extend existing outbox metadata indexing to configured reference labels and system fields; add controlled rebuild/status and aggregate timing diagnostics. Test revision safety, retry and bounded rebuild. Apply migrations only after backup/preflight.
 - [x] 4. Add frontend regressions for one search string, scopes, selection retention, URL/saved views and safe highlighting. Implement two panes and dynamic filters using existing components; run frontend tests/typecheck/build.
 - [x] 5. Run quality fixtures (Recall@10/MRR@10), synthetic isolated PostgreSQL pilot at multiple scales through 150,000+ documents, EXPLAIN ANALYZE BUFFERS, query counts, memory/connections and deterministic pagination. Record measured results, including expensive-query behavior.
-- [ ] 6. Inspect complete diff and GitNexus impact, perform one independent functional code review, run relevant final checks, commit/push and create draft PR. Deploy via existing mount/UUID preflight and backup flow; verify real HTTPS/backend/PostgreSQL and browser E2E. Report exact SHA and actual limitations.
+- [x] 6. Inspect complete diff and GitNexus impact, perform one independent functional review and final checks, commit the implementation, deploy via mount/UUID preflight and backup, and verify real HTTPS/backend/PostgreSQL/browser flows. Publication uses a draft PR from `codex/search-engine-v2` to `main`; release evidence follows below.
 
 ## Review focus
 
@@ -48,3 +48,28 @@ Final automatic checks: the full PostgreSQL suite initially reported 549 passed 
 One independent functional review produced seven verified regressions: metadata source operation revocation, custom temporal cursor decoding, fuzzy export transaction settings, late synonym chunk selection, list refresh after saving, same-document browser history targets and malformed legacy filters. They were addressed with targeted regressions. The list refresh retains its DOM and polls only the saved document's authorized index readiness for at most 30 seconds; unusually delayed indexing can be refreshed with a new search.
 
 GitNexus's committed baseline identified the legacy search endpoint and performance tests as callers of `search_response`. Source inspection verified dynamic service/router and export composition beyond that graph. The central Linux server cannot inspect a Windows worktree through `detect_changes`; local diffs and tests supply that evidence. ACTI remains independent of the helpdesk-platform contract group.
+
+
+## Release and browser acceptance — 2026-10-16
+
+Implementation commit: `0cc5f65b27560bf8d36bd8d00072f9e54da41f50` (`feat(search): unify authorized lexical search and retrieval`, 55 backend/frontend/migration/contract/test/deployment/doc files). Browser-led layout refinement: `1680f70fafb89e0242bd786f17c47e834866e020` (`fix(search): compact controls and wrap document detail tabs`, Documents/styles/E2E).
+
+Both commits were deployed with the existing mount/UUID preflight and a fresh, readable PostgreSQL backup immediately before activation. Migration 0012, image labels, strict HTTPS readiness and original account/session/document identities were verified. A concurrent authorized navigation/history deployment then combined its changes with the search branch. The final running release is `b3e5ab32dca045a6334f2065449a35645e544fe9`; Git ancestry confirms it includes `1680f70`. It was retained to preserve the other work. Final read-only checks confirm six healthy services, migration `0012_search_retrieval`, source labels and mandatory mount preflight. No SQL Server or legacy/v2 changes were made.
+
+The final E2E uses real HTTPS, backend, PostgreSQL and background extraction without response interception. Environment: Playwright 1.58.2 / Chromium, desktop 1440×1000, mobile 390×844. Browser plugin was absent; the established Playwright script reads protected credentials locally. `node --use-system-ca scripts/e2e_search_v2.mjs <private-config>` uses the locally trusted CA for both browser and API requests; `ignoreHTTPSErrors` remains false. Service consumers run in separate contexts without employee/admin cookies. Context7 documentation was checked for the exact Playwright version.
+
+| Check | Result |
+| --- | --- |
+| Page identity / nonblank / framework overlay | Actual viewer, editor and administration screens; meaningful app content; no overlay |
+| Query / ACL | Number, title, typo and metadata-or-content search; viewer cannot search an editor-only marker |
+| List state | Real second page and nonzero list scroll survive selection; URL survives reload |
+| Export | Actual CSV and XLSX downloads, same search, hidden marker absent |
+| Exact source / responsive UI | Quoted phrase opens the selected immutable block; mobile has no horizontal overflow; detail tabs wrap |
+| Save | Editor saves a new title; retained results refresh after background metadata indexing |
+| Service retrieval | Real bearer token, checksum/citation, exact chunk and neighbors; document ACL revocation makes the next chunk read 404 |
+| Operations | Administrator views search diagnostics and requests a scoped rebuild through the UI |
+| Console / cleanup | Zero page errors; owned synthetic users disabled and tokens revoked; zero active SEARCH fixture users |
+
+All seven E2E scenario groups passed against `b3e5ab32dca045a6334f2065449a35645e544fe9`. Initial harness runs exposed timing/selectors, an isolated API-context setup error and Node CA configuration; the final script includes the verified fixes. One run overlapped the other chat's deployment; acceptance was rerun after the combined release was stable. Screenshots and detailed receipts remain local, outside tracked source.
+
+Remaining measured limits: broad/dense queries can reach the safe 8-second SQL timeout; the mass hidden-term workload is about 5.8 seconds. The pilot is synthetic and single-viewer, with 12 samples per selective query, rather than a concurrent-user/long-duration test. Existing export safety bounds remain 10,000 rows / 16 MiB; search itself has no 10,000-card cap. Background metadata refresh waits up to 30 seconds in the UI, after which a new search refreshes delayed results. File families currently follow document + field + case-insensitive original filename, matching the existing upload/version model.

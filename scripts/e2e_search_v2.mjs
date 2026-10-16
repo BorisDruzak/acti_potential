@@ -63,9 +63,8 @@ async function helpers(browser, origin, outputDir) {
   }
   async function download(page, buttonName, filename) {
     stage = `UI download ${filename}`;
-    const pending = page.waitForEvent('download');
-    await page.getByRole('button', { name: buttonName, exact: true }).click();
-    const value = await pending;
+    await dismissNavigation(page);
+    const [value] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: buttonName, exact: true }).click()]);
     assert.equal(await value.failure(), null);
     const target = path.join(outputDir, filename);
     await value.saveAs(target);
@@ -76,12 +75,17 @@ async function helpers(browser, origin, outputDir) {
     results.push({ name, status: 'PASS', ...details });
     console.log(`PASS ${name}`);
   }
-  return { pageFor, json, login, mutation, download, pass, contexts, runtimeErrors, results, getStage: () => stage };
+  async function dismissNavigation(page) {
+    await page.mouse.move(1000,100);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>{const nav=document.getElementById('main-navigation');return !nav || nav.inert || nav.querySelector('.navigation-pin')?.getAttribute('aria-pressed')==='true';});
+  }
+  return { pageFor, json, login, mutation, download, dismissNavigation, pass, contexts, runtimeErrors, results, getStage: () => stage };
 }
 
 export async function runSearch({browser, origin, admin, outputDir, fixturesDir}) {
   const h = await helpers(browser, origin, outputDir);
-  const {pageFor, json, login, pass, download} = h;
+  const {pageFor, json, login, pass, download, dismissNavigation} = h;
   const code = `search001_${Date.now().toString(36)}`, accounts = [];
   let ap, service, token, registry;
   try {
@@ -155,8 +159,11 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     assert.equal(await vp.getByRole('button',{name:'Открыть карточку',exact:true}).count(),2);
     assert.equal(await vp.getByLabel('Поиск',{exact:true}).inputValue(),'благоустройство');
     await vp.reload(); await vp.getByRole('button',{name:'Содержание',exact:true}).waitFor();
+    await dismissNavigation(vp);
     assert.equal(new URL(vp.url()).searchParams.get('q'),'благоустройство');
     await vp.screenshot({path:path.join(outputDir,'search-desktop.png'),fullPage:true});
+    await vp.evaluate(()=>window.scrollTo(0,0));
+    await vp.screenshot({path:path.join(outputDir,'search-viewport.png'),fullPage:false});
     const csvPath = await download(vp,'Экспорт CSV','search.csv');
     assert.equal((await fs.readFile(csvPath,'utf8')).includes('ЗАКРЫТЫЙМАРКЕРSEARCH'),false);
     await download(vp,'Экспорт XLSX','search.xlsx');
@@ -176,13 +183,13 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
     await ep.getByLabel('Название SEARCH',{exact:false}).fill('Благоустройство обновлено SEARCH');
     await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).click();
-    await ep.locator('.search-results').getByText('Благоустройство обновлено SEARCH',{exact:true}).waitFor();
+    await ep.locator('.search-results').getByRole('heading',{name:'Благоустройство обновлено SEARCH',exact:true}).waitFor();
     pass('saved card refreshes retained search list after asynchronous indexing');
     service = await json(ap,'/admin/service-accounts','POST',{name:code, registry_ids:[registry.id], operations:['documents','content']},201);
     token = await json(ap,`/admin/service-accounts/${service.id}/tokens`,'POST',{reason:'Синтетическая проверка поиска', expires_in_days:1},201);
     async function consumer(endpoint, method='GET', data, expected=200) {
-      const response = await browser.request.newContext({baseURL:origin,ignoreHTTPSErrors:false,extraHTTPHeaders:{Authorization:`Bearer ${token.token}`}});
-      try {const result=await response.fetch('/api/service/v1'+endpoint,{method,...(data?{data}:{})}); assert.equal(result.status(),expected);return expected===200?result.json():null;} finally {await response.dispose();}
+      const context = await browser.newContext({baseURL:origin,ignoreHTTPSErrors:false,extraHTTPHeaders:{Authorization:`Bearer ${token.token}`}});
+      try {const result=await context.request.fetch('/api/service/v1'+endpoint,{method,...(data?{data}:{})}); assert.equal(result.status(),expected);return expected===200?result.json():null;} finally {await context.close();}
     }
     const retrieval = await consumer('/retrieval','POST',{query:'городском благоустройстве',registry_ids:[registry.id]});
     const chunk = retrieval.items.find(x=>x.source_type==='file'); assert.ok(chunk && chunk.checksum && chunk.citation.block_ids.length);
@@ -193,6 +200,8 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     assert.equal((await search(vp,'001с2026')).total,0);
     pass('service retrieval checksums exact neighbors and immediate document ACL revocation');
     await ap.goto(`${origin}/admin`);
+    const navigation = ap.getByRole('button',{name:'Открыть навигацию',exact:true});
+    if(await navigation.count() && await navigation.getAttribute('aria-expanded') !== 'true')await navigation.click();
     await ap.getByRole('button',{name:'Эксплуатация',exact:true}).click();
     await ap.getByLabel('Реестр эксплуатационных данных',{exact:false}).selectOption(registry.id);
     await ap.getByRole('heading',{name:'Поисковый индекс',exact:true}).waitFor();
