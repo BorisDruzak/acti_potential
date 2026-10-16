@@ -318,14 +318,13 @@ function PropertyEditor({
           ["editable", "Редактируемое"],
           ["filterable", "Доступно в фильтрах"],
           ["exportable", "Доступно в экспорте"],
+            ["searchable", "Индексировать значение для поиска"],
         ].map(([key, label]) => (
           <label key={key}>
             <input
               type="checkbox"
               checked={
-                key === "editable"
-                  ? field.editable !== false
-                  : !!field[key as keyof Field]
+                key === "editable" ? field.editable !== false : key === "searchable" ? (field.searchable ?? ["text", "textarea", "date", "datetime", "group"].includes(field.type)) : !!field[key as keyof Field]
               }
               onChange={(event) => change({ [key]: event.target.checked })}
             />

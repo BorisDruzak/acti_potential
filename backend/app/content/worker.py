@@ -7,7 +7,7 @@ from uuid import NAMESPACE_URL, uuid5
 from sqlalchemy import or_, select
 
 from app.content.indexing import index_metadata, queue_file
-from app.content.models import ContentExtraction, DocumentBlock, DocumentIndexState
+from app.content.models import ChunkRecord, ContentExtraction, DocumentBlock, DocumentIndexState
 from app.platform.outbox import enqueue_event
 from app.registry.models import Document, DocumentFile
 
@@ -27,6 +27,7 @@ def process_backlog(factory, limit=5):
                     or_(
                         DocumentIndexState.document_id.is_(None),
                         DocumentIndexState.document_revision != Document.revision,
+                        DocumentIndexState.index_version != 2,
                     )
                 )
                 .order_by(Document.created_at)
@@ -47,6 +48,29 @@ def process_backlog(factory, limit=5):
         )
         for file in files:
             queue_file(session, file)
+        from app.content.chunks import CHUNK_VERSION, index_chunks
+
+        extractions = list(
+            session.scalars(
+                select(ContentExtraction.id)
+                .where(
+                    ContentExtraction.state == "completed",
+                    ~select(ChunkRecord.id)
+                    .where(
+                        ChunkRecord.extraction_id == ContentExtraction.id,
+                        ChunkRecord.algorithm_version == CHUNK_VERSION,
+                    )
+                    .exists(),
+                    select(DocumentBlock.id)
+                    .where(DocumentBlock.extraction_id == ContentExtraction.id)
+                    .exists(),
+                )
+                .order_by(ContentExtraction.id)
+                .limit(limit)
+            )
+        )
+        for identity in extractions:
+            index_chunks(session, identity)
     return len(documents)
 
 
@@ -227,6 +251,10 @@ def process_extractions(factory, storage_root, limit=1, *, parser=None):
                 row.state = "pending"
                 row.next_attempt_at = datetime.now(UTC) + timedelta(seconds=2**row.attempts)
             session.flush()
+            if row.state == "completed":
+                from app.content.chunks import index_chunks
+
+                index_chunks(session, row.id)
             enqueue_event(
                 session,
                 "content.extraction.completed"

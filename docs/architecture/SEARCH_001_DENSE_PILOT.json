@@ -1,0 +1,2768 @@
+{
+  "algorithm": "lexical-2",
+  "synthetic_only": true,
+  "file_stride": 1,
+  "file_count": 150001,
+  "transaction_jit_off": false,
+  "corpora": [
+    {
+      "documents": 150001,
+      "queries": {
+        "number": {
+          "total": 1,
+          "p50_ms": 319.34,
+          "p95_ms": 516.23,
+          "samples": 12,
+          "select_min": 25,
+          "select_max": 25
+        },
+        "title": {
+          "total": 151,
+          "p50_ms": 357.1,
+          "p95_ms": 379.18,
+          "samples": 12,
+          "select_min": 25,
+          "select_max": 25
+        },
+        "morphology": {
+          "total": 151,
+          "p50_ms": 324.15,
+          "p95_ms": 354.34,
+          "samples": 12,
+          "select_min": 25,
+          "select_max": 25
+        },
+        "fuzzy": {
+          "total": 151,
+          "p50_ms": 393.38,
+          "p95_ms": 575.18,
+          "samples": 12,
+          "select_min": 25,
+          "select_max": 25
+        },
+        "synonym": {
+          "total": 151,
+          "p50_ms": 311.16,
+          "p95_ms": 335.04,
+          "samples": 12,
+          "select_min": 25,
+          "select_max": 25
+        },
+        "file_phrase": {
+          "total": 151,
+          "p50_ms": 295.49,
+          "p95_ms": 339.56,
+          "samples": 12,
+          "select_min": 25,
+          "select_max": 25
+        },
+        "table": {
+          "total": 151,
+          "p50_ms": 294.29,
+          "p95_ms": 419.77,
+          "samples": 12,
+          "select_min": 25,
+          "select_max": 25
+        },
+        "hidden": {
+          "total": 0,
+          "p50_ms": 5347.7,
+          "p95_ms": 5781.09,
+          "samples": 12,
+          "select_min": 13,
+          "select_max": 13
+        }
+      },
+      "plans": {
+        "number": {
+          "Planning Time": 6.361,
+          "Execution Time": 8.509,
+          "Plan": {
+            "Node Type": "Limit",
+            "Actual Startup Time": 8.248,
+            "Actual Total Time": 8.262,
+            "Actual Rows": 1,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 491,
+            "Shared Read Blocks": 159,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Nested Loop",
+                "Join Type": "Inner",
+                "Actual Startup Time": 8.246,
+                "Actual Total Time": 8.26,
+                "Actual Rows": 1,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 491,
+                "Shared Read Blocks": 159,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Nested Loop",
+                    "Join Type": "Inner",
+                    "Actual Startup Time": 8.236,
+                    "Actual Total Time": 8.249,
+                    "Actual Rows": 1,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 490,
+                    "Shared Read Blocks": 159,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Aggregate",
+                        "Strategy": "Sorted",
+                        "Actual Startup Time": 8.219,
+                        "Actual Total Time": 8.23,
+                        "Actual Rows": 1,
+                        "Actual Loops": 1,
+                        "Shared Hit Blocks": 484,
+                        "Shared Read Blocks": 159,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Sort",
+                            "Actual Startup Time": 8.214,
+                            "Actual Total Time": 8.225,
+                            "Actual Rows": 1,
+                            "Actual Loops": 1,
+                            "Sort Method": "quicksort",
+                            "Sort Space Used": 25,
+                            "Sort Space Type": "Memory",
+                            "Shared Hit Blocks": 484,
+                            "Shared Read Blocks": 159,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0,
+                            "Plans": [
+                              {
+                                "Node Type": "Append",
+                                "Actual Startup Time": 4.959,
+                                "Actual Total Time": 8.218,
+                                "Actual Rows": 1,
+                                "Actual Loops": 1,
+                                "Shared Hit Blocks": 484,
+                                "Shared Read Blocks": 159,
+                                "Temp Read Blocks": 0,
+                                "Temp Written Blocks": 0,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Subquery Scan",
+                                    "Actual Startup Time": 4.958,
+                                    "Actual Total Time": 5.047,
+                                    "Actual Rows": 1,
+                                    "Actual Loops": 1,
+                                    "Shared Hit Blocks": 164,
+                                    "Shared Read Blocks": 148,
+                                    "Temp Read Blocks": 0,
+                                    "Temp Written Blocks": 0,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Nested Loop",
+                                        "Join Type": "Inner",
+                                        "Actual Startup Time": 4.957,
+                                        "Actual Total Time": 5.046,
+                                        "Actual Rows": 1,
+                                        "Actual Loops": 1,
+                                        "Shared Hit Blocks": 164,
+                                        "Shared Read Blocks": 148,
+                                        "Temp Read Blocks": 0,
+                                        "Temp Written Blocks": 0,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 4.932,
+                                            "Actual Total Time": 5.019,
+                                            "Actual Rows": 1,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 162,
+                                            "Shared Read Blocks": 148,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Bitmap Heap Scan",
+                                                "Relation Name": "content_metadata_fragments",
+                                                "Actual Startup Time": 4.896,
+                                                "Actual Total Time": 4.982,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 1,
+                                                "Rows Removed by Index Recheck": 18,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 157,
+                                                "Shared Read Blocks": 147,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "BitmapOr",
+                                                    "Actual Startup Time": 4.832,
+                                                    "Actual Total Time": 4.834,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 1,
+                                                    "Shared Hit Blocks": 138,
+                                                    "Shared Read Blocks": 147,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0,
+                                                    "Plans": [
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_number_fingerprint",
+                                                        "Actual Startup Time": 0.122,
+                                                        "Actual Total Time": 0.122,
+                                                        "Actual Rows": 1,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 1,
+                                                        "Shared Read Blocks": 2,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      },
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_trigram",
+                                                        "Actual Startup Time": 4.709,
+                                                        "Actual Total Time": 4.71,
+                                                        "Actual Rows": 19,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 137,
+                                                        "Shared Read Blocks": 145,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_documents",
+                                                "Relation Name": "documents",
+                                                "Actual Startup Time": 0.031,
+                                                "Actual Total Time": 0.032,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 1,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 5,
+                                                "Shared Read Blocks": 1,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "Index Only Scan",
+                                                    "Index Name": "pk_document_acl",
+                                                    "Relation Name": "document_acl",
+                                                    "Actual Startup Time": 0.003,
+                                                    "Actual Total Time": 0.004,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 1,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Shared Hit Blocks": 2,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  },
+                                                  {
+                                                    "Node Type": "Index Scan",
+                                                    "Index Name": "pk_document_acl",
+                                                    "Relation Name": "document_acl",
+                                                    "Actual Startup Time": 0.0,
+                                                    "Actual Total Time": 0.0,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 0,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Rows Removed by Filter": 0,
+                                                    "Shared Hit Blocks": 0,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "Node Type": "Memoize",
+                                            "Actual Startup Time": 0.022,
+                                            "Actual Total Time": 0.022,
+                                            "Actual Rows": 1,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 2,
+                                            "Shared Read Blocks": 0,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_registry_access",
+                                                "Relation Name": "registry_access",
+                                                "Actual Startup Time": 0.018,
+                                                "Actual Total Time": 0.018,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 1,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 2,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Subquery Scan",
+                                    "Actual Startup Time": 3.161,
+                                    "Actual Total Time": 3.166,
+                                    "Actual Rows": 0,
+                                    "Actual Loops": 1,
+                                    "Shared Hit Blocks": 320,
+                                    "Shared Read Blocks": 11,
+                                    "Temp Read Blocks": 0,
+                                    "Temp Written Blocks": 0,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Nested Loop",
+                                        "Join Type": "Anti",
+                                        "Actual Startup Time": 3.16,
+                                        "Actual Total Time": 3.165,
+                                        "Actual Rows": 0,
+                                        "Actual Loops": 1,
+                                        "Shared Hit Blocks": 320,
+                                        "Shared Read Blocks": 11,
+                                        "Temp Read Blocks": 0,
+                                        "Temp Written Blocks": 0,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 3.159,
+                                            "Actual Total Time": 3.163,
+                                            "Actual Rows": 0,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 320,
+                                            "Shared Read Blocks": 11,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Nested Loop",
+                                                "Join Type": "Inner",
+                                                "Actual Startup Time": 3.158,
+                                                "Actual Total Time": 3.161,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 1,
+                                                "Shared Hit Blocks": 320,
+                                                "Shared Read Blocks": 11,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "Nested Loop",
+                                                    "Join Type": "Inner",
+                                                    "Actual Startup Time": 3.157,
+                                                    "Actual Total Time": 3.161,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 1,
+                                                    "Shared Hit Blocks": 320,
+                                                    "Shared Read Blocks": 11,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0,
+                                                    "Plans": [
+                                                      {
+                                                        "Node Type": "Nested Loop",
+                                                        "Join Type": "Inner",
+                                                        "Actual Startup Time": 3.157,
+                                                        "Actual Total Time": 3.16,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 320,
+                                                        "Shared Read Blocks": 11,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0,
+                                                        "Plans": [
+                                                          {
+                                                            "Node Type": "Nested Loop",
+                                                            "Join Type": "Inner",
+                                                            "Actual Startup Time": 3.156,
+                                                            "Actual Total Time": 3.159,
+                                                            "Actual Rows": 0,
+                                                            "Actual Loops": 1,
+                                                            "Shared Hit Blocks": 320,
+                                                            "Shared Read Blocks": 11,
+                                                            "Temp Read Blocks": 0,
+                                                            "Temp Written Blocks": 0,
+                                                            "Plans": [
+                                                              {
+                                                                "Node Type": "Index Scan",
+                                                                "Index Name": "pk_registry_access",
+                                                                "Relation Name": "registry_access",
+                                                                "Actual Startup Time": 0.003,
+                                                                "Actual Total Time": 0.006,
+                                                                "Actual Rows": 1,
+                                                                "Actual Loops": 1,
+                                                                "Rows Removed by Index Recheck": 0,
+                                                                "Rows Removed by Filter": 0,
+                                                                "Shared Hit Blocks": 2,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0
+                                                              },
+                                                              {
+                                                                "Node Type": "Nested Loop",
+                                                                "Join Type": "Inner",
+                                                                "Actual Startup Time": 3.146,
+                                                                "Actual Total Time": 3.149,
+                                                                "Actual Rows": 0,
+                                                                "Actual Loops": 1,
+                                                                "Shared Hit Blocks": 318,
+                                                                "Shared Read Blocks": 11,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0,
+                                                                "Plans": [
+                                                                  {
+                                                                    "Node Type": "Bitmap Heap Scan",
+                                                                    "Relation Name": "document_blocks",
+                                                                    "Actual Startup Time": 3.146,
+                                                                    "Actual Total Time": 3.146,
+                                                                    "Actual Rows": 0,
+                                                                    "Actual Loops": 1,
+                                                                    "Rows Removed by Index Recheck": 0,
+                                                                    "Shared Hit Blocks": 318,
+                                                                    "Shared Read Blocks": 11,
+                                                                    "Temp Read Blocks": 0,
+                                                                    "Temp Written Blocks": 0,
+                                                                    "Plans": [
+                                                                      {
+                                                                        "Node Type": "Bitmap Index Scan",
+                                                                        "Index Name": "ix_document_blocks_trigram",
+                                                                        "Actual Startup Time": 3.144,
+                                                                        "Actual Total Time": 3.145,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 1,
+                                                                        "Shared Hit Blocks": 318,
+                                                                        "Shared Read Blocks": 11,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      }
+                                                                    ]
+                                                                  },
+                                                                  {
+                                                                    "Node Type": "Index Scan",
+                                                                    "Index Name": "pk_documents",
+                                                                    "Relation Name": "documents",
+                                                                    "Actual Startup Time": 0.0,
+                                                                    "Actual Total Time": 0.0,
+                                                                    "Actual Rows": 0,
+                                                                    "Actual Loops": 0,
+                                                                    "Rows Removed by Index Recheck": 0,
+                                                                    "Rows Removed by Filter": 0,
+                                                                    "Shared Hit Blocks": 0,
+                                                                    "Shared Read Blocks": 0,
+                                                                    "Temp Read Blocks": 0,
+                                                                    "Temp Written Blocks": 0,
+                                                                    "Plans": [
+                                                                      {
+                                                                        "Node Type": "Index Only Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Rows Removed by Filter": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Only Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Rows Removed by Filter": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          },
+                                                          {
+                                                            "Node Type": "Index Scan",
+                                                            "Index Name": "pk_content_extractions",
+                                                            "Relation Name": "content_extractions",
+                                                            "Actual Startup Time": 0.0,
+                                                            "Actual Total Time": 0.0,
+                                                            "Actual Rows": 0,
+                                                            "Actual Loops": 0,
+                                                            "Rows Removed by Index Recheck": 0,
+                                                            "Rows Removed by Filter": 0,
+                                                            "Shared Hit Blocks": 0,
+                                                            "Shared Read Blocks": 0,
+                                                            "Temp Read Blocks": 0,
+                                                            "Temp Written Blocks": 0
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "Node Type": "Index Scan",
+                                                        "Index Name": "pk_document_files",
+                                                        "Relation Name": "document_files",
+                                                        "Actual Startup Time": 0.0,
+                                                        "Actual Total Time": 0.0,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 0,
+                                                        "Rows Removed by Index Recheck": 0,
+                                                        "Rows Removed by Filter": 0,
+                                                        "Shared Hit Blocks": 0,
+                                                        "Shared Read Blocks": 0,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      }
+                                                    ]
+                                                  },
+                                                  {
+                                                    "Node Type": "Index Scan",
+                                                    "Index Name": "pk_document_versions",
+                                                    "Relation Name": "document_versions",
+                                                    "Actual Startup Time": 0.0,
+                                                    "Actual Total Time": 0.0,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 0,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Shared Hit Blocks": 0,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_registry_access",
+                                                "Relation Name": "registry_access",
+                                                "Actual Startup Time": 0.0,
+                                                "Actual Total Time": 0.0,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 0,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 0,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 0.0,
+                                            "Actual Total Time": 0.0,
+                                            "Actual Rows": 0,
+                                            "Actual Loops": 0,
+                                            "Shared Hit Blocks": 0,
+                                            "Shared Read Blocks": 0,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "ix_document_files_document_id",
+                                                "Relation Name": "document_files",
+                                                "Actual Startup Time": 0.0,
+                                                "Actual Total Time": 0.0,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 0,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Shared Hit Blocks": 0,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_document_versions",
+                                                "Relation Name": "document_versions",
+                                                "Actual Startup Time": 0.0,
+                                                "Actual Total Time": 0.0,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 0,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Shared Hit Blocks": 0,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "Node Type": "Index Scan",
+                        "Index Name": "pk_documents",
+                        "Relation Name": "documents",
+                        "Actual Startup Time": 0.013,
+                        "Actual Total Time": 0.013,
+                        "Actual Rows": 1,
+                        "Actual Loops": 1,
+                        "Rows Removed by Index Recheck": 0,
+                        "Rows Removed by Filter": 0,
+                        "Shared Hit Blocks": 6,
+                        "Shared Read Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Index Only Scan",
+                            "Index Name": "pk_document_acl",
+                            "Relation Name": "document_acl",
+                            "Actual Startup Time": 0.003,
+                            "Actual Total Time": 0.003,
+                            "Actual Rows": 0,
+                            "Actual Loops": 1,
+                            "Rows Removed by Index Recheck": 0,
+                            "Shared Hit Blocks": 2,
+                            "Shared Read Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          },
+                          {
+                            "Node Type": "Index Scan",
+                            "Index Name": "pk_document_acl",
+                            "Relation Name": "document_acl",
+                            "Actual Startup Time": 0.0,
+                            "Actual Total Time": 0.0,
+                            "Actual Rows": 0,
+                            "Actual Loops": 0,
+                            "Rows Removed by Index Recheck": 0,
+                            "Rows Removed by Filter": 0,
+                            "Shared Hit Blocks": 0,
+                            "Shared Read Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "registry_access",
+                    "Actual Startup Time": 0.007,
+                    "Actual Total Time": 0.007,
+                    "Actual Rows": 1,
+                    "Actual Loops": 1,
+                    "Rows Removed by Filter": 0,
+                    "Shared Hit Blocks": 1,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "title": {
+          "Planning Time": 6.924,
+          "Execution Time": 25.546,
+          "Plan": {
+            "Node Type": "Limit",
+            "Actual Startup Time": 25.173,
+            "Actual Total Time": 25.297,
+            "Actual Rows": 20,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 5433,
+            "Shared Read Blocks": 1352,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Nested Loop",
+                "Join Type": "Inner",
+                "Actual Startup Time": 25.172,
+                "Actual Total Time": 25.292,
+                "Actual Rows": 20,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 5433,
+                "Shared Read Blocks": 1352,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Nested Loop",
+                    "Join Type": "Inner",
+                    "Actual Startup Time": 25.163,
+                    "Actual Total Time": 25.264,
+                    "Actual Rows": 20,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 5413,
+                    "Shared Read Blocks": 1352,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Aggregate",
+                        "Strategy": "Sorted",
+                        "Actual Startup Time": 25.148,
+                        "Actual Total Time": 25.172,
+                        "Actual Rows": 20,
+                        "Actual Loops": 1,
+                        "Shared Hit Blocks": 5293,
+                        "Shared Read Blocks": 1352,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Sort",
+                            "Actual Startup Time": 25.141,
+                            "Actual Total Time": 25.157,
+                            "Actual Rows": 41,
+                            "Actual Loops": 1,
+                            "Sort Method": "quicksort",
+                            "Sort Space Used": 32,
+                            "Sort Space Type": "Memory",
+                            "Shared Hit Blocks": 5293,
+                            "Shared Read Blocks": 1352,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0,
+                            "Plans": [
+                              {
+                                "Node Type": "Append",
+                                "Actual Startup Time": 1.244,
+                                "Actual Total Time": 25.065,
+                                "Actual Rows": 302,
+                                "Actual Loops": 1,
+                                "Shared Hit Blocks": 5293,
+                                "Shared Read Blocks": 1352,
+                                "Temp Read Blocks": 0,
+                                "Temp Written Blocks": 0,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Subquery Scan",
+                                    "Actual Startup Time": 1.243,
+                                    "Actual Total Time": 3.654,
+                                    "Actual Rows": 151,
+                                    "Actual Loops": 1,
+                                    "Shared Hit Blocks": 974,
+                                    "Shared Read Blocks": 188,
+                                    "Temp Read Blocks": 0,
+                                    "Temp Written Blocks": 0,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Nested Loop",
+                                        "Join Type": "Inner",
+                                        "Actual Startup Time": 1.234,
+                                        "Actual Total Time": 3.622,
+                                        "Actual Rows": 151,
+                                        "Actual Loops": 1,
+                                        "Shared Hit Blocks": 974,
+                                        "Shared Read Blocks": 188,
+                                        "Temp Read Blocks": 0,
+                                        "Temp Written Blocks": 0,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 1.221,
+                                            "Actual Total Time": 3.531,
+                                            "Actual Rows": 151,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 972,
+                                            "Shared Read Blocks": 188,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Bitmap Heap Scan",
+                                                "Relation Name": "content_metadata_fragments",
+                                                "Actual Startup Time": 1.194,
+                                                "Actual Total Time": 1.993,
+                                                "Actual Rows": 151,
+                                                "Actual Loops": 1,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 217,
+                                                "Shared Read Blocks": 37,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "BitmapOr",
+                                                    "Actual Startup Time": 1.123,
+                                                    "Actual Total Time": 1.125,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 1,
+                                                    "Shared Hit Blocks": 66,
+                                                    "Shared Read Blocks": 37,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0,
+                                                    "Plans": [
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_number_fingerprint",
+                                                        "Actual Startup Time": 0.046,
+                                                        "Actual Total Time": 0.047,
+                                                        "Actual Rows": 151,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 1,
+                                                        "Shared Read Blocks": 2,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      },
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_vector",
+                                                        "Actual Startup Time": 0.033,
+                                                        "Actual Total Time": 0.033,
+                                                        "Actual Rows": 151,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 7,
+                                                        "Shared Read Blocks": 0,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      },
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_trigram",
+                                                        "Actual Startup Time": 1.043,
+                                                        "Actual Total Time": 1.043,
+                                                        "Actual Rows": 151,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 58,
+                                                        "Shared Read Blocks": 35,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_documents",
+                                                "Relation Name": "documents",
+                                                "Actual Startup Time": 0.01,
+                                                "Actual Total Time": 0.01,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 151,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 755,
+                                                "Shared Read Blocks": 151,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "Index Only Scan",
+                                                    "Index Name": "pk_document_acl",
+                                                    "Relation Name": "document_acl",
+                                                    "Actual Startup Time": 0.001,
+                                                    "Actual Total Time": 0.001,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 151,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Shared Hit Blocks": 302,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  },
+                                                  {
+                                                    "Node Type": "Index Scan",
+                                                    "Index Name": "pk_document_acl",
+                                                    "Relation Name": "document_acl",
+                                                    "Actual Startup Time": 0.0,
+                                                    "Actual Total Time": 0.0,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 0,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Rows Removed by Filter": 0,
+                                                    "Shared Hit Blocks": 0,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "Node Type": "Memoize",
+                                            "Actual Startup Time": 0.0,
+                                            "Actual Total Time": 0.0,
+                                            "Actual Rows": 1,
+                                            "Actual Loops": 151,
+                                            "Shared Hit Blocks": 2,
+                                            "Shared Read Blocks": 0,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_registry_access",
+                                                "Relation Name": "registry_access",
+                                                "Actual Startup Time": 0.007,
+                                                "Actual Total Time": 0.007,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 1,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 2,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Subquery Scan",
+                                    "Actual Startup Time": 10.123,
+                                    "Actual Total Time": 21.369,
+                                    "Actual Rows": 151,
+                                    "Actual Loops": 1,
+                                    "Shared Hit Blocks": 4319,
+                                    "Shared Read Blocks": 1164,
+                                    "Temp Read Blocks": 0,
+                                    "Temp Written Blocks": 0,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Nested Loop",
+                                        "Join Type": "Anti",
+                                        "Actual Startup Time": 10.122,
+                                        "Actual Total Time": 21.342,
+                                        "Actual Rows": 151,
+                                        "Actual Loops": 1,
+                                        "Shared Hit Blocks": 4319,
+                                        "Shared Read Blocks": 1164,
+                                        "Temp Read Blocks": 0,
+                                        "Temp Written Blocks": 0,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 10.097,
+                                            "Actual Total Time": 19.619,
+                                            "Actual Rows": 151,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 3255,
+                                            "Shared Read Blocks": 1020,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Nested Loop",
+                                                "Join Type": "Inner",
+                                                "Actual Startup Time": 10.089,
+                                                "Actual Total Time": 19.37,
+                                                "Actual Rows": 151,
+                                                "Actual Loops": 1,
+                                                "Shared Hit Blocks": 2953,
+                                                "Shared Read Blocks": 1020,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "Nested Loop",
+                                                    "Join Type": "Inner",
+                                                    "Actual Startup Time": 10.063,
+                                                    "Actual Total Time": 16.87,
+                                                    "Actual Rows": 151,
+                                                    "Actual Loops": 1,
+                                                    "Shared Hit Blocks": 2639,
+                                                    "Shared Read Blocks": 730,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0,
+                                                    "Plans": [
+                                                      {
+                                                        "Node Type": "Nested Loop",
+                                                        "Join Type": "Inner",
+                                                        "Actual Startup Time": 10.024,
+                                                        "Actual Total Time": 14.571,
+                                                        "Actual Rows": 151,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 2328,
+                                                        "Shared Read Blocks": 437,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0,
+                                                        "Plans": [
+                                                          {
+                                                            "Node Type": "Nested Loop",
+                                                            "Join Type": "Inner",
+                                                            "Actual Startup Time": 9.993,
+                                                            "Actual Total Time": 12.377,
+                                                            "Actual Rows": 151,
+                                                            "Actual Loops": 1,
+                                                            "Shared Hit Blocks": 2009,
+                                                            "Shared Read Blocks": 152,
+                                                            "Temp Read Blocks": 0,
+                                                            "Temp Written Blocks": 0,
+                                                            "Plans": [
+                                                              {
+                                                                "Node Type": "Index Scan",
+                                                                "Index Name": "pk_registry_access",
+                                                                "Relation Name": "registry_access",
+                                                                "Actual Startup Time": 0.007,
+                                                                "Actual Total Time": 0.008,
+                                                                "Actual Rows": 1,
+                                                                "Actual Loops": 1,
+                                                                "Rows Removed by Index Recheck": 0,
+                                                                "Rows Removed by Filter": 0,
+                                                                "Shared Hit Blocks": 2,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0
+                                                              },
+                                                              {
+                                                                "Node Type": "Nested Loop",
+                                                                "Join Type": "Inner",
+                                                                "Actual Startup Time": 9.98,
+                                                                "Actual Total Time": 12.321,
+                                                                "Actual Rows": 151,
+                                                                "Actual Loops": 1,
+                                                                "Shared Hit Blocks": 2007,
+                                                                "Shared Read Blocks": 152,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0,
+                                                                "Plans": [
+                                                                  {
+                                                                    "Node Type": "Bitmap Heap Scan",
+                                                                    "Relation Name": "document_blocks",
+                                                                    "Actual Startup Time": 9.953,
+                                                                    "Actual Total Time": 11.366,
+                                                                    "Actual Rows": 151,
+                                                                    "Actual Loops": 1,
+                                                                    "Rows Removed by Index Recheck": 0,
+                                                                    "Shared Hit Blocks": 799,
+                                                                    "Shared Read Blocks": 152,
+                                                                    "Temp Read Blocks": 0,
+                                                                    "Temp Written Blocks": 0,
+                                                                    "Plans": [
+                                                                      {
+                                                                        "Node Type": "BitmapOr",
+                                                                        "Actual Startup Time": 9.92,
+                                                                        "Actual Total Time": 9.922,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 1,
+                                                                        "Shared Hit Blocks": 799,
+                                                                        "Shared Read Blocks": 1,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0,
+                                                                        "Plans": [
+                                                                          {
+                                                                            "Node Type": "Bitmap Index Scan",
+                                                                            "Index Name": "ix_document_blocks_vector",
+                                                                            "Actual Startup Time": 4.618,
+                                                                            "Actual Total Time": 4.618,
+                                                                            "Actual Rows": 151,
+                                                                            "Actual Loops": 1,
+                                                                            "Shared Hit Blocks": 455,
+                                                                            "Shared Read Blocks": 0,
+                                                                            "Temp Read Blocks": 0,
+                                                                            "Temp Written Blocks": 0
+                                                                          },
+                                                                          {
+                                                                            "Node Type": "Bitmap Index Scan",
+                                                                            "Index Name": "ix_document_blocks_trigram",
+                                                                            "Actual Startup Time": 5.301,
+                                                                            "Actual Total Time": 5.302,
+                                                                            "Actual Rows": 0,
+                                                                            "Actual Loops": 1,
+                                                                            "Shared Hit Blocks": 344,
+                                                                            "Shared Read Blocks": 1,
+                                                                            "Temp Read Blocks": 0,
+                                                                            "Temp Written Blocks": 0
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  },
+                                                                  {
+                                                                    "Node Type": "Index Scan",
+                                                                    "Index Name": "pk_documents",
+                                                                    "Relation Name": "documents",
+                                                                    "Actual Startup Time": 0.006,
+                                                                    "Actual Total Time": 0.006,
+                                                                    "Actual Rows": 1,
+                                                                    "Actual Loops": 151,
+                                                                    "Rows Removed by Index Recheck": 0,
+                                                                    "Rows Removed by Filter": 0,
+                                                                    "Shared Hit Blocks": 1208,
+                                                                    "Shared Read Blocks": 0,
+                                                                    "Temp Read Blocks": 0,
+                                                                    "Temp Written Blocks": 0,
+                                                                    "Plans": [
+                                                                      {
+                                                                        "Node Type": "Index Only Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.001,
+                                                                        "Actual Total Time": 0.001,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 151,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Shared Hit Blocks": 302,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Rows Removed by Filter": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Only Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 151,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Shared Hit Blocks": 302,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Rows Removed by Filter": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          },
+                                                          {
+                                                            "Node Type": "Index Scan",
+                                                            "Index Name": "pk_content_extractions",
+                                                            "Relation Name": "content_extractions",
+                                                            "Actual Startup Time": 0.014,
+                                                            "Actual Total Time": 0.014,
+                                                            "Actual Rows": 1,
+                                                            "Actual Loops": 151,
+                                                            "Rows Removed by Index Recheck": 0,
+                                                            "Rows Removed by Filter": 0,
+                                                            "Shared Hit Blocks": 319,
+                                                            "Shared Read Blocks": 285,
+                                                            "Temp Read Blocks": 0,
+                                                            "Temp Written Blocks": 0
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "Node Type": "Index Scan",
+                                                        "Index Name": "pk_document_files",
+                                                        "Relation Name": "document_files",
+                                                        "Actual Startup Time": 0.015,
+                                                        "Actual Total Time": 0.015,
+                                                        "Actual Rows": 1,
+                                                        "Actual Loops": 151,
+                                                        "Rows Removed by Index Recheck": 0,
+                                                        "Rows Removed by Filter": 0,
+                                                        "Shared Hit Blocks": 311,
+                                                        "Shared Read Blocks": 293,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      }
+                                                    ]
+                                                  },
+                                                  {
+                                                    "Node Type": "Index Scan",
+                                                    "Index Name": "pk_document_versions",
+                                                    "Relation Name": "document_versions",
+                                                    "Actual Startup Time": 0.016,
+                                                    "Actual Total Time": 0.016,
+                                                    "Actual Rows": 1,
+                                                    "Actual Loops": 151,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Shared Hit Blocks": 314,
+                                                    "Shared Read Blocks": 290,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_registry_access",
+                                                "Relation Name": "registry_access",
+                                                "Actual Startup Time": 0.001,
+                                                "Actual Total Time": 0.001,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 151,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 302,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 0.011,
+                                            "Actual Total Time": 0.011,
+                                            "Actual Rows": 1,
+                                            "Actual Loops": 151,
+                                            "Shared Hit Blocks": 1064,
+                                            "Shared Read Blocks": 144,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "ix_document_files_document_id",
+                                                "Relation Name": "document_files",
+                                                "Actual Startup Time": 0.008,
+                                                "Actual Total Time": 0.008,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 151,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Shared Hit Blocks": 460,
+                                                "Shared Read Blocks": 144,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_document_versions",
+                                                "Relation Name": "document_versions",
+                                                "Actual Startup Time": 0.002,
+                                                "Actual Total Time": 0.002,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 151,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Shared Hit Blocks": 604,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "Node Type": "Index Scan",
+                        "Index Name": "pk_documents",
+                        "Relation Name": "documents",
+                        "Actual Startup Time": 0.004,
+                        "Actual Total Time": 0.004,
+                        "Actual Rows": 1,
+                        "Actual Loops": 20,
+                        "Rows Removed by Index Recheck": 0,
+                        "Rows Removed by Filter": 0,
+                        "Shared Hit Blocks": 120,
+                        "Shared Read Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Index Only Scan",
+                            "Index Name": "pk_document_acl",
+                            "Relation Name": "document_acl",
+                            "Actual Startup Time": 0.0,
+                            "Actual Total Time": 0.0,
+                            "Actual Rows": 0,
+                            "Actual Loops": 20,
+                            "Rows Removed by Index Recheck": 0,
+                            "Shared Hit Blocks": 40,
+                            "Shared Read Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          },
+                          {
+                            "Node Type": "Index Scan",
+                            "Index Name": "pk_document_acl",
+                            "Relation Name": "document_acl",
+                            "Actual Startup Time": 0.0,
+                            "Actual Total Time": 0.0,
+                            "Actual Rows": 0,
+                            "Actual Loops": 0,
+                            "Rows Removed by Index Recheck": 0,
+                            "Rows Removed by Filter": 0,
+                            "Shared Hit Blocks": 0,
+                            "Shared Read Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "registry_access",
+                    "Actual Startup Time": 0.001,
+                    "Actual Total Time": 0.001,
+                    "Actual Rows": 1,
+                    "Actual Loops": 20,
+                    "Rows Removed by Filter": 0,
+                    "Shared Hit Blocks": 20,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "fuzzy": {
+          "Planning Time": 11.731,
+          "Execution Time": 20.707,
+          "Plan": {
+            "Node Type": "Limit",
+            "Actual Startup Time": 20.329,
+            "Actual Total Time": 20.459,
+            "Actual Rows": 20,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 2387,
+            "Shared Read Blocks": 9,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Nested Loop",
+                "Join Type": "Inner",
+                "Actual Startup Time": 20.328,
+                "Actual Total Time": 20.455,
+                "Actual Rows": 20,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 2387,
+                "Shared Read Blocks": 9,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Nested Loop",
+                    "Join Type": "Inner",
+                    "Actual Startup Time": 20.318,
+                    "Actual Total Time": 20.426,
+                    "Actual Rows": 20,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 2367,
+                    "Shared Read Blocks": 9,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Aggregate",
+                        "Strategy": "Sorted",
+                        "Actual Startup Time": 20.295,
+                        "Actual Total Time": 20.319,
+                        "Actual Rows": 20,
+                        "Actual Loops": 1,
+                        "Shared Hit Blocks": 2247,
+                        "Shared Read Blocks": 9,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Sort",
+                            "Actual Startup Time": 20.287,
+                            "Actual Total Time": 20.303,
+                            "Actual Rows": 21,
+                            "Actual Loops": 1,
+                            "Sort Method": "quicksort",
+                            "Sort Space Used": 28,
+                            "Sort Space Type": "Memory",
+                            "Shared Hit Blocks": 2247,
+                            "Shared Read Blocks": 9,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0,
+                            "Plans": [
+                              {
+                                "Node Type": "Append",
+                                "Actual Startup Time": 0.5,
+                                "Actual Total Time": 20.259,
+                                "Actual Rows": 151,
+                                "Actual Loops": 1,
+                                "Shared Hit Blocks": 2247,
+                                "Shared Read Blocks": 9,
+                                "Temp Read Blocks": 0,
+                                "Temp Written Blocks": 0,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Subquery Scan",
+                                    "Actual Startup Time": 0.499,
+                                    "Actual Total Time": 7.992,
+                                    "Actual Rows": 151,
+                                    "Actual Loops": 1,
+                                    "Shared Hit Blocks": 1122,
+                                    "Shared Read Blocks": 4,
+                                    "Temp Read Blocks": 0,
+                                    "Temp Written Blocks": 0,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Nested Loop",
+                                        "Join Type": "Inner",
+                                        "Actual Startup Time": 0.499,
+                                        "Actual Total Time": 7.968,
+                                        "Actual Rows": 151,
+                                        "Actual Loops": 1,
+                                        "Shared Hit Blocks": 1122,
+                                        "Shared Read Blocks": 4,
+                                        "Temp Read Blocks": 0,
+                                        "Temp Written Blocks": 0,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 0.486,
+                                            "Actual Total Time": 7.875,
+                                            "Actual Rows": 151,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 1120,
+                                            "Shared Read Blocks": 4,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Bitmap Heap Scan",
+                                                "Relation Name": "content_metadata_fragments",
+                                                "Actual Startup Time": 0.446,
+                                                "Actual Total Time": 5.252,
+                                                "Actual Rows": 151,
+                                                "Actual Loops": 1,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 214,
+                                                "Shared Read Blocks": 4,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "BitmapOr",
+                                                    "Actual Startup Time": 0.343,
+                                                    "Actual Total Time": 0.345,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 1,
+                                                    "Shared Hit Blocks": 63,
+                                                    "Shared Read Blocks": 4,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0,
+                                                    "Plans": [
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_number_fingerprint",
+                                                        "Actual Startup Time": 0.19,
+                                                        "Actual Total Time": 0.191,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 1,
+                                                        "Shared Read Blocks": 2,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      },
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_vector",
+                                                        "Actual Startup Time": 0.01,
+                                                        "Actual Total Time": 0.01,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 4,
+                                                        "Shared Read Blocks": 0,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      },
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_trigram",
+                                                        "Actual Startup Time": 0.056,
+                                                        "Actual Total Time": 0.056,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 25,
+                                                        "Shared Read Blocks": 2,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      },
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_trigram",
+                                                        "Actual Startup Time": 0.085,
+                                                        "Actual Total Time": 0.085,
+                                                        "Actual Rows": 151,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 33,
+                                                        "Shared Read Blocks": 0,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_documents",
+                                                "Relation Name": "documents",
+                                                "Actual Startup Time": 0.017,
+                                                "Actual Total Time": 0.017,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 151,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 906,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "Index Only Scan",
+                                                    "Index Name": "pk_document_acl",
+                                                    "Relation Name": "document_acl",
+                                                    "Actual Startup Time": 0.001,
+                                                    "Actual Total Time": 0.001,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 151,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Shared Hit Blocks": 302,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  },
+                                                  {
+                                                    "Node Type": "Index Scan",
+                                                    "Index Name": "pk_document_acl",
+                                                    "Relation Name": "document_acl",
+                                                    "Actual Startup Time": 0.0,
+                                                    "Actual Total Time": 0.0,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 0,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Rows Removed by Filter": 0,
+                                                    "Shared Hit Blocks": 0,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "Node Type": "Memoize",
+                                            "Actual Startup Time": 0.0,
+                                            "Actual Total Time": 0.0,
+                                            "Actual Rows": 1,
+                                            "Actual Loops": 151,
+                                            "Shared Hit Blocks": 2,
+                                            "Shared Read Blocks": 0,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_registry_access",
+                                                "Relation Name": "registry_access",
+                                                "Actual Startup Time": 0.007,
+                                                "Actual Total Time": 0.007,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 1,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 2,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Subquery Scan",
+                                    "Actual Startup Time": 12.239,
+                                    "Actual Total Time": 12.245,
+                                    "Actual Rows": 0,
+                                    "Actual Loops": 1,
+                                    "Shared Hit Blocks": 1125,
+                                    "Shared Read Blocks": 5,
+                                    "Temp Read Blocks": 0,
+                                    "Temp Written Blocks": 0,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Nested Loop",
+                                        "Join Type": "Anti",
+                                        "Actual Startup Time": 12.238,
+                                        "Actual Total Time": 12.244,
+                                        "Actual Rows": 0,
+                                        "Actual Loops": 1,
+                                        "Shared Hit Blocks": 1125,
+                                        "Shared Read Blocks": 5,
+                                        "Temp Read Blocks": 0,
+                                        "Temp Written Blocks": 0,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 12.237,
+                                            "Actual Total Time": 12.242,
+                                            "Actual Rows": 0,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 1125,
+                                            "Shared Read Blocks": 5,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Nested Loop",
+                                                "Join Type": "Inner",
+                                                "Actual Startup Time": 12.236,
+                                                "Actual Total Time": 12.241,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 1,
+                                                "Shared Hit Blocks": 1125,
+                                                "Shared Read Blocks": 5,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "Nested Loop",
+                                                    "Join Type": "Inner",
+                                                    "Actual Startup Time": 12.235,
+                                                    "Actual Total Time": 12.239,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 1,
+                                                    "Shared Hit Blocks": 1125,
+                                                    "Shared Read Blocks": 5,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0,
+                                                    "Plans": [
+                                                      {
+                                                        "Node Type": "Nested Loop",
+                                                        "Join Type": "Inner",
+                                                        "Actual Startup Time": 12.234,
+                                                        "Actual Total Time": 12.238,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 1125,
+                                                        "Shared Read Blocks": 5,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0,
+                                                        "Plans": [
+                                                          {
+                                                            "Node Type": "Nested Loop",
+                                                            "Join Type": "Inner",
+                                                            "Actual Startup Time": 12.233,
+                                                            "Actual Total Time": 12.236,
+                                                            "Actual Rows": 0,
+                                                            "Actual Loops": 1,
+                                                            "Shared Hit Blocks": 1125,
+                                                            "Shared Read Blocks": 5,
+                                                            "Temp Read Blocks": 0,
+                                                            "Temp Written Blocks": 0,
+                                                            "Plans": [
+                                                              {
+                                                                "Node Type": "Index Scan",
+                                                                "Index Name": "pk_registry_access",
+                                                                "Relation Name": "registry_access",
+                                                                "Actual Startup Time": 0.009,
+                                                                "Actual Total Time": 0.012,
+                                                                "Actual Rows": 1,
+                                                                "Actual Loops": 1,
+                                                                "Rows Removed by Index Recheck": 0,
+                                                                "Rows Removed by Filter": 0,
+                                                                "Shared Hit Blocks": 2,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0
+                                                              },
+                                                              {
+                                                                "Node Type": "Nested Loop",
+                                                                "Join Type": "Inner",
+                                                                "Actual Startup Time": 12.212,
+                                                                "Actual Total Time": 12.215,
+                                                                "Actual Rows": 0,
+                                                                "Actual Loops": 1,
+                                                                "Shared Hit Blocks": 1123,
+                                                                "Shared Read Blocks": 5,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0,
+                                                                "Plans": [
+                                                                  {
+                                                                    "Node Type": "Bitmap Heap Scan",
+                                                                    "Relation Name": "document_blocks",
+                                                                    "Actual Startup Time": 12.211,
+                                                                    "Actual Total Time": 12.213,
+                                                                    "Actual Rows": 0,
+                                                                    "Actual Loops": 1,
+                                                                    "Rows Removed by Index Recheck": 0,
+                                                                    "Shared Hit Blocks": 1123,
+                                                                    "Shared Read Blocks": 5,
+                                                                    "Temp Read Blocks": 0,
+                                                                    "Temp Written Blocks": 0,
+                                                                    "Plans": [
+                                                                      {
+                                                                        "Node Type": "BitmapOr",
+                                                                        "Actual Startup Time": 12.209,
+                                                                        "Actual Total Time": 12.21,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 1,
+                                                                        "Shared Hit Blocks": 1123,
+                                                                        "Shared Read Blocks": 5,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0,
+                                                                        "Plans": [
+                                                                          {
+                                                                            "Node Type": "Bitmap Index Scan",
+                                                                            "Index Name": "ix_document_blocks_vector",
+                                                                            "Actual Startup Time": 3.777,
+                                                                            "Actual Total Time": 3.778,
+                                                                            "Actual Rows": 0,
+                                                                            "Actual Loops": 1,
+                                                                            "Shared Hit Blocks": 452,
+                                                                            "Shared Read Blocks": 0,
+                                                                            "Temp Read Blocks": 0,
+                                                                            "Temp Written Blocks": 0
+                                                                          },
+                                                                          {
+                                                                            "Node Type": "Bitmap Index Scan",
+                                                                            "Index Name": "ix_document_blocks_trigram",
+                                                                            "Actual Startup Time": 3.859,
+                                                                            "Actual Total Time": 3.859,
+                                                                            "Actual Rows": 0,
+                                                                            "Actual Loops": 1,
+                                                                            "Shared Hit Blocks": 332,
+                                                                            "Shared Read Blocks": 1,
+                                                                            "Temp Read Blocks": 0,
+                                                                            "Temp Written Blocks": 0
+                                                                          },
+                                                                          {
+                                                                            "Node Type": "Bitmap Index Scan",
+                                                                            "Index Name": "ix_document_blocks_trigram",
+                                                                            "Actual Startup Time": 4.571,
+                                                                            "Actual Total Time": 4.571,
+                                                                            "Actual Rows": 0,
+                                                                            "Actual Loops": 1,
+                                                                            "Shared Hit Blocks": 339,
+                                                                            "Shared Read Blocks": 4,
+                                                                            "Temp Read Blocks": 0,
+                                                                            "Temp Written Blocks": 0
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  },
+                                                                  {
+                                                                    "Node Type": "Index Scan",
+                                                                    "Index Name": "pk_documents",
+                                                                    "Relation Name": "documents",
+                                                                    "Actual Startup Time": 0.0,
+                                                                    "Actual Total Time": 0.0,
+                                                                    "Actual Rows": 0,
+                                                                    "Actual Loops": 0,
+                                                                    "Rows Removed by Index Recheck": 0,
+                                                                    "Rows Removed by Filter": 0,
+                                                                    "Shared Hit Blocks": 0,
+                                                                    "Shared Read Blocks": 0,
+                                                                    "Temp Read Blocks": 0,
+                                                                    "Temp Written Blocks": 0,
+                                                                    "Plans": [
+                                                                      {
+                                                                        "Node Type": "Index Only Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Rows Removed by Filter": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Only Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      },
+                                                                      {
+                                                                        "Node Type": "Index Scan",
+                                                                        "Index Name": "pk_document_acl",
+                                                                        "Relation Name": "document_acl",
+                                                                        "Actual Startup Time": 0.0,
+                                                                        "Actual Total Time": 0.0,
+                                                                        "Actual Rows": 0,
+                                                                        "Actual Loops": 0,
+                                                                        "Rows Removed by Index Recheck": 0,
+                                                                        "Rows Removed by Filter": 0,
+                                                                        "Shared Hit Blocks": 0,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          },
+                                                          {
+                                                            "Node Type": "Index Scan",
+                                                            "Index Name": "pk_content_extractions",
+                                                            "Relation Name": "content_extractions",
+                                                            "Actual Startup Time": 0.0,
+                                                            "Actual Total Time": 0.0,
+                                                            "Actual Rows": 0,
+                                                            "Actual Loops": 0,
+                                                            "Rows Removed by Index Recheck": 0,
+                                                            "Rows Removed by Filter": 0,
+                                                            "Shared Hit Blocks": 0,
+                                                            "Shared Read Blocks": 0,
+                                                            "Temp Read Blocks": 0,
+                                                            "Temp Written Blocks": 0
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "Node Type": "Index Scan",
+                                                        "Index Name": "pk_document_files",
+                                                        "Relation Name": "document_files",
+                                                        "Actual Startup Time": 0.0,
+                                                        "Actual Total Time": 0.0,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 0,
+                                                        "Rows Removed by Index Recheck": 0,
+                                                        "Rows Removed by Filter": 0,
+                                                        "Shared Hit Blocks": 0,
+                                                        "Shared Read Blocks": 0,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      }
+                                                    ]
+                                                  },
+                                                  {
+                                                    "Node Type": "Index Scan",
+                                                    "Index Name": "pk_document_versions",
+                                                    "Relation Name": "document_versions",
+                                                    "Actual Startup Time": 0.0,
+                                                    "Actual Total Time": 0.0,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 0,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Shared Hit Blocks": 0,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_registry_access",
+                                                "Relation Name": "registry_access",
+                                                "Actual Startup Time": 0.0,
+                                                "Actual Total Time": 0.0,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 0,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 0,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 0.0,
+                                            "Actual Total Time": 0.0,
+                                            "Actual Rows": 0,
+                                            "Actual Loops": 0,
+                                            "Shared Hit Blocks": 0,
+                                            "Shared Read Blocks": 0,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "ix_document_files_document_id",
+                                                "Relation Name": "document_files",
+                                                "Actual Startup Time": 0.0,
+                                                "Actual Total Time": 0.0,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 0,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Shared Hit Blocks": 0,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_document_versions",
+                                                "Relation Name": "document_versions",
+                                                "Actual Startup Time": 0.0,
+                                                "Actual Total Time": 0.0,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 0,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Shared Hit Blocks": 0,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "Node Type": "Index Scan",
+                        "Index Name": "pk_documents",
+                        "Relation Name": "documents",
+                        "Actual Startup Time": 0.005,
+                        "Actual Total Time": 0.005,
+                        "Actual Rows": 1,
+                        "Actual Loops": 20,
+                        "Rows Removed by Index Recheck": 0,
+                        "Rows Removed by Filter": 0,
+                        "Shared Hit Blocks": 120,
+                        "Shared Read Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Index Only Scan",
+                            "Index Name": "pk_document_acl",
+                            "Relation Name": "document_acl",
+                            "Actual Startup Time": 0.001,
+                            "Actual Total Time": 0.001,
+                            "Actual Rows": 0,
+                            "Actual Loops": 20,
+                            "Rows Removed by Index Recheck": 0,
+                            "Shared Hit Blocks": 40,
+                            "Shared Read Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          },
+                          {
+                            "Node Type": "Index Scan",
+                            "Index Name": "pk_document_acl",
+                            "Relation Name": "document_acl",
+                            "Actual Startup Time": 0.0,
+                            "Actual Total Time": 0.0,
+                            "Actual Rows": 0,
+                            "Actual Loops": 0,
+                            "Rows Removed by Index Recheck": 0,
+                            "Rows Removed by Filter": 0,
+                            "Shared Hit Blocks": 0,
+                            "Shared Read Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "registry_access",
+                    "Actual Startup Time": 0.001,
+                    "Actual Total Time": 0.001,
+                    "Actual Rows": 1,
+                    "Actual Loops": 20,
+                    "Rows Removed by Filter": 0,
+                    "Shared Hit Blocks": 20,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "file_phrase": {
+          "Planning Time": 5.44,
+          "Execution Time": 9.397,
+          "Plan": {
+            "Node Type": "Limit",
+            "Actual Startup Time": 9.073,
+            "Actual Total Time": 9.182,
+            "Actual Rows": 20,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 5606,
+            "Shared Read Blocks": 2,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Nested Loop",
+                "Join Type": "Inner",
+                "Actual Startup Time": 9.072,
+                "Actual Total Time": 9.178,
+                "Actual Rows": 20,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 5606,
+                "Shared Read Blocks": 2,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Nested Loop",
+                    "Join Type": "Inner",
+                    "Actual Startup Time": 9.067,
+                    "Actual Total Time": 9.153,
+                    "Actual Rows": 20,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 5566,
+                    "Shared Read Blocks": 2,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Aggregate",
+                        "Strategy": "Sorted",
+                        "Actual Startup Time": 9.055,
+                        "Actual Total Time": 9.073,
+                        "Actual Rows": 20,
+                        "Actual Loops": 1,
+                        "Shared Hit Blocks": 5446,
+                        "Shared Read Blocks": 2,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Sort",
+                            "Actual Startup Time": 9.049,
+                            "Actual Total Time": 9.059,
+                            "Actual Rows": 21,
+                            "Actual Loops": 1,
+                            "Sort Method": "quicksort",
+                            "Sort Space Used": 28,
+                            "Sort Space Type": "Memory",
+                            "Shared Hit Blocks": 5446,
+                            "Shared Read Blocks": 2,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0,
+                            "Plans": [
+                              {
+                                "Node Type": "Append",
+                                "Actual Startup Time": 4.937,
+                                "Actual Total Time": 9.022,
+                                "Actual Rows": 151,
+                                "Actual Loops": 1,
+                                "Shared Hit Blocks": 5446,
+                                "Shared Read Blocks": 2,
+                                "Temp Read Blocks": 0,
+                                "Temp Written Blocks": 0,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Subquery Scan",
+                                    "Actual Startup Time": 0.049,
+                                    "Actual Total Time": 0.053,
+                                    "Actual Rows": 0,
+                                    "Actual Loops": 1,
+                                    "Shared Hit Blocks": 8,
+                                    "Shared Read Blocks": 2,
+                                    "Temp Read Blocks": 0,
+                                    "Temp Written Blocks": 0,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Nested Loop",
+                                        "Join Type": "Inner",
+                                        "Actual Startup Time": 0.048,
+                                        "Actual Total Time": 0.052,
+                                        "Actual Rows": 0,
+                                        "Actual Loops": 1,
+                                        "Shared Hit Blocks": 8,
+                                        "Shared Read Blocks": 2,
+                                        "Temp Read Blocks": 0,
+                                        "Temp Written Blocks": 0,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 0.048,
+                                            "Actual Total Time": 0.051,
+                                            "Actual Rows": 0,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 8,
+                                            "Shared Read Blocks": 2,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Bitmap Heap Scan",
+                                                "Relation Name": "content_metadata_fragments",
+                                                "Actual Startup Time": 0.048,
+                                                "Actual Total Time": 0.05,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 1,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 8,
+                                                "Shared Read Blocks": 2,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "BitmapOr",
+                                                    "Actual Startup Time": 0.047,
+                                                    "Actual Total Time": 0.048,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 1,
+                                                    "Shared Hit Blocks": 8,
+                                                    "Shared Read Blocks": 2,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0,
+                                                    "Plans": [
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_number_fingerprint",
+                                                        "Actual Startup Time": 0.035,
+                                                        "Actual Total Time": 0.035,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 1,
+                                                        "Shared Read Blocks": 2,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      },
+                                                      {
+                                                        "Node Type": "Bitmap Index Scan",
+                                                        "Index Name": "ix_metadata_fragments_vector",
+                                                        "Actual Startup Time": 0.011,
+                                                        "Actual Total Time": 0.011,
+                                                        "Actual Rows": 0,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 7,
+                                                        "Shared Read Blocks": 0,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_documents",
+                                                "Relation Name": "documents",
+                                                "Actual Startup Time": 0.0,
+                                                "Actual Total Time": 0.0,
+                                                "Actual Rows": 0,
+                                                "Actual Loops": 0,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 0,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "Index Only Scan",
+                                                    "Index Name": "pk_document_acl",
+                                                    "Relation Name": "document_acl",
+                                                    "Actual Startup Time": 0.0,
+                                                    "Actual Total Time": 0.0,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 0,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Shared Hit Blocks": 0,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  },
+                                                  {
+                                                    "Node Type": "Index Scan",
+                                                    "Index Name": "pk_document_acl",
+                                                    "Relation Name": "document_acl",
+                                                    "Actual Startup Time": 0.0,
+                                                    "Actual Total Time": 0.0,
+                                                    "Actual Rows": 0,
+                                                    "Actual Loops": 0,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Rows Removed by Filter": 0,
+                                                    "Shared Hit Blocks": 0,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "Node Type": "Index Scan",
+                                            "Index Name": "pk_registry_access",
+                                            "Relation Name": "registry_access",
+                                            "Actual Startup Time": 0.0,
+                                            "Actual Total Time": 0.0,
+                                            "Actual Rows": 0,
+                                            "Actual Loops": 0,
+                                            "Rows Removed by Index Recheck": 0,
+                                            "Rows Removed by Filter": 0,
+                                            "Shared Hit Blocks": 0,
+                                            "Shared Read Blocks": 0,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "Node Type": "Subquery Scan",
+                                    "Actual Startup Time": 4.887,
+                                    "Actual Total Time": 8.95,
+                                    "Actual Rows": 151,
+                                    "Actual Loops": 1,
+                                    "Shared Hit Blocks": 5438,
+                                    "Shared Read Blocks": 0,
+                                    "Temp Read Blocks": 0,
+                                    "Temp Written Blocks": 0,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Nested Loop",
+                                        "Join Type": "Anti",
+                                        "Actual Startup Time": 4.886,
+                                        "Actual Total Time": 8.928,
+                                        "Actual Rows": 151,
+                                        "Actual Loops": 1,
+                                        "Shared Hit Blocks": 5438,
+                                        "Shared Read Blocks": 0,
+                                        "Temp Read Blocks": 0,
+                                        "Temp Written Blocks": 0,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 4.853,
+                                            "Actual Total Time": 8.128,
+                                            "Actual Rows": 151,
+                                            "Actual Loops": 1,
+                                            "Shared Hit Blocks": 4230,
+                                            "Shared Read Blocks": 0,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Nested Loop",
+                                                "Join Type": "Inner",
+                                                "Actual Startup Time": 4.847,
+                                                "Actual Total Time": 7.95,
+                                                "Actual Rows": 151,
+                                                "Actual Loops": 1,
+                                                "Shared Hit Blocks": 3928,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0,
+                                                "Plans": [
+                                                  {
+                                                    "Node Type": "Nested Loop",
+                                                    "Join Type": "Inner",
+                                                    "Actual Startup Time": 4.837,
+                                                    "Actual Total Time": 7.747,
+                                                    "Actual Rows": 151,
+                                                    "Actual Loops": 1,
+                                                    "Shared Hit Blocks": 3626,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0,
+                                                    "Plans": [
+                                                      {
+                                                        "Node Type": "Nested Loop",
+                                                        "Join Type": "Inner",
+                                                        "Actual Startup Time": 4.828,
+                                                        "Actual Total Time": 7.125,
+                                                        "Actual Rows": 151,
+                                                        "Actual Loops": 1,
+                                                        "Shared Hit Blocks": 3022,
+                                                        "Shared Read Blocks": 0,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0,
+                                                        "Plans": [
+                                                          {
+                                                            "Node Type": "Nested Loop",
+                                                            "Join Type": "Inner",
+                                                            "Actual Startup Time": 4.81,
+                                                            "Actual Total Time": 6.276,
+                                                            "Actual Rows": 151,
+                                                            "Actual Loops": 1,
+                                                            "Shared Hit Blocks": 1814,
+                                                            "Shared Read Blocks": 0,
+                                                            "Temp Read Blocks": 0,
+                                                            "Temp Written Blocks": 0,
+                                                            "Plans": [
+                                                              {
+                                                                "Node Type": "Nested Loop",
+                                                                "Join Type": "Inner",
+                                                                "Actual Startup Time": 4.795,
+                                                                "Actual Total Time": 5.664,
+                                                                "Actual Rows": 151,
+                                                                "Actual Loops": 1,
+                                                                "Shared Hit Blocks": 1210,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0,
+                                                                "Plans": [
+                                                                  {
+                                                                    "Node Type": "Bitmap Heap Scan",
+                                                                    "Relation Name": "document_blocks",
+                                                                    "Actual Startup Time": 4.777,
+                                                                    "Actual Total Time": 5.016,
+                                                                    "Actual Rows": 151,
+                                                                    "Actual Loops": 1,
+                                                                    "Rows Removed by Index Recheck": 0,
+                                                                    "Shared Hit Blocks": 606,
+                                                                    "Shared Read Blocks": 0,
+                                                                    "Temp Read Blocks": 0,
+                                                                    "Temp Written Blocks": 0,
+                                                                    "Plans": [
+                                                                      {
+                                                                        "Node Type": "Bitmap Index Scan",
+                                                                        "Index Name": "ix_document_blocks_vector",
+                                                                        "Actual Startup Time": 4.741,
+                                                                        "Actual Total Time": 4.741,
+                                                                        "Actual Rows": 151,
+                                                                        "Actual Loops": 1,
+                                                                        "Shared Hit Blocks": 455,
+                                                                        "Shared Read Blocks": 0,
+                                                                        "Temp Read Blocks": 0,
+                                                                        "Temp Written Blocks": 0
+                                                                      }
+                                                                    ]
+                                                                  },
+                                                                  {
+                                                                    "Node Type": "Index Scan",
+                                                                    "Index Name": "pk_content_extractions",
+                                                                    "Relation Name": "content_extractions",
+                                                                    "Actual Startup Time": 0.004,
+                                                                    "Actual Total Time": 0.004,
+                                                                    "Actual Rows": 1,
+                                                                    "Actual Loops": 151,
+                                                                    "Rows Removed by Index Recheck": 0,
+                                                                    "Rows Removed by Filter": 0,
+                                                                    "Shared Hit Blocks": 604,
+                                                                    "Shared Read Blocks": 0,
+                                                                    "Temp Read Blocks": 0,
+                                                                    "Temp Written Blocks": 0
+                                                                  }
+                                                                ]
+                                                              },
+                                                              {
+                                                                "Node Type": "Index Scan",
+                                                                "Index Name": "pk_document_files",
+                                                                "Relation Name": "document_files",
+                                                                "Actual Startup Time": 0.004,
+                                                                "Actual Total Time": 0.004,
+                                                                "Actual Rows": 1,
+                                                                "Actual Loops": 151,
+                                                                "Rows Removed by Index Recheck": 0,
+                                                                "Rows Removed by Filter": 0,
+                                                                "Shared Hit Blocks": 604,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0
+                                                              }
+                                                            ]
+                                                          },
+                                                          {
+                                                            "Node Type": "Index Scan",
+                                                            "Index Name": "pk_documents",
+                                                            "Relation Name": "documents",
+                                                            "Actual Startup Time": 0.005,
+                                                            "Actual Total Time": 0.005,
+                                                            "Actual Rows": 1,
+                                                            "Actual Loops": 151,
+                                                            "Rows Removed by Index Recheck": 0,
+                                                            "Rows Removed by Filter": 0,
+                                                            "Shared Hit Blocks": 1208,
+                                                            "Shared Read Blocks": 0,
+                                                            "Temp Read Blocks": 0,
+                                                            "Temp Written Blocks": 0,
+                                                            "Plans": [
+                                                              {
+                                                                "Node Type": "Index Only Scan",
+                                                                "Index Name": "pk_document_acl",
+                                                                "Relation Name": "document_acl",
+                                                                "Actual Startup Time": 0.0,
+                                                                "Actual Total Time": 0.0,
+                                                                "Actual Rows": 0,
+                                                                "Actual Loops": 151,
+                                                                "Rows Removed by Index Recheck": 0,
+                                                                "Shared Hit Blocks": 302,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0
+                                                              },
+                                                              {
+                                                                "Node Type": "Index Scan",
+                                                                "Index Name": "pk_document_acl",
+                                                                "Relation Name": "document_acl",
+                                                                "Actual Startup Time": 0.0,
+                                                                "Actual Total Time": 0.0,
+                                                                "Actual Rows": 0,
+                                                                "Actual Loops": 0,
+                                                                "Rows Removed by Index Recheck": 0,
+                                                                "Rows Removed by Filter": 0,
+                                                                "Shared Hit Blocks": 0,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0
+                                                              },
+                                                              {
+                                                                "Node Type": "Index Only Scan",
+                                                                "Index Name": "pk_document_acl",
+                                                                "Relation Name": "document_acl",
+                                                                "Actual Startup Time": 0.0,
+                                                                "Actual Total Time": 0.0,
+                                                                "Actual Rows": 0,
+                                                                "Actual Loops": 151,
+                                                                "Rows Removed by Index Recheck": 0,
+                                                                "Shared Hit Blocks": 302,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0
+                                                              },
+                                                              {
+                                                                "Node Type": "Index Scan",
+                                                                "Index Name": "pk_document_acl",
+                                                                "Relation Name": "document_acl",
+                                                                "Actual Startup Time": 0.0,
+                                                                "Actual Total Time": 0.0,
+                                                                "Actual Rows": 0,
+                                                                "Actual Loops": 0,
+                                                                "Rows Removed by Index Recheck": 0,
+                                                                "Rows Removed by Filter": 0,
+                                                                "Shared Hit Blocks": 0,
+                                                                "Shared Read Blocks": 0,
+                                                                "Temp Read Blocks": 0,
+                                                                "Temp Written Blocks": 0
+                                                              }
+                                                            ]
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "Node Type": "Index Scan",
+                                                        "Index Name": "pk_document_versions",
+                                                        "Relation Name": "document_versions",
+                                                        "Actual Startup Time": 0.004,
+                                                        "Actual Total Time": 0.004,
+                                                        "Actual Rows": 1,
+                                                        "Actual Loops": 151,
+                                                        "Rows Removed by Index Recheck": 0,
+                                                        "Shared Hit Blocks": 604,
+                                                        "Shared Read Blocks": 0,
+                                                        "Temp Read Blocks": 0,
+                                                        "Temp Written Blocks": 0
+                                                      }
+                                                    ]
+                                                  },
+                                                  {
+                                                    "Node Type": "Index Scan",
+                                                    "Index Name": "pk_registry_access",
+                                                    "Relation Name": "registry_access",
+                                                    "Actual Startup Time": 0.001,
+                                                    "Actual Total Time": 0.001,
+                                                    "Actual Rows": 1,
+                                                    "Actual Loops": 151,
+                                                    "Rows Removed by Index Recheck": 0,
+                                                    "Rows Removed by Filter": 0,
+                                                    "Shared Hit Blocks": 302,
+                                                    "Shared Read Blocks": 0,
+                                                    "Temp Read Blocks": 0,
+                                                    "Temp Written Blocks": 0
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_registry_access",
+                                                "Relation Name": "registry_access",
+                                                "Actual Startup Time": 0.001,
+                                                "Actual Total Time": 0.001,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 151,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Rows Removed by Filter": 0,
+                                                "Shared Hit Blocks": 302,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "Node Type": "Nested Loop",
+                                            "Join Type": "Inner",
+                                            "Actual Startup Time": 0.005,
+                                            "Actual Total Time": 0.005,
+                                            "Actual Rows": 1,
+                                            "Actual Loops": 151,
+                                            "Shared Hit Blocks": 1208,
+                                            "Shared Read Blocks": 0,
+                                            "Temp Read Blocks": 0,
+                                            "Temp Written Blocks": 0,
+                                            "Plans": [
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "ix_document_files_document_id",
+                                                "Relation Name": "document_files",
+                                                "Actual Startup Time": 0.003,
+                                                "Actual Total Time": 0.003,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 151,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Shared Hit Blocks": 604,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              },
+                                              {
+                                                "Node Type": "Index Scan",
+                                                "Index Name": "pk_document_versions",
+                                                "Relation Name": "document_versions",
+                                                "Actual Startup Time": 0.001,
+                                                "Actual Total Time": 0.001,
+                                                "Actual Rows": 1,
+                                                "Actual Loops": 151,
+                                                "Rows Removed by Index Recheck": 0,
+                                                "Shared Hit Blocks": 604,
+                                                "Shared Read Blocks": 0,
+                                                "Temp Read Blocks": 0,
+                                                "Temp Written Blocks": 0
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "Node Type": "Index Scan",
+                        "Index Name": "pk_documents",
+                        "Relation Name": "documents",
+                        "Actual Startup Time": 0.003,
+                        "Actual Total Time": 0.003,
+                        "Actual Rows": 1,
+                        "Actual Loops": 20,
+                        "Rows Removed by Index Recheck": 0,
+                        "Rows Removed by Filter": 0,
+                        "Shared Hit Blocks": 120,
+                        "Shared Read Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Index Only Scan",
+                            "Index Name": "pk_document_acl",
+                            "Relation Name": "document_acl",
+                            "Actual Startup Time": 0.0,
+                            "Actual Total Time": 0.0,
+                            "Actual Rows": 0,
+                            "Actual Loops": 20,
+                            "Rows Removed by Index Recheck": 0,
+                            "Shared Hit Blocks": 40,
+                            "Shared Read Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          },
+                          {
+                            "Node Type": "Index Scan",
+                            "Index Name": "pk_document_acl",
+                            "Relation Name": "document_acl",
+                            "Actual Startup Time": 0.0,
+                            "Actual Total Time": 0.0,
+                            "Actual Rows": 0,
+                            "Actual Loops": 0,
+                            "Rows Removed by Index Recheck": 0,
+                            "Rows Removed by Filter": 0,
+                            "Shared Hit Blocks": 0,
+                            "Shared Read Blocks": 0,
+                            "Temp Read Blocks": 0,
+                            "Temp Written Blocks": 0
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Node Type": "Index Scan",
+                    "Index Name": "pk_registry_access",
+                    "Relation Name": "registry_access",
+                    "Actual Startup Time": 0.001,
+                    "Actual Total Time": 0.001,
+                    "Actual Rows": 1,
+                    "Actual Loops": 20,
+                    "Rows Removed by Index Recheck": 0,
+                    "Rows Removed by Filter": 0,
+                    "Shared Hit Blocks": 40,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "broad": {
+        "status": "statement_timeout",
+        "statement_timeout_ms": 8000,
+        "samples_completed": 0
+      }
+    }
+  ],
+  "memory": {
+    "retrieval_peak_python_bytes": 843202,
+    "steady_first_bytes": 66349,
+    "steady_last_bytes": 88474,
+    "process_peak_rss_kib_including_seed": 136472
+  },
+  "connections_checked_out_after_requests": 0,
+  "methodology": {
+    "file_count": 150001,
+    "block_count": 450003,
+    "samples_per_selective_query": 12,
+    "broad_query": "statement timeout at 8000 ms",
+    "timing_boundary": "engine, ACL, count, ranking, page serialization and metric write; excludes HTTPS and extraction",
+    "plans": "EXPLAIN ANALYZE BUFFERS; compact node statistics",
+    "limitations": [
+      "synthetic lexical distribution",
+      "single viewer and registry",
+      "not a concurrent-user or long-running soak test"
+    ]
+  }
+}

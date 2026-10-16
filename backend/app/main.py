@@ -12,6 +12,7 @@ from app.api.errors import register_errors
 from app.api.middleware import register_middleware
 from app.api.schemas import ERROR_RESPONSES
 from app.content import api as content_api
+from app.content import operations as search_operations
 from app.core.config import Settings
 from app.db.session import build_engine
 from app.execution import api as execution_api
@@ -72,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         file_api.router,
         numbering_api.router,
         content_api.router,
+        search_operations.router,
         relations_api.router,
         processes_api.router,
         knowledge_api.router,

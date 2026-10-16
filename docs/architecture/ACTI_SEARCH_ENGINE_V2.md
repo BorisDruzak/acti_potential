@@ -1,0 +1,75 @@
+# ACTI SEARCH-001: unified search and retrieval
+
+**Goal:** extend the Task 005 index and Task 010 service contract into one permission-aware search engine for employees, administrators and future retrieval consumers. Implements the search direction in [the ACTI roadmap](../ACTI_V3_VISION_AND_ROADMAP.md); the roadmap is unchanged.
+
+## Architecture and decisions
+
+PostgreSQL 16 remains the lexical engine. Candidate queries start at existing GIN-indexed metadata fragments and structural blocks. Source branches are combined with UNION ALL (OR); document filters are AND predicates. Current document revision, registry/document permissions, field role/mode/condition predicates and download permissions precede document aggregation, rank, count and pagination. No top-N prefilter on unauthorized text and no corpus-sized Python list. Dynamic schema predicates are compiled once per published schema, including group children and visibility dependency chains. File authorization uses current metadata even for historical originals.
+
+`POST /api/v1/search` accepts an empty query for browsing. The same engine serves the external API under `/api/service/v1`, with existing documents/content operations. Service actors retain viewer mode and intersected token/account registry scopes. Existing list, content and export contracts remain compatible. Search exports use the identical candidate subquery and retain existing export safety bounds.
+
+Normalization folds Russian case, е/ё and whitespace; registration numbers have a separate punctuation-insensitive comparison and never use fuzzy matching. PostgreSQL Russian morphology and quoted phrases remain authoritative. Optional, bounded trigram retrieval handles text typos. Versioned configurable weights and synonym groups live in application settings, without schema changes. Scores and snippets derive only from authorized sources.
+
+Retrieval chunks are deterministic projections of immutable DocumentBlock text, identified by algorithm version, extraction identity and exact source ranges. They retain checksum, page/anchor, original block IDs and file/document edition. They group adjacent small paragraphs, isolate table structures, split long blocks and retain bounded overlap. They never cross extraction/page boundaries. No embedding service or duplicate original storage is introduced. Exact-source and neighbor reads reauthorize every request.
+
+The documents screen retains the existing card/editor, files, content, relations and history in a right detail pane. The list remains mounted on selection. Query, scope, filters, order and cursor are URL state. Old saved views are translated. Highlighting uses React text nodes and mark elements.
+
+## Execution plan
+
+- [x] 1. Add regression tests for OR search, ACL-before-count/rank, hidden dependencies, revoked rights, normalization/numbers, stable cursor ties and corpus beyond 10,000. Run RED; implement contracts, SQL authorization/candidates/ranking and compatibility; run targeted PostgreSQL tests.
+- [x] 2. Add tests for chunk provenance, splitting/table/page boundaries, service scopes and exact/neighbor reauthorization. Run RED; implement context assembly and typed service routes; run retrieval and existing service tests.
+- [x] 3. Extend existing outbox metadata indexing to configured reference labels and system fields; add controlled rebuild/status and aggregate timing diagnostics. Test revision safety, retry and bounded rebuild. Apply migrations only after backup/preflight.
+- [x] 4. Add frontend regressions for one search string, scopes, selection retention, URL/saved views and safe highlighting. Implement two panes and dynamic filters using existing components; run frontend tests/typecheck/build.
+- [x] 5. Run quality fixtures (Recall@10/MRR@10), synthetic isolated PostgreSQL pilot at multiple scales through 150,000+ documents, EXPLAIN ANALYZE BUFFERS, query counts, memory/connections and deterministic pagination. Record measured results, including expensive-query behavior.
+- [x] 6. Inspect complete diff and GitNexus impact, perform one independent functional review and final checks, commit the implementation, deploy via mount/UUID preflight and backup, and verify real HTTPS/backend/PostgreSQL/browser flows. Publication uses a draft PR from `codex/search-engine-v2` to `main`; release evidence follows below.
+
+## Review focus
+
+Visibility conditions on hidden or missing dependencies must fail closed. Group children must inherit the parent's authorization. Fuzzy matching must not approximate numeric identifiers. Cursors must reject changed query/actor binding and must recheck permissions. Historical file context must preserve edition identity while current permissions are reevaluated. Broad queries must not allocate all matches in Python. Logs contain only timing/counters and fixed error codes.
+
+## Constraints
+
+No SQL Server migration or source changes; no legacy/v2 changes; no roadmap edits; no ACL weakening; no LLM/vector/heavy services. User-owned AGENTS.md diff stays outside commits. Target performance is measured on synthetic data in an isolated database, never inferred from unit tests. Existing outbox/worker and backup/preflight are reused.
+
+## Validation evidence
+
+The quality fixture extracts real synthetic DOCX paragraphs/tables and a digital PDF. Eight predefined gold queries cover number, title, exact phrase, morphology, typo, abbreviation and file text: Recall@10 = 1.0 and MRR@10 = 1.0. Separate regressions cover duplicate titles, hidden fields/dependencies, current versus historical file families, revocation, stable tied cursors, custom date/datetime cursors and more than 10,000 documents. This is a bounded synthetic gold set, not a claim about production relevance.
+
+The first 150,001-document experiment exposed a sequential scan of 600,004 metadata fragments for punctuation-insensitive numbers. Migration 0012 adds a compact MD5 expression index and retains exact normalized equality to guard hash collisions. Repeated EXPLAIN ANALYZE BUFFERS then selected the fingerprint index; existing FTS/trigram GIN indexes handle lexical/fuzzy sources. No extra engine or duplicated extracted text was added.
+
+The final sparse-file pilot is recorded in [SEARCH_001_PILOT.json](SEARCH_001_PILOT.json). At 150,001 cards / 600,004 metadata fragments / 151 files / 453 blocks (12 requests per query), p95 was: number 359 ms, title 1,319 ms, morphology 358 ms, typo 388 ms, synonym 408 ms, file phrase 327 ms and table 313 ms. SQL SELECT count stayed 25 for each nonempty result request, independent of corpus size; hidden zero-result requests used 13. The baseline took 198–331 ms at 1,000 cards, 1,965–2,338 ms at 10,000 and rejected 150,001 with its corpus limit. The engine timing includes ACL/count/page serialization and metric persistence, excluding HTTPS and extraction.
+
+Expensive cases are not a selective-query PASS: a mass hidden-value query returned zero with p95 5,729 ms; the broad 149,850-result query took about 7,927 ms (only two samples). The transaction applies an 8,000 ms timeout to each SQL statement. Fifteen repeated selective requests retained 67–127 KB of traced Python memory, with an 881 KB measured peak and zero connections checked out afterward. This short sample does not establish a long-running soak result. Compact EXPLAIN ANALYZE BUFFERS trees show the numeric fingerprint/metadata GIN indexes and primary-key joins rather than scanning all cards/fragments. PostgreSQL chose sequential scans for the sparse 453-block table; that choice alone cannot establish large-file-corpus scalability.
+
+A separate [dense-file pilot](SEARCH_001_DENSE_PILOT.json) used 150,001 cards, 150,001 files and 450,003 blocks. Selective p95 values were number 516 ms, title 379 ms, morphology 354 ms, typo 575 ms, synonym 335 ms, file phrase 340 ms and table 420 ms. Plans selected block/metadata GIN indexes and keyed joins; source scans did not traverse all cards, fragments or blocks. The hidden mass-match case still took p95 5,781 ms. The broad query reached the 8,000 ms SQL timeout; search and both exports translate PostgreSQL cancellation into a fixed `422 search_query_too_broad` refinement message. A real PostgreSQL cancellation regression verifies the safe response and subsequent connection reuse. Traced retained memory was 66–88 KB over 15 repeated searches, peak 843 KB; checked-out connections returned to zero. The disposable database was removed by the pilot's finally block. These are single-viewer synthetic engine measurements, not concurrent HTTPS or production-corpus acceptance.
+
+Final automatic checks: the full PostgreSQL suite initially reported 549 passed / 9 skipped / two stale migration-head assertions; after updating those assertions, the migration, service-contract and review subset passed 22 tests. Frontend passed 115 tests, followed by a three-test rerun of save/history regressions after the final retained-refresh adjustment; production build passed. `alembic check` initially exposed a missing ORM attachment for the functional index; after attaching it explicitly, no upgrade operations were detected. The checked service OpenAPI was regenerated and verified by its contract test. The final search/retrieval/export/timeout/performance/service subset passed 35 tests. Ruff passed over app/tests and the pilot tool. Existing legacy v2 and the roadmap have no task diff.
+
+One independent functional review produced seven verified regressions: metadata source operation revocation, custom temporal cursor decoding, fuzzy export transaction settings, late synonym chunk selection, list refresh after saving, same-document browser history targets and malformed legacy filters. They were addressed with targeted regressions. The list refresh retains its DOM and polls only the saved document's authorized index readiness for at most 30 seconds; unusually delayed indexing can be refreshed with a new search.
+
+GitNexus's committed baseline identified the legacy search endpoint and performance tests as callers of `search_response`. Source inspection verified dynamic service/router and export composition beyond that graph. The central Linux server cannot inspect a Windows worktree through `detect_changes`; local diffs and tests supply that evidence. ACTI remains independent of the helpdesk-platform contract group.
+
+
+## Release and browser acceptance — 2026-10-16
+
+Implementation commit: `0cc5f65b27560bf8d36bd8d00072f9e54da41f50` (`feat(search): unify authorized lexical search and retrieval`, 55 backend/frontend/migration/contract/test/deployment/doc files). Browser-led layout refinement: `1680f70fafb89e0242bd786f17c47e834866e020` (`fix(search): compact controls and wrap document detail tabs`, Documents/styles/E2E).
+
+Both commits were deployed with the existing mount/UUID preflight and a fresh, readable PostgreSQL backup immediately before activation. Migration 0012, image labels, strict HTTPS readiness and original account/session/document identities were verified. A concurrent authorized navigation/history deployment then combined its changes with the search branch. The final running release is `b3e5ab32dca045a6334f2065449a35645e544fe9`; Git ancestry confirms it includes `1680f70`. It was retained to preserve the other work. Final read-only checks confirm six healthy services, migration `0012_search_retrieval`, source labels and mandatory mount preflight. No SQL Server or legacy/v2 changes were made.
+
+The final E2E uses real HTTPS, backend, PostgreSQL and background extraction without response interception. Environment: Playwright 1.58.2 / Chromium, desktop 1440×1000, mobile 390×844. Browser plugin was absent; the established Playwright script reads protected credentials locally. `node --use-system-ca scripts/e2e_search_v2.mjs <private-config>` uses the locally trusted CA for both browser and API requests; `ignoreHTTPSErrors` remains false. Service consumers run in separate contexts without employee/admin cookies. Context7 documentation was checked for the exact Playwright version.
+
+| Check | Result |
+| --- | --- |
+| Page identity / nonblank / framework overlay | Actual viewer, editor and administration screens; meaningful app content; no overlay |
+| Query / ACL | Number, title, typo and metadata-or-content search; viewer cannot search an editor-only marker |
+| List state | Real second page and nonzero list scroll survive selection; URL survives reload |
+| Export | Actual CSV and XLSX downloads, same search, hidden marker absent |
+| Exact source / responsive UI | Quoted phrase opens the selected immutable block; mobile has no horizontal overflow; detail tabs wrap |
+| Save | Editor saves a new title; retained results refresh after background metadata indexing |
+| Service retrieval | Real bearer token, checksum/citation, exact chunk and neighbors; document ACL revocation makes the next chunk read 404 |
+| Operations | Administrator views search diagnostics and requests a scoped rebuild through the UI |
+| Console / cleanup | Zero page errors; owned synthetic users disabled and tokens revoked; zero active SEARCH fixture users |
+
+All seven E2E scenario groups passed against `b3e5ab32dca045a6334f2065449a35645e544fe9`. Initial harness runs exposed timing/selectors, an isolated API-context setup error and Node CA configuration; the final script includes the verified fixes. One run overlapped the other chat's deployment; acceptance was rerun after the combined release was stable. Screenshots and detailed receipts remain local, outside tracked source.
+
+Remaining measured limits: broad/dense queries can reach the safe 8-second SQL timeout; the mass hidden-term workload is about 5.8 seconds. The pilot is synthetic and single-viewer, with 12 samples per selective query, rather than a concurrent-user/long-duration test. Existing export safety bounds remain 10,000 rows / 16 MiB; search itself has no 10,000-card cap. Background metadata refresh waits up to 30 seconds in the UI, after which a new search refreshes delayed results. File families currently follow document + field + case-insensitive original filename, matching the existing upload/version model.

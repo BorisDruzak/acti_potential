@@ -6,7 +6,7 @@ import { DocumentContent } from "./DocumentContent";
 import { Documents } from "./Documents";
 import type { Card } from "../engine/schema";
 
-afterEach(() => {cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers();});
+afterEach(() => {cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); window.history.replaceState(null, "", "/");});
 const extraction = {
   id: "extraction", file_id: "file", version_id: "version", version: 2, name: "Постановление.docx",
   sha256: "a".repeat(64), parser: "docx", parser_version: "1", state: "completed", attempts: 1,
@@ -27,8 +27,8 @@ function setup({reader = false, state = "completed", search = false, blockPage =
     if (url.endsWith("/users/me")) data = {id: "user", display_name: "User", roles: [reader ? "viewer" : "editor"], csrf_token: "csrf"};
     else if (url.endsWith("/registries")) data = [{id: "registry", name: "Реестр", code: "registry", permissions: ["read"], document_type_ids: ["type"]}];
     else if (url.endsWith("/document-types")) data = [{id: "type", code: "type", name: "Тип"}];
-    else if (url.includes("/content/search?")) data = {items: [{document: card, matches: [{source: "file", file_id: "file", version: 2, block_id: "target", block_ordinal: 200, snippet: "Порядок подачи заявления", rank: 0.9, label: "Постановление.docx"}]}], total: 1, page: 1, page_size: 20};
-    else if (url.includes("/content/search/export?")) return new Response("Current authorized search results");
+    else if (url.endsWith("/search")) data = {items: [{document: card, matches: [{source: "file", file_id: "file", version: 2, block_id: "target", block_ordinal: 200, snippet: "Порядок подачи заявления", rank: 0.9, label: "Постановление.docx"}]}], total: 1, page: 1, page_size: 20};
+    else if (url.includes("/search/export?")) return new Response("Current authorized search results");
     else if (url.includes("/documents?")) data = {items: [], total: 0, page: 1, page_size: 20};
     else if (url.includes("/documents/document/content")) {
       const params = new URL(url, "https://example.test").searchParams;
@@ -83,18 +83,17 @@ it("uses real search API shape and opens a precise source block beyond the first
   vi.stubGlobal("URL", class extends URL {static createObjectURL() {return "blob:download";} static revokeObjectURL() {}});
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   fireEvent.click(await screen.findByRole("button", {name: "Реестр"}));
-  fireEvent.change(screen.getByLabelText("Поиск по содержанию"), {target: {value: "Порядок подачи"}});
-  expect((screen.getByLabelText("Сортировка") as HTMLSelectElement).disabled).toBe(true);
-  expect(screen.getByText("Результаты поиска по содержанию упорядочены по релевантности.")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Порядок подачи"}});
+  fireEvent.change(screen.getByLabelText("Где искать"), {target: {value: "content"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
   await screen.findByText("Постановление.docx · версия 2");
   expect(screen.getByText("Порядок").tagName).toBe("MARK");
   fireEvent.click(screen.getByRole("button", {name: "Экспорт CSV"}));
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/content/search/export?") && new URL(url, "https://example.test").searchParams.get("text") === "Порядок подачи")).toBe(true));
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/search/export?") && JSON.parse(new URL(url, "https://example.test").searchParams.get("parameters")!).query === "Порядок подачи")).toBe(true));
   fireEvent.click(screen.getByRole("button", {name: "Открыть фрагмент источника"}));
   await screen.findByText("Целевой блок страницы 2");
   expect(fetch.mock.calls.some(([url]) => url.includes("/content/extractions/extraction/blocks?page=2&page_size=200&mode=viewer"))).toBe(true);
-  expect(fetch.mock.calls.some(([url]) => url.includes("/content/search?") && new URL(url, "https://example.test").searchParams.get("text") === "Порядок подачи")).toBe(true);
+  expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).query === "Порядок подачи")).toBe(true);
 });
 
 it("treats search snippets and highlights as literal text, never HTML", () => {

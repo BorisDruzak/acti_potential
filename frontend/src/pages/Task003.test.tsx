@@ -6,7 +6,7 @@ import { Documents } from "./Documents";
 afterEach(() => {cleanup(); vi.unstubAllGlobals(); localStorage.clear();});
 
 function setup() {
-  const fetch = vi.fn(async (url: string) => {
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     let data: unknown = [];
     if (url.endsWith("/users/me")) data = {id: "reader", display_name: "Reader", roles: ["viewer"], csrf_token: "csrf"};
     else if (url.endsWith("/registries")) data = [{id: "r", code: "r", name: "Реестр", permissions: ["read"], document_type_ids: ["t"]}];
@@ -16,8 +16,11 @@ function setup() {
       {key: "note", label: "Примечание", type: "text", exportable: false},
       {key: "conditional", label: "Условное поле", type: "text", filterable: true, visible_when: {field: "amount", op: "present"}},
     ]}], list_view: {columns: [{key: "amount", label: "Размер"}, {key: "note", label: "Описание"}]}}}];
-    else if (url.includes("/documents/export?")) return new Response("export", {headers: {"Content-Type": "text/csv"}});
-    else if (url.includes("/documents?")) data = {items: [{id: "d", title: "Документ", revision: 1, values: {amount: "1.20", note: "Открыто"}, display_values: {amount: "1.20", note: "Открыто"}}], total: 1, page: 1, page_size: 20};
+    else if (url.includes("/search/export?")) return new Response("export", {headers: {"Content-Type": "text/csv"}});
+    else if (url.endsWith("/search")) data = {items: [{id: "d", title: "Документ", revision: 1, values: {amount: "1.20", note: "Открыто"}, display_values: {amount: "1.20", note: "Открыто"}}], total: 1, page: 1, page_size: 20};
+    if (url.endsWith("/search") && data && typeof data === "object" && "items" in data) {
+      const page = data as {items: unknown[]}; page.items = page.items.map(document => ({document, matches: [], score: 0, match_count: 0}));
+    }
     return new Response(JSON.stringify(data));
   });
   vi.stubGlobal("fetch", fetch);
@@ -41,11 +44,11 @@ it("applies decimal ranges, versioned list columns and exports only permitted se
   fireEvent.change(screen.getByLabelText("Направление сортировки"), {target: {value: "asc"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
   await screen.findByRole("columnheader", {name: "Размер"});
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("filters=") && JSON.parse(new URL(url, "https://test.invalid").searchParams.get("filters")!).amount.value[0] === "1.20")).toBe(true));
+  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).filters?.amount?.value[0] === "1.20")).toBe(true));
   fireEvent.click(screen.getByRole("button", {name: "Экспорт CSV"}));
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/documents/export?") && new URL(url, "https://test.invalid").searchParams.get("columns") === "amount")).toBe(true));
-  const exported = fetch.mock.calls.find(([url]) => url.includes("/documents/export?"))![0];
-  expect(new URL(exported, "https://test.invalid").searchParams.get("sort")).toBe("custom:amount");
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/search/export?") && new URL(url, "https://test.invalid").searchParams.get("columns") === "amount")).toBe(true));
+  const exported = fetch.mock.calls.find(([url]) => url.includes("/search/export?"))![0];
+  expect(JSON.parse(new URL(exported, "https://test.invalid").searchParams.get("parameters")!).sort).toBe("custom:amount");
   expect(screen.getByText("Открыто")).toBeTruthy();
 });
 
@@ -57,7 +60,7 @@ it("saves and restores filters per user and workspace without storing result dat
   fireEvent.change(screen.getByLabelText("Название представления"), {target: {value: "Мой поиск"}});
   fireEvent.click(screen.getByRole("button", {name: "Сохранить текущий поиск"}));
   const saved = JSON.parse(localStorage.getItem("acti.views.v1.reader.viewer")!);
-  expect(saved[0]).toEqual({name: "Мой поиск", registry: "r", query: "q=%D0%9E%D0%B1%D1%80%D0%B0%D0%B7%D0%B5%D1%86&sort=updated_at&direction=desc"});
+  expect(saved[0]).toEqual({name: "Мой поиск", registry: "r", query: "q=%D0%9E%D0%B1%D1%80%D0%B0%D0%B7%D0%B5%D1%86&scope=all&fuzzy=true&version_scope=current&sort=auto&direction=desc"});
   fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Другое"}});
   fireEvent.click(screen.getByRole("button", {name: "Мой поиск"}));
   expect((screen.getByLabelText("Поиск") as HTMLInputElement).value).toBe("Образец");

@@ -15,6 +15,7 @@ export type ContentMatch = {
   source: "metadata" | "file"; field_key?: string; file_id?: string;
   version_id?: string; version?: number; block_id?: string; block_ordinal?: number;
   snippet: string; rank: number; label: string;
+  highlights?: number[][];
 };
 export type ContentHit = { document: Card; matches: ContentMatch[] };
 export type ContentTarget = { fileId?: string; blockId?: string; ordinal?: number };

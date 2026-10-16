@@ -36,6 +36,7 @@ export type Field = {
   write_roles?: string[];
   filterable?: boolean;
   exportable?: boolean;
+  searchable?: boolean;
   visible_when?: Condition | null;
   required_when?: Condition | null;
   children?: Field[];
