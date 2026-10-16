@@ -391,7 +391,10 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await up.waitForURL(url=>url.pathname==='/view');await up.getByRole('button',{name:'История изменений',exact:true}).waitFor();
     assert.equal(await up.getByRole('button',{name:'Создать документ',exact:true}).count(),0);assert.equal(await up.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);
     assert.equal(await up.getByRole('combobox',{name:'Состояние карточки',exact:true}).getByRole('option',{name:'Черновик',exact:true}).count(),0);
-    const spaces=await up.getByRole('combobox',{name:'Рабочее пространство',exact:true}).getByRole('option').allTextContents();assert.deepEqual(spaces,['Читатель']);
+    await up.getByRole('button',{name:'Открыть навигацию',exact:true}).click();
+    const spacePicker=up.getByRole('combobox',{name:'Рабочее пространство',exact:true});await spacePicker.waitFor();
+    const spaces=await spacePicker.locator('option').allTextContents();assert.deepEqual(spaces,['Читатель']);
+    await dismissNav(up);
     await up.screenshot({path:path.join(outputDir,'publication-user-reader.png'),fullPage:true,mask:[up.locator('.account')]});
     await ep.screenshot({path:path.join(outputDir,'publication-official-internal.png'),fullPage:true,mask:[ep.locator('.account')]});
     assert.deepEqual(errors,[]);pass('User role remains a reader on a typed /work URL despite write grants; no mutation controls or draft filter; zero runtime errors');
