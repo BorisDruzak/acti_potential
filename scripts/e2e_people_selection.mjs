@@ -39,7 +39,10 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     await page.getByRole('button',{name:'Выйти',exact:true}).waitFor();
   }
   async function dismissNav(page) {
-    await page.getByRole('main').click({position:{x:1000,y:10}});
+    await page.getByRole('group',{name:'Вид и сортировка документов',exact:true}).waitFor();
+    const close=page.getByRole('button',{name:'Скрыть панель',exact:true});
+    if(await close.isVisible())await close.click();
+    else await page.getByRole('main').click({position:{x:1000,y:10}});
     await page.waitForFunction(()=>document.getElementById('main-navigation')?.inert);
   }
   const pass=name=>{checks.push(name);console.log('PASS '+name);};
