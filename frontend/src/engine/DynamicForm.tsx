@@ -1,5 +1,7 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { apiRequest, saveDownload } from "../api/client";
+import { displayConfigText } from "./presentation";
+import "./Lookup.css";
 import {
   canRead,
   canWrite,
@@ -55,6 +57,25 @@ function Lookup({
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const multiple = field.type === "multi_reference";
+  const label = displayConfigText(field.label);
+  const documentQuery = field.type === "document" ? query : "";
+  const values = Array.isArray(value)
+    ? value.map(String)
+    : value
+      ? [String(value)]
+      : [];
+  const minimum = Math.max(field.required ? 1 : 0, Number(field.constraints?.min_items) || 0);
+  const maximum = Math.min(500, Number(field.constraints?.max_items ?? 500));
+  const selectionError = values.length < minimum
+    ? `Выберите минимум ${minimum}`
+    : values.length > maximum
+      ? `Выберите не более ${maximum}`
+      : "";
+  useEffect(() => {
+    searchRef.current?.setCustomValidity(multiple && !disabled ? selectionError : "");
+  }, [multiple, disabled, selectionError]);
   const matchingReferences = references.filter(
     (reference) => reference.code === field.reference_code,
   );
@@ -70,15 +91,18 @@ function Lookup({
     let path: string;
     if (field.type === "user") path = "/users/options";
     else if (field.type === "document")
-      path = `/documents?${new URLSearchParams({ q: query, page_size: "100", mode: displayMode })}`;
+      path = `/documents?${new URLSearchParams({ q: documentQuery, page_size: "100", mode: displayMode })}`;
     else if (referenceId)
       path = `/references/${referenceId}/items?mode=${displayMode}`;
     else {
       setChoices([]);
+      setLoading(false);
+      setError("");
       return;
     }
     setLoading(true);
     setError("");
+    setChoices([]);
     apiRequest<
       | ReferenceItem[]
       | { id: string; display_name: string }[]
@@ -108,12 +132,7 @@ function Lookup({
         if (!abort.signal.aborted) setLoading(false);
       });
     return () => abort.abort();
-  }, [referenceId, field.type, registryId, query, displayMode]);
-  const values = Array.isArray(value)
-    ? value.map(String)
-    : value
-      ? [String(value)]
-      : [];
+  }, [referenceId, field.type, registryId, documentQuery, displayMode]);
   const known = new Set(choices.map((choice) => choice.id));
   const merged = [
     ...choices,
@@ -121,9 +140,20 @@ function Lookup({
       .filter((current) => !known.has(current))
       .map((current) => ({ id: current, label: current, active: false })),
   ];
+  const normalizedQuery = query.trim().toLocaleLowerCase("ru");
+  const visibleChoices = merged.filter((choice) =>
+    values.includes(choice.id) || field.type === "document" ||
+    choice.label.toLocaleLowerCase("ru").includes(normalizedQuery),
+  );
+  const matches = choices.some((choice) =>
+    choice.label.toLocaleLowerCase("ru").includes(normalizedQuery),
+  );
+  const status = loading ? "Загрузка…" : error ? "" : !choices.length
+    ? "Нет доступных значений"
+    : normalizedQuery && !matches && field.type !== "document" ? "Ничего не найдено" : "";
   if (disabled)
     return (
-      <div className="field-value">
+      <div className="field-value" id={id}>
         {values
           .map(
             (current) =>
@@ -133,37 +163,57 @@ function Lookup({
       </div>
     );
   return (
-    <>
-      {field.type === "document" && (
-        <input
-          aria-label={`Поиск: ${field.label}`}
-          type="search"
-          placeholder="Найти документ"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      )}
-      <select
+    <div className="lookup-control">
+      <input
+        ref={searchRef}
+        id={multiple ? id : `${id}-search`}
+        aria-label={`Поиск: ${label}`}
+        aria-describedby={multiple ? `${id}-selection` : undefined}
+        aria-required={multiple && minimum > 0 || undefined}
+        type="search"
+        placeholder={field.type === "document" ? "Найти документ" : "Поиск по имени или названию"}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      {multiple ? (
+        <>
+          <div className="lookup-options" role="group" aria-label={label} aria-busy={loading}>
+            {visibleChoices.map((choice) => {
+              const selected = values.includes(choice.id);
+              const unavailable = !selected && (choice.active === false || values.length >= maximum);
+              return (
+                <label className={`lookup-option${selected ? " lookup-option-selected" : ""}`} key={choice.id}>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={loading || unavailable}
+                    onChange={() => {
+                      if (loading || unavailable) return;
+                      onChange(selected ? values.filter((current) => current !== choice.id) : [...values, choice.id]);
+                    }}
+                  />
+                  <span>{choice.label}{choice.active === false ? " (неактивно)" : ""}</span>
+                </label>
+              );
+            })}
+          </div>
+          <small id={`${id}-selection`}>
+            Выбрано: {values.length}. Нажмите на имя, чтобы выбрать или убрать значение.
+            {minimum > 0 ? ` Минимум: ${minimum}.` : ""}
+            {maximum < 500 ? ` Максимум: ${maximum}.` : ""}
+          </small>
+        </>
+      ) : <select
         id={id}
         disabled={loading}
-        multiple={field.type === "multi_reference"}
-        value={field.type === "multi_reference" ? values : values[0] || ""}
+        value={values[0] || ""}
         required={field.required}
         onChange={(event) =>
-          onChange(
-            field.type === "multi_reference"
-              ? Array.from(
-                  event.target.selectedOptions,
-                  (option) => option.value,
-                )
-              : event.target.value || null,
-          )
+          onChange(event.target.value || null)
         }
       >
-        {field.type !== "multi_reference" && (
-          <option value="">{loading ? "Загрузка…" : "Не указано"}</option>
-        )}
-        {merged.map((choice) => (
+        <option value="">{loading ? "Загрузка…" : "Не указано"}</option>
+        {visibleChoices.map((choice) => (
           <option
             key={choice.id}
             value={choice.id}
@@ -173,16 +223,14 @@ function Lookup({
             {choice.active === false ? " (неактивно)" : ""}
           </option>
         ))}
-      </select>
+      </select>}
+      <div className="lookup-status" role="status" aria-label={`Состояние: ${label}`}>{status}</div>
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      {field.type === "multi_reference" && (
-        <small>Для нескольких значений используйте Ctrl / Cmd.</small>
-      )}
-    </>
+    </div>
   );
 }
 
@@ -219,10 +267,10 @@ function FieldControl({
     return (
       <fieldset className="repeat-group">
         <legend>
-          {field.label}
+          {displayConfigText(field.label)}
           {required ? " *" : ""}
         </legend>
-        {field.description && <p>{field.description}</p>}
+        {field.description && <p>{displayConfigText(field.description)}</p>}
         {rows.map((row, index) => (
           <div className="repeat-row" key={index}>
             <h4>Запись {index + 1}</h4>
@@ -274,7 +322,7 @@ function FieldControl({
               ])
             }
           >
-            Добавить: {field.label}
+            Добавить: {displayConfigText(field.label)}
           </button>
         )}
       </fieldset>
@@ -435,11 +483,11 @@ function FieldControl({
       className={`form-field ${field.type === "textarea" || field.type === "file" ? "wide" : ""}`}
     >
       <label htmlFor={id}>
-        {field.label}
+        {displayConfigText(field.label)}
         {required && writable ? " *" : ""}
       </label>
       {control}
-      {field.description && <small>{field.description}</small>}
+      {field.description && <small>{displayConfigText(field.description)}</small>}
     </div>
   );
 }
@@ -463,7 +511,7 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
     const extra = props.sectionContent?.[section.key];
     return visible.length || extra ? (
       <section className="form-section" key={section.key} id={`${navigationId}-${section.key}`}>
-        {section.title && <h3>{section.title}</h3>}
+        {section.title && <h3>{displayConfigText(section.title)}</h3>}
         {extra}
         <div className="form-grid">
           {visible.map((field) => (
@@ -488,7 +536,7 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
       {hasNavigation && (
         <nav className="form-navigation" aria-label="Разделы формы">
           {schema.sections.filter(section => props.sectionContent?.[section.key] || section.fields.some(field => canRead(field, props.mode, props.roles, props.conditionValues || values, props.displayMode, conditionFields))).map(section => (
-            <a key={section.key} href={`#${navigationId}-${section.key}`}>{section.title}</a>
+            <a key={section.key} href={`#${navigationId}-${section.key}`}>{displayConfigText(section.title)}</a>
           ))}
         </nav>
       )}

@@ -73,7 +73,7 @@ export function ReferenceItems({ reference }: { reference: ReferenceSet }) {
         event.target.value = "";
       }} /></label>
     </div>
-    <p className="muted">Колонки импорта: id, code, label, description, sort_order, active, parent_id, valid_from, valid_until. Пустой id создаёт значение; существующий id обновляет его. Исходные идентификаторы ACTI v2 сохраняются.</p>
+    <p className="muted">Колонки импорта: id, code, label, description, sort_order, active, parent_id, valid_from, valid_until. Пустой id создаёт значение; существующий id обновляет его. Исходные идентификаторы сохраняются.</p>
     <Feedback error={items.error || action.error} message={action.message} loading={items.loading} />
     <div className="reference-list">{items.data?.map(item => <div key={item.id} className="reference-row">
       {editing === item.id ? <ItemEditor referenceId={reference.id} item={item} items={items.data || []} reload={() => {items.reload(); history.reload();}} close={() => setEditing("")} /> : <div className="toolbar"><div><strong>{item.label}</strong><small>{item.code || "Без кода"} · порядок {item.sort_order || 0}{item.active ? "" : " · неактивно"}{item.selectable === false && item.active ? " · вне срока действия" : ""}{item.parent_id ? " · родитель: " + (items.data?.find(parent => parent.id === item.parent_id)?.label || "—") : ""}</small><p>{item.description}</p></div><button onClick={() => setEditing(item.id)}>Изменить: {item.label}</button></div>}

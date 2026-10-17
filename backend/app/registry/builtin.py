@@ -1,4 +1,4 @@
-"""Public built-in ACTI v2 configuration; no live source records or identities."""
+"""Public built-in document configuration; no live source records or identities."""
 
 from sqlalchemy import select, text
 
@@ -7,7 +7,7 @@ from app.registry.validation import validate_schema
 
 REFERENCE_SETS = {
     "status": "Статусы",
-    "document_types": "Типы записей ACTI v2",
+    "document_types": "Типы документов",
     "signing_types": "Типы подписания",
     "document_kinds": "Виды документов",
     "themes": "Темы",
@@ -63,14 +63,15 @@ BUILTIN_SCHEMA = {
                 ),
                 _field("reg_date", "Дата регистрации", "date", system="reg_date"),
                 _field("title", "Наименование документа", system="title", required=True),
-                _ref("type_id", "Тип документа ACTI v2", "document_types"),
+                _ref("type_id", "Тип документа", "document_types"),
                 _ref("status_id", "Статус правового акта", "status"),
                 _ref("document_kind_id", "Вид документа", "document_kinds"),
                 _ref("signing_type_id", "Тип подписания", "signing_types"),
                 _ref("theme_id", "Тема", "themes"),
-                _ref("executor_id", "Исполнитель", "executors"),
+                _ref("executor_id", "Исполнитель", "executors", multiple=True),
                 _ref(
-                    "responsible_executor_id", "Ответственный исполнитель", "responsible_executors"
+                    "responsible_executor_id", "Ответственный исполнитель", "responsible_executors",
+                    multiple=True,
                 ),
                 _field(
                     "pages_count",
@@ -153,7 +154,7 @@ def seed_builtin(session):
     if kind is None:
         kind = DocumentType(
             code="acti-v2",
-            name="ACTI v2 — нормативные и распорядительные документы",
+            name="Нормативные и распорядительные документы",
             description="Встроенная конфигурация универсального движка ACTI v3",
         )
         session.add(kind)

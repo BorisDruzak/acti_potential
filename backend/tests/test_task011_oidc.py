@@ -310,5 +310,5 @@ def test_migration_cannot_discard_existing_identity(client, factory, active):
             config.attributes["connection"] = connection
             command.downgrade(config, "0010_service_api")
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0013_card_publication"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0014_people_selection"
         assert connection.scalar(text("SELECT count(*) FROM external_identities")) == 1

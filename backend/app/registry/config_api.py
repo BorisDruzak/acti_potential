@@ -24,6 +24,7 @@ from app.registry.models import (
     Registry,
 )
 from app.registry.policy import accessible_document_clause, permissions_for, redact_schema
+from app.registry.presentation import configuration_schema, configuration_text
 from app.registry.validation import field_map, validate_schema
 
 router = APIRouter()
@@ -203,7 +204,7 @@ def _schema_output(row, actor, mode=None):
         "document_type_id": row.document_type_id,
         "version": row.version,
         "state": row.state,
-        "schema": schema,
+        "schema": configuration_schema(schema),
     }
 
 
@@ -211,24 +212,24 @@ def _registry_output(session, actor, row):
     return {
         "id": row.id,
         "code": row.code,
-        "name": row.name,
-        "description": row.description,
+        "name": configuration_text(row.name),
+        "description": configuration_text(row.description),
         "document_type_ids": row.document_type_ids,
         "permissions": sorted(permissions_for(session, actor, row.id)),
     }
 
 
 def _type_output(row):
-    return {"id": row.id, "code": row.code, "name": row.name, "description": row.description}
+    return {"id": row.id, "code": row.code, "name": configuration_text(row.name), "description": configuration_text(row.description)}
 
 
 def _reference_output(row):
     return {
         "id": row.id,
         "code": row.code,
-        "name": row.name,
+        "name": configuration_text(row.name),
         "registry_id": row.registry_id,
-        "description": row.description,
+        "description": configuration_text(row.description),
     }
 
 

@@ -95,12 +95,12 @@ it("keeps one mounted card and its draft, active tab, selection, query and loade
   fireEvent.click(await firstRow());
   fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
   fireEvent.change(screen.getByLabelText("Наименование"), {target: {value: "Черновик"}});
-  fireEvent.change(screen.getByRole("searchbox", {name: /Поиск/}), {target: {value: "Запрос"}});
+  fireEvent.change(screen.getByRole("searchbox", {name: "Поиск"}), {target: {value: "Запрос"}});
   fireEvent.scroll(screen.getByRole("region", {name: "Список документов"}));
   const requests = fetch.mock.calls.filter(([url]) => url.includes("/documents/a?")).length;
   for (const name of ["Таблица", "Карточка", "Вместе"]) fireEvent.click(mode(name));
   expect((screen.getByLabelText("Наименование") as HTMLInputElement).value).toBe("Черновик");
-  expect((screen.getByRole("searchbox", {name: /Поиск/}) as HTMLInputElement).value).toBe("Запрос");
+  expect((screen.getByRole("searchbox", {name: "Поиск"}) as HTMLInputElement).value).toBe("Запрос");
   expect(screen.queryByText(/Страница/)).toBeNull();
   expect(fetch.mock.calls.filter(([url]) => url.includes("/documents/a?")).length).toBe(requests);
   fireEvent.click(screen.getByRole("button", {name: "Файлы и версии"}));
@@ -145,7 +145,7 @@ it("groups export inside collapsible search and places compact view controls dir
   expect(searchPanel.contains(toolbar)).toBe(false);
   fireEvent.click(within(searchPanel).getByText("Экспорт и импорт", {exact: true}));
   expect(within(searchPanel).getByRole("button", {name: "Экспорт CSV"})).toBeTruthy();
-  const query = screen.getByRole("searchbox");
+  const query = screen.getByRole("searchbox", {name: "Поиск"});
   fireEvent.change(query, {target: {value: "Черновик запроса"}});
   fireEvent.click(await firstRow());
   fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
@@ -154,11 +154,11 @@ it("groups export inside collapsible search and places compact view controls dir
   const toggle = within(searchPanel).getByText("Поиск", {exact: true, selector: "summary > span:first-child"});
   fireEvent.click(toggle);
   await waitFor(() => expect((searchPanel as HTMLDetailsElement).open).toBe(false));
-  await waitFor(() => expect(screen.queryByRole("searchbox")).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("searchbox", {name: "Поиск"})).toBeNull());
   expect((screen.getByLabelText("Наименование") as HTMLInputElement).value).toBe("Черновик карточки");
   fireEvent.click(toggle);
   await waitFor(() => expect((searchPanel as HTMLDetailsElement).open).toBe(true));
-  expect(screen.getByRole("searchbox")).toBe(query);
+  expect(screen.getByRole("searchbox", {name: "Поиск"})).toBe(query);
   expect((query as HTMLInputElement).value).toBe("Черновик запроса");
   expect(screen.getByLabelText("Наименование")).toBe(cardInput);
 });
@@ -170,7 +170,7 @@ it("searches all permitted registries without asking the user to pick just one",
   expect(screen.getByText("По всем доступным реестрам")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.change(screen.getByLabelText("Реестр", {exact: true}), {target: {value: ""}});
-  fireEvent.change(screen.getByRole("searchbox"), {target: {value: "Общий запрос"}});
+  fireEvent.change(screen.getByRole("searchbox", {name: "Поиск"}), {target: {value: "Общий запрос"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).some(([, init]) => {
     const body = JSON.parse(String(init?.body)); return body.query === "Общий запрос" && body.registry_ids.length === 0;
@@ -239,7 +239,7 @@ it("creates inside the card pane, guards dirty navigation and restores the mount
   fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
   const previousInput = screen.getByLabelText("Наименование") as HTMLInputElement;
   fireEvent.change(previousInput, {target: {value: "Черновик выбранной карточки"}});
-  const query = screen.getByRole("searchbox");
+  const query = screen.getByRole("searchbox", {name: "Поиск"});
   fireEvent.change(query, {target: {value: "Несохранённый запрос"}});
   const pane = screen.getByRole("region", {name: "Список документов"});
   pane.scrollTop = 85;
@@ -252,7 +252,7 @@ it("creates inside the card pane, guards dirty navigation and restores the mount
   const requests = fetch.mock.calls.filter(([url]) => url.endsWith("/search")).length;
   fireEvent.click(within(toolbar).getByRole("button", {name: "Создать документ"}));
   expect(mode("Вместе")).toHaveProperty("ariaChecked", "true");
-  expect(screen.getByRole("searchbox")).toBe(query);
+  expect(screen.getByRole("searchbox", {name: "Поиск"})).toBe(query);
   expect(screen.getByRole("region", {name: "Список документов"})).toBe(pane);
   expect(previousInput.isConnected).toBe(true);
   const creation = document.querySelector(".document-create") as HTMLElement;

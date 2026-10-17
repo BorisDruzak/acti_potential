@@ -18,6 +18,7 @@ from app.registry.policy import (
     redact_schema,
     redact_values,
 )
+from app.registry.presentation import configuration_schema
 from app.registry.value_validation import SYSTEM_KEYS
 
 
@@ -67,6 +68,21 @@ def get_schema(session, document):
     if schema is None or schema.state != "published":
         fail(409, "schema_unavailable", "Схема документа недоступна")
     return schema.schema_data
+
+
+def historical_values(schema, values):
+    """Project old scalar selections for today's form without changing history."""
+    result = deepcopy(values)
+    for section in schema.get("sections", []):
+        for field in section.get("fields", []):
+            key = field["key"]
+            value = result.get(key)
+            if field["type"] == "multi_reference" and value is not None and not isinstance(value, list):
+                result[key] = [value]
+            elif field["type"] == "group" and isinstance(value, list):
+                nested = {"sections": [{"fields": field.get("children", [])}]}
+                result[key] = [historical_values(nested, row) for row in value]
+    return result
 
 
 def check_revision(document, revision):
@@ -211,6 +227,6 @@ def document_output(session, document, actor, mode=None):
     return {
         **document_summary(session, document, actor, schema, mode),
         "values": redact_values(schema, raw_values(document, schema), actor, mode),
-        "schema": redact_schema(schema, actor, mode),
+        "schema": configuration_schema(redact_schema(schema, actor, mode)),
         "files": files_for(session, document, actor, schema, mode),
     }

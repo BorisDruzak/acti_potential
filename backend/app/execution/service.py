@@ -23,6 +23,7 @@ from app.registry.documents import (
     file_visible,
     get_document,
     get_schema,
+    historical_values,
     raw_values,
 )
 from app.registry.models import (
@@ -41,6 +42,7 @@ from app.registry.policy import (
     redact_values,
     role_actions,
 )
+from app.registry.schema_compatibility import compatible_people_schema, pinned_scalar_values
 from app.registry.validation import iter_fields
 from app.registry.value_validation import validate_value, validate_values
 
@@ -337,7 +339,7 @@ def result_document(session, actor, instance, definition, supplied):
     document = get_document(session, actor, supplied.document_id, "update", lock=True)
     if document.revision != supplied.revision:
         fail(409, "execution_document_revision", "Документ результата изменён")
-    if str(document.schema_version_id) != definition.get("form_schema_id"):
+    if not compatible_people_schema(session, document.schema_version_id, definition.get("form_schema_id")):
         invalid("Документ результата использует другую версию формы")
     revision = session.scalar(
         select(MetadataRevision).where(
@@ -356,13 +358,19 @@ def result_document(session, actor, instance, definition, supplied):
     if supplied.version_id and (edition is None or edition.id != supplied.version_id):
         invalid("Выберите текущую версию оригинала документа результата")
     schema = schema_for(session, instance, definition, required=True)
+    previous = deepcopy(revision.values)
+    if str(document.schema_version_id) != definition.get("form_schema_id"):
+        try:
+            previous = pinned_scalar_values(schema, get_schema(session, document), previous)
+        except ValueError as error:
+            invalid(str(error))
     values = validate_values(
         session,
         actor,
         schema,
         {},
         document.registry_id,
-        previous=deepcopy(revision.values),
+        previous=previous,
         document_id=document.id,
     )
     fields = {field["key"]: field for field in iter_fields(schema)}
@@ -461,9 +469,10 @@ def result_output(session, actor, instance, attempt, result, mode=None):
     if provenance:
         try:
             document = get_document(session, actor, uuid(provenance["document_id"]), mode=mode)
-            if str(document.schema_version_id) != provenance["schema_version_id"]:
+            if not compatible_people_schema(session, document.schema_version_id, provenance["schema_version_id"]):
                 raise HTTPException(404)
-            allowed = redact_values(get_schema(session, document), result.values, actor, mode)
+            current_schema = get_schema(session, document)
+            allowed = redact_values(current_schema, historical_values(current_schema, result.values), actor, mode)
             values = {key: value for key, value in values.items() if key in allowed}
             provenance["title"] = document_summary(session, document, actor, mode=mode).get("title")
         except HTTPException:

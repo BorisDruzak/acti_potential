@@ -34,7 +34,7 @@ export function NumberSeriesEditor({ series, onSaved, onClose }: {
     }, "Серия сохранена");
   }}>
     <h2>{series ? "Настройки серии" : "Новая серия номеров"}</h2>
-    <p>Пилотные серии используют отдельную тестовую нумерацию. Исторические номера ACTI v2 сохраняются.</p>
+    <p>Пилотные серии используют отдельную тестовую нумерацию. Исторические номера сохраняются.</p>
     <div className="form-grid">
       <label>Название серии<input required value={draft.name} onChange={event => set({name: event.target.value})} /></label>
       <label>Код серии<input required pattern="[a-z][a-z0-9_]*" value={draft.code} disabled={!!series} onChange={event => set({code: event.target.value})} /></label>

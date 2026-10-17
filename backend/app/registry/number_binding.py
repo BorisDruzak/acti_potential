@@ -27,7 +27,7 @@ def validate_number_bindings(session, schema, registry_ids, document_type_id=Non
         if document_type_id is not None:
             kind = session.get(DocumentType, document_type_id)
             if kind is None or kind.code == "acti-v2":
-                raise ValueError("Historical ACTI v2 numbering must remain unchanged")
+                raise ValueError("Historical numbering must remain unchanged")
             if series.document_type_ids and str(document_type_id) not in series.document_type_ids:
                 raise ValueError("Number series does not allow this document type")
 

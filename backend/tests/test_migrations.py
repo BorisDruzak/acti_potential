@@ -38,7 +38,7 @@ def test_clean_repeat_and_concurrent_upgrade():
         "processed_events",
     } <= set(inspect(engine).get_table_names())
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0013_card_publication"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0014_people_selection"
         assert conn.scalar(text("SELECT count(*) FROM roles")) == 4
     engine.dispose()
 
@@ -99,7 +99,7 @@ def test_publication_upgrade_preserves_legacy_defaults_history_and_number_guards
             db.flush()
             assigned_id, reserved_id = assigned.id, reserved.id
         before = conn.execute(text("SELECT * FROM number_entries ORDER BY ordinal")).mappings().all()
-        command.upgrade(config, "head")
+        command.upgrade(config, "0013_card_publication")
         rows = conn.execute(text("SELECT id, card_state, publication_targets FROM documents")).all()
         actual = {row.id: (row.card_state, row.publication_targets) for row in rows}
         for index, identity in enumerate(identities):

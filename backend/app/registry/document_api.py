@@ -29,6 +29,7 @@ from app.registry.documents import (
     document_summary,
     get_document,
     get_schema,
+    historical_values,
     raw_values,
     write_values,
 )
@@ -223,7 +224,7 @@ def history(
             "revision": row.revision,
             "created_by": row.created_by,
             "created_at": row.created_at,
-            "values": redact_values(schema, row.values, actor, mode),
+            "values": redact_values(schema, historical_values(schema, row.values), actor, mode),
             "card_state": row.card_state,
             "publication_targets": row.publication_targets,
         }

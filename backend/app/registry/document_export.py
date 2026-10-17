@@ -11,6 +11,7 @@ from app.registry.documents import get_document, get_schema, raw_values
 from app.registry.events import emit
 from app.registry.models import Document, DocumentFile, FormSchema, ReferenceItem
 from app.registry.policy import field_readable, redact_values
+from app.registry.presentation import configuration_text
 from app.registry.tabular import export_file
 
 MAX_EXPORT_ROWS = 10000
@@ -86,7 +87,7 @@ def export_documents_response(request, session, actor, params, *, document_ids=N
     allowed = {}
     for sid, field in fields:
         if field.get("exportable", False):
-            allowed.setdefault(field["key"], field["label"])
+            allowed.setdefault(field["key"], configuration_text(field["label"]))
     # The versioned list view determines presentation order and custom labels.
     configured = []
     for schema in schemas.values():
@@ -94,7 +95,7 @@ def export_documents_response(request, session, actor, params, *, document_ids=N
     ordered = {}
     for column in configured:
         if column["key"] in allowed:
-            ordered.setdefault(column["key"], column.get("label") or allowed[column["key"]])
+            ordered.setdefault(column["key"], configuration_text(column.get("label") or allowed[column["key"]]))
     for key, label in allowed.items():
         ordered.setdefault(key, label)
     if params.columns:

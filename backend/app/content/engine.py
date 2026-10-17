@@ -39,6 +39,7 @@ from app.content.normalization import expand, fuzzy_allowed, normalize, number_k
 from app.content.search import context_snippet
 from app.registry.document_search import search_query
 from app.registry.models import Document, DocumentFile, DocumentVersion, FormSchema
+from app.registry.presentation import configuration_text
 
 DEFAULT_WEIGHTS = {
     "number": 1.0,
@@ -418,7 +419,7 @@ def source_matches(session, actor, params, candidates, identities, synonyms=None
             "block_offset": offset,
         }
         if item["source"] == "metadata":
-            match.update(field_key=row.field_key, label=row.label)
+            match.update(field_key=row.field_key, label=configuration_text(row.label))
             citation["field_key"] = row.field_key
             citation["metadata_revision"] = row.document_revision
         else:
