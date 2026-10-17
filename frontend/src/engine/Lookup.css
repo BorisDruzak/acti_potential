@@ -1,16 +1,22 @@
 .lookup-control {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 4px;
   min-width: 0;
 }
 .lookup-options {
-  max-height: 230px;
+  --lookup-row-height: 32px;
+  box-sizing: border-box;
+  max-height: calc(5 * var(--lookup-row-height) + 2px);
   overflow-y: auto;
   border: 1px solid #cdd8dc;
-  border-radius: 6px;
-  padding: 4px;
+  border-radius: 4px;
+  padding: 0;
   background: #fff;
+}
+.lookup-control > input[type="search"] {
+  min-height: 32px;
+  padding: 5px 10px;
 }
 .lookup-options:empty,
 .lookup-status:empty {
@@ -20,15 +26,20 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  padding: 8px;
-  border-radius: 4px;
+  box-sizing: border-box;
+  gap: 8px;
+  height: var(--lookup-row-height);
+  min-height: var(--lookup-row-height);
+  padding: 4px 8px;
+  border-radius: 0;
+  font-weight: 400;
   color: #405862;
   cursor: pointer;
 }
 .lookup-option span {
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   min-width: 0;
 }
 .lookup-option:hover,
@@ -46,4 +57,7 @@
 .lookup-status {
   color: #74858c;
   font-size: 12px;
+}
+@media (pointer: coarse) {
+  .lookup-options { --lookup-row-height: 40px; }
 }

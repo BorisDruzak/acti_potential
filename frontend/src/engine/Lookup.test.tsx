@@ -143,3 +143,22 @@ it("does not fetch or render references hidden by field read permissions", () =>
   expect(screen.queryByText("Участники")).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
 });
+
+it("resolves the current document registry's reference code even when foreign and global sets arrive first", async () => {
+  fetchMock.mockImplementation(async (url) => new Response(JSON.stringify([
+    { id: String(url).includes("people-a") ? "person-a" : "person-b", label: String(url).includes("people-a") ? "Исполнитель А" : "Исполнитель Б" },
+  ])));
+  const schema = { sections: [{ key: "main", title: "", fields: [{ ...field, reference_set_id: undefined, reference_code: "executors" }] }] };
+  const references = [{ id: "people-b", code: "executors", name: "Б", registry_id: "registry-b" },
+    { id: "people-global", code: "executors", name: "Общий", registry_id: null },
+    { id: "people-a", code: "executors", name: "А", registry_id: "registry-a" }];
+  const { rerender } = render(<DynamicForm schema={schema} values={{}} mode="edit" roles={["editor"]} registryId="registry-a" references={references} />);
+  expect(await screen.findByRole("checkbox", { name: "Исполнитель А" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "Исполнитель Б" })).toBeNull();
+  rerender(<DynamicForm schema={schema} values={{}} mode="edit" roles={["editor"]} registryId="registry-b" references={references} />);
+  expect(await screen.findByRole("checkbox", { name: "Исполнитель Б" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "Исполнитель А" })).toBeNull();
+  expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+    expect.stringContaining("/references/people-a/items"), expect.stringContaining("/references/people-b/items"),
+  ]);
+});

@@ -49,6 +49,34 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
 const mode = (name: string) => screen.getByRole("radio", {name});
 const firstRow = () => screen.findByRole("row", {name: /Выбрать документ «Альфа»/});
 
+it("uses each selected card's registry references while the result filter stays on all registries", async () => {
+  const fetch = setup();
+  const base = fetch.getMockImplementation()!;
+  const schema: FormSchema = {sections: [{key: "main", title: "Основные сведения", fields: [
+    {key: "people", label: "Исполнитель", type: "multi_reference", reference_code: "executors", editable: true},
+  ]}]};
+  fetch.mockImplementation(async (url, init) => {
+    if (url.endsWith("/registries")) return new Response(JSON.stringify(["r", "r2"].map(id => ({id, name: id, document_type_ids: ["type"], permissions: ["read", "update"]}))));
+    if (/\/references(?:\?|$)/.test(url)) return new Response(JSON.stringify(["r2", "r"].map(id => ({id: "people-" + id, code: "executors", name: id, registry_id: id}))));
+    if (url.includes("/references/people-")) return new Response(JSON.stringify([{id: "person-" + (url.includes("people-r2/") ? "r2" : "r"), label: url.includes("people-r2/") ? "Сотрудник второго реестра" : "Сотрудник первого реестра"}]));
+    if (/\/documents\/[ab]\?/.test(url)) {
+      const second = url.includes("/documents/b?");
+      return new Response(JSON.stringify({id: second ? "b" : "a", registry_id: second ? "r2" : "r", revision: 1, current_version: 0, title: second ? "Бета" : "Альфа", values: {}, schema, permissions: ["read", "update"], files: []}));
+    }
+    return base(url, init);
+  });
+  expect((await screen.findByRole("combobox", {name: "Реестр"}) as HTMLSelectElement).value).toBe("");
+  for (const [title, expected, other] of [["Альфа", "Сотрудник первого реестра", "Сотрудник второго реестра"], ["Бета", "Сотрудник второго реестра", "Сотрудник первого реестра"]]) {
+    fireEvent.click(await screen.findByRole("row", {name: new RegExp(`Выбрать документ «${title}»`)}));
+    await screen.findByRole("heading", {name: title, level: 1});
+    fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+    expect(await screen.findByRole("checkbox", {name: expected})).toBeTruthy();
+    expect(screen.queryByRole("checkbox", {name: other})).toBeNull();
+    expect((screen.getByRole("combobox", {name: "Реестр"}) as HTMLSelectElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", {name: "Отмена изменений"}));
+  }
+});
+
 it("keeps the four working tabs and permission-aware section navigation without duplicate header metadata", async () => {
   setup(false, true);
   fireEvent.click(await firstRow());

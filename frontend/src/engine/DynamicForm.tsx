@@ -192,7 +192,7 @@ function Lookup({
                       onChange(selected ? values.filter((current) => current !== choice.id) : [...values, choice.id]);
                     }}
                   />
-                  <span>{choice.label}{choice.active === false ? " (неактивно)" : ""}</span>
+                  <span title={choice.label}>{choice.label}{choice.active === false ? " (неактивно)" : ""}</span>
                 </label>
               );
             })}

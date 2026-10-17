@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomBytes} from 'node:crypto';
+import {setTimeout as delay} from 'node:timers/promises';
 
 export async function runPeopleSelection({browser, origin, admin, outputDir, expectedSha}) {
   assert.equal(new URL(origin).protocol, 'https:', 'Strict HTTPS is required');
@@ -79,11 +80,18 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
       const set=await json(ap,'/references','POST',{code:referenceCode,name:label+' ACTI v2',registry_id:registry.id},201);
       assert(!/ACTI\s*v\s*2/i.test(set.name));
       const items=[];
-      for(const [index,name] of ['Иван Петров','Мария Соколова','Алексей Орлов','Недоступный участник'].entries())items.push(await json(ap,`/references/${set.id}/items`,'POST',{label:name,sort_order:index,active:index!==3},201));
+      for(const [index,name] of ['Иван Петров','Мария Соколова','Алексей Орлов','Недоступный участник','Виктор Лебедев','Ольга Смирнова','Сергей Волков','Елена Морозова'].entries())items.push(await json(ap,`/references/${set.id}/items`,'POST',{label:name,sort_order:index,active:index!==3},201));
       choices[key]={set,items,label};
     }
-    const foreignSet=await json(ap,'/references','POST',{code:'executors',name:'Исполнители другого реестра',registry_id:foreignRegistry.id},201);
-    const foreign=await json(ap,`/references/${foreignSet.id}/items`,'POST',{label:'Чужой участник'},201);
+    const otherChoices={};
+    for(const [referenceCode,key,label] of people) {
+      const set=await json(ap,'/references','POST',{code:referenceCode,name:label+' другого реестра',registry_id:foreignRegistry.id},201);
+      const items=[];
+      for(const suffix of ['Первый','Второй'])items.push(await json(ap,`/references/${set.id}/items`,'POST',{label:`Другой реестр — ${label} ${suffix}`},201));
+      otherChoices[key]={set,items};
+    }
+    const foreign=otherChoices.executor_id.items[0];
+    await json(ap,`/registries/${foreignRegistry.id}`,'PATCH',{document_type_ids:[type.id]});
     const version=(await json(ap,`/document-types/${type.id}/versions`))[0];
     const schema={sections:[{key:'main',title:'Основные сведения ACTI v2',fields:[
       {key:'caption',label:'Наименование документа ACTI v2',system:'title',type:'text',editable:true,required:true,searchable:true},
@@ -104,7 +112,8 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
       await page.getByRole('heading',{name:'Документы',exact:true,level:1}).waitFor();
       roles[role]={page,account};
     }
-    await json(ap,`/admin/access/${registry.id}`,'PUT',{entries:[{user_id:me.id,permissions:['read','create','update','download']},{user_id:roles.editor.account.id,permissions:['read','create','update','download']},{user_id:roles.viewer.account.id,permissions:['read']} ]});
+    for(const owned of registries)await json(ap,`/admin/access/${owned.id}`,'PUT',{entries:[{user_id:me.id,permissions:['read','create','update','download']},{user_id:roles.editor.account.id,permissions:['read','create','update','download']},{user_id:roles.viewer.account.id,permissions:['read']} ]});
+    const foreignCard=await json(ap,'/documents','POST',{registry_id:foreignRegistry.id,document_type_id:type.id,schema_version_id:version.id,card_state:'published',publication_targets:['internal','shared'],values:{caption:'Другой реестр '+code,...Object.fromEntries(people.map(([,key])=>[key,[otherChoices[key].items[0].id]]))}},201);
     ep=roles.editor.page;
     ep.on('request',request=>{const url=new URL(request.url());if(/^\/api\/v1\/references\/[^/]+\/items$/.test(url.pathname))requests.push(url.pathname);});
     await ep.goto(`${origin}/work?registry_id=${registry.id}&document_type_id=${type.id}`);await dismissNav(ep);
@@ -123,6 +132,14 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
       const group=create.getByRole('group',{name:label,exact:true}), search=create.getByRole('searchbox',{name:'Поиск: '+label,exact:true});
       await group.getByRole('checkbox',{name:'Иван Петров',exact:true}).waitFor();
       await group.getByRole('checkbox',{name:'Недоступный участник (неактивно)',exact:true}).isDisabled().then(value=>assert(value));
+      const geometry=await group.evaluate(el=>{
+        const bounds=el.getBoundingClientRect(), rows=Array.from(el.querySelectorAll('.lookup-option')).map(row=>row.getBoundingClientRect());
+        return {rowHeights:rows.map(row=>row.height),visible:rows.filter(row=>row.top>=bounds.top+el.clientTop-1&&row.bottom<=bounds.top+el.clientTop+el.clientHeight+1).length,scroll:el.scrollHeight>el.clientHeight};
+      });
+      assert(geometry.rowHeights.every(height=>height===32),'Desktop rows are flat and 32px tall');
+      assert.equal(geometry.visible,5,'Exactly five full options are visible');assert(geometry.scroll,'Further options scroll inside the list');
+      const last=group.getByRole('checkbox',{name:'Елена Морозова',exact:true});await last.scrollIntoViewIfNeeded();await last.click();assert.equal(await last.isChecked(),true);await last.click();
+      await group.evaluate(el=>el.scrollTop=0);
       const before=requests.filter(endpoint=>endpoint.includes(choices[key].set.id)).length;
       await search.fill('ИВАН');await group.getByRole('checkbox',{name:'Иван Петров',exact:true}).click();
       assert.equal(await group.getByRole('checkbox',{name:'Алексей Орлов',exact:true}).count(),0);
@@ -136,6 +153,7 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
       await maria.focus();await ep.keyboard.press('Space');assert.equal(await maria.isChecked(),false);await ep.keyboard.press('Space');assert.equal(await maria.isChecked(),true);
       assert.equal(requests.filter(endpoint=>endpoint.includes(choices[key].set.id)).length,before,'Local reference search must not refetch');
     }
+    await create.getByRole('group',{name:'Исполнитель',exact:true}).locator('..').locator('..').screenshot({path:path.join(outputDir,'people-five-visible-options.png')});
     await ep.screenshot({path:path.join(outputDir,'people-multiple-selection.png'),fullPage:true,mask:[ep.locator('.account')]});
     pass('All four people fields support Cyrillic case-insensitive local search, normal multi-click and Space; filters retain selection without refetch');
     stage='save and reopen';
@@ -179,6 +197,33 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     assert.equal(after.revision,before.revision);assert.deepEqual(after.values,before.values);
     assert.equal((await json(ep,`/documents/${card.id}/history`)).length,historyBefore.length);
     pass('Foreign registry reference is rejected without changing values, revision or history');
+
+    stage='all-registry selection';
+    for(const ownedCard of [card,foreignCard]) {
+      for(let attempt=0;attempt<60;attempt++) {
+        if((await json(ep,`/documents/${ownedCard.id}/search-index`)).ready)break;
+        if(attempt===59)assert.fail('Owned registry card did not index');await delay(300);
+      }
+    }
+    await ep.getByRole('button',{name:'Карточка',exact:true}).click();
+    await ep.getByRole('radio',{name:'Вместе',exact:true}).click();
+    await ep.getByRole('combobox',{name:'Реестр',exact:true}).selectOption('');
+    await ep.getByRole('combobox',{name:'Тип',exact:true}).selectOption(type.id);
+    await ep.getByRole('button',{name:'Найти',exact:true}).click();
+    for(const [selected,books] of [[foreignCard,otherChoices],[card,choices]]) {
+      await ep.locator(`tr[data-document-id="${selected.id}"]`).click();
+      await detail.getByRole('heading',{name:selected.title,exact:true,level:1}).waitFor();
+      await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+      for(const [,key,label] of people) {
+        const group=detail.getByRole('group',{name:label,exact:true});
+        await group.getByRole('checkbox',{name:books[key].items[1].label,exact:true}).waitFor();
+        const unexpected=books===choices?otherChoices[key].items[1].label:'Мария Соколова';
+        assert.equal(await group.getByRole('checkbox',{name:unexpected,exact:true}).count(),0,'Other registry values must not leak into choices');
+      }
+      assert.equal(await ep.getByRole('combobox',{name:'Реестр',exact:true}).inputValue(),'','Result selection keeps all-registry search');
+      await detail.getByRole('button',{name:'Отмена изменений',exact:true}).click();
+    }
+    pass('All-registry search switches all four scoped reference lists with the selected document while preserving the all-registry filter');
 
     stage='reader and small screen';
     const vp=roles.viewer.page;
