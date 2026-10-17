@@ -70,7 +70,6 @@ it.each([
   { onCreateReference: undefined },
   { references: [{ ...roleBooks[0], code: "departments" }] },
   { references: [{ ...roleBooks[0], registry_id: null }] },
-  { references: [{ ...roleBooks[0], registry_id: "registry-b" }] },
   { definition: { ...field, type: "user" as const } },
 ])("does not expose creation outside explicitly enabled scoped participant books: %j", async (props) => {
   if ("definition" in props) fetchMock.mockImplementation(async () => new Response(JSON.stringify(people.map(person => ({ ...person, display_name: person.label })))));
@@ -277,4 +276,33 @@ it("resolves the current document registry's reference code even when foreign an
   expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
     expect.stringContaining("/references/people-a/items"), expect.stringContaining("/references/people-b/items"),
   ]);
+});
+
+it("disambiguates participants and searches approved business metadata", async () => {
+  fetchMock.mockImplementation(async () => new Response(JSON.stringify([
+    { id: "one", label: "Анна Иванова", active: true, metadata: { position: "Юрист", department: "Правовой отдел", source_attributes: { secret: "private" } } },
+    { id: "two", label: "Борис Петров", active: true, metadata: { position: "Начальник", department: "Канцелярия" } },
+  ])));
+  render(<Editor />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова · Юрист · Правовой отдел" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "правовой" } });
+  expect(screen.getByRole("checkbox", { name: "Анна Иванова · Юрист · Правовой отдел" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: /Борис/ })).toBeNull();
+  expect(screen.queryByText(/private/)).toBeNull();
+});
+
+it("does not load an explicit reference set belonging to a different registry", async () => {
+  render(<Editor references={[{ ...roleBooks[0], registry_id: "registry-b" }]} />);
+  await waitFor(() => expect(screen.getByRole("status", { name: "Состояние: Участники" }).textContent).toContain("Нет доступных"));
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("does not offer duplicate creation for an inactive participant with business metadata", async () => {
+  fetchMock.mockImplementation(async () => new Response(JSON.stringify([
+    { id: "inactive", label: "Анна Иванова", active: false, metadata: { position: "Юрист" } },
+  ])));
+  render(<Editor onCreateReference={vi.fn()} />);
+  await screen.findByRole("checkbox", { name: /Анна Иванова/ });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Анна Иванова" } });
+  expect(screen.queryByRole("button", { name: /Создать/ })).toBeNull();
+  expect(screen.getByRole("status", { name: "Состояние: Участники" }).textContent).toContain("неактивен");
 });

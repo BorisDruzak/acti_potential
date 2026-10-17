@@ -4058,6 +4058,25 @@
         ],
         "title": "DocumentRead"
       },
+      "EditorIdentity": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "title": "EditorIdentity"
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -5839,6 +5858,16 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EditorIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "anyOf": [

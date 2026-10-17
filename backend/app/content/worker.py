@@ -24,6 +24,7 @@ def process_backlog(factory, limit=5):
                 select(Document.id)
                 .outerjoin(DocumentIndexState, DocumentIndexState.document_id == Document.id)
                 .where(
+                    Document.deleted_at.is_(None),
                     or_(
                         DocumentIndexState.document_id.is_(None),
                         DocumentIndexState.document_revision != Document.revision,
@@ -39,6 +40,9 @@ def process_backlog(factory, limit=5):
         files = session.scalars(
             select(DocumentFile)
             .where(
+                select(Document.id).where(
+                    Document.id == DocumentFile.document_id, Document.deleted_at.is_(None)
+                ).exists(),
                 ~select(ContentExtraction.id)
                 .where(ContentExtraction.file_id == DocumentFile.id)
                 .exists()
@@ -94,6 +98,9 @@ def _claim(factory):
             select(ContentExtraction)
             .where(
                 ContentExtraction.state == "pending",
+                select(Document.id).where(
+                    Document.id == ContentExtraction.document_id, Document.deleted_at.is_(None)
+                ).exists(),
                 ContentExtraction.attempts < MAX_ATTEMPTS,
                 ContentExtraction.next_attempt_at <= now,
             )

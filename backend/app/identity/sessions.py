@@ -41,7 +41,12 @@ def issue_session(session, user_id, now: datetime, *, external_identity_id=None)
 def resolve_actor(session, token: str, now: datetime) -> Actor:
     if len(token) != 43:
         raise AuthenticationError()
-    row = session.scalar(select(AuthSession).where(AuthSession.token_hash == token_digest(token)))
+    return resolve_actor_by_hash(session, token_digest(token), now)
+
+
+def resolve_actor_by_hash(session, digest: str, now: datetime) -> Actor:
+    """Revalidate an existing session; only server-issued capabilities carry its digest."""
+    row = session.scalar(select(AuthSession).where(AuthSession.token_hash == digest))
     if row is None or row.revoked_at is not None or row.expires_at <= now:
         raise AuthenticationError()
     user = session.get(User, row.user_id)

@@ -19,6 +19,7 @@ from app.numbering.models import (
     NumberRequest,
     NumberSeries,
 )
+from app.registry.archives import configuration_active_clause, is_archived
 from app.registry.documents import (
     append_history,
     check_revision,
@@ -60,7 +61,7 @@ def render_number(series, period, ordinal):
 
 
 def get_series(session, series_id, *, lock=False):
-    query = select(NumberSeries).where(NumberSeries.id == series_id)
+    query = select(NumberSeries).where(NumberSeries.id == series_id, configuration_active_clause(NumberSeries, "number_series"))
     if lock:
         query = query.with_for_update().execution_options(populate_existing=True)
     result = session.scalar(query)
@@ -70,6 +71,8 @@ def get_series(session, series_id, *, lock=False):
 
 
 def permissions(session, actor, series):
+    if is_archived(session, "number_series", series.id):
+        return set()
     grant = session.get(NumberGrant, (series.id, actor.id))
     if "read" not in permissions_for(session, actor, series.registry_id):
         return set()
@@ -87,11 +90,17 @@ def require(session, actor, series, action):
 
 def validate_scope(session, data):
     registry = session.get(Registry, data.registry_id)
-    if registry is None:
+    if registry is None or is_archived(session, "registry", data.registry_id):
         fail(422, "number_registry", "Реестр не существует")
     types = set(str(v) for v in data.document_type_ids)
     if types - set(registry.document_type_ids):
         fail(422, "number_types", "Типы серии должны быть назначены реестру")
+    active_types = {str(identity) for identity in session.scalars(
+        select(DocumentType.id).where(DocumentType.id.in_([UUID(value) for value in types]),
+                                      configuration_active_clause(DocumentType, "document_type"))
+    )}
+    if types - active_types:
+        fail(422, "number_types", "Типы серии недоступны")
     legacy_type = session.scalar(select(DocumentType.id).where(DocumentType.code == "acti-v2"))
     if registry.code in {"okrug", "raion"} or (
         legacy_type and str(legacy_type) in (types or set(registry.document_type_ids))

@@ -7,12 +7,24 @@ export const documentColumns = [
   {key: "reg_number", label: "Регистрационный номер", sort: "reg_number"},
   {key: "reg_date", label: "Дата регистрации", sort: "reg_date"},
   {key: "card_state", label: "Состояние карточки"},
+  {key: "status", label: "Статус правового акта"},
   {key: "document_type", label: "Тип документа"},
   {key: "kind", label: "Вид документа"},
   {key: "topic", label: "Тема"},
   {key: "responsible", label: "Ответственный исполнитель"},
 ] as const;
-export type DocumentColumn = typeof documentColumns[number]["key"];
+export type DocumentColumn = {key: string; label: string; sort?: string; configured?: boolean};
+export function resultColumns(schemas: FormSchema[]): DocumentColumn[] {
+  const configured = schemas.flatMap(schema => schema.list_view?.columns || []);
+  if (!configured.length) return [...documentColumns];
+  const base: DocumentColumn[] = documentColumns.filter(column => ["title", "reg_number", "reg_date", "card_state", "status", "document_type"].includes(column.key));
+  const seen = new Set(base.map(column => column.key));
+  const labels = new Set(base.map(column => normalized(column.label)));
+  for (const column of configured) if (!seen.has(column.key) && !labels.has(normalized(column.label))) {
+    base.push({...column, configured: true}); seen.add(column.key); labels.add(normalized(column.label));
+  }
+  return base;
+}
 const normalized = (text: string) => text.trim().toLocaleLowerCase("ru-RU").replaceAll("ё", "е").replace(/\s+/g, " ");
 
 // A list-column heading is an explicit type-level alias for a field. Otherwise
@@ -33,12 +45,21 @@ export function listValue(value: unknown): string {
 }
 export function configuredValue(item: Pick<Card, "values" | "display_values">, schema: FormSchema | undefined, label: string, roles: string[], readOnly: boolean): string {
   const field = presentationField(schema, label);
+  return fieldValue(item, schema, field, roles, readOnly);
+}
+function fieldValue(item: Pick<Card, "values" | "display_values">, schema: FormSchema | undefined, field: Field | undefined, roles: string[], readOnly: boolean): string {
   if (!field || !Object.hasOwn(item.values || {}, field.key) ||
       !canRead(field, "view", roles, item.values, readOnly ? "viewer" : "editor", schema!.sections.flatMap(section => section.fields))) return "—";
   if (Object.hasOwn(item.display_values || {}, field.key)) return listValue(item.display_values![field.key]);
   if (["reference", "multi_reference", "user", "department", "document", "file", "group"].includes(field.type)) return "—";
   return listValue(item.values[field.key]);
 }
+export function legalActStatus(item: Pick<Card, "values" | "display_values">, schema: FormSchema | undefined, roles: string[], readOnly: boolean): string {
+  const configured = presentationField(schema, "Статус правового акта");
+  const candidates = schema?.sections.flatMap(section => section.fields).filter(field => field.reference_code === "status") || [];
+  return fieldValue(item, schema, configured || (candidates.length === 1 ? candidates[0] : undefined), roles, readOnly);
+}
+
 export function configuredSort(schema: FormSchema | undefined, label: string): string | undefined {
   const field = presentationField(schema, label);
   if (field?.filterable && !field.visible_when && ["text", "textarea", "integer", "decimal", "date", "datetime", "boolean"].includes(field.type))

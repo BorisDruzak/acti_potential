@@ -28,8 +28,9 @@ from app.identity.policy import Actor as IdentityActor
 from app.knowledge import service as knowledge
 from app.processes import service as processes
 from app.processes.contracts import RevisionInput
+from app.registry.archives import configuration_active_clause
 from app.registry.events import emit
-from app.registry.models import RegistryAccess
+from app.registry.models import Registry, RegistryAccess
 from app.registry.policy import role_actions
 
 router = APIRouter(prefix="/execution")
@@ -133,7 +134,8 @@ def listing(session: Db, actor: Actor, params: Annotated[ListInput, Depends()]):
     query = (
         select(ProcessInstance)
         .join(RegistryAccess, RegistryAccess.registry_id == ProcessInstance.registry_id)
-        .where(RegistryAccess.user_id == actor.id, RegistryAccess.permissions.contains(["read"]))
+        .where(RegistryAccess.user_id == actor.id, RegistryAccess.permissions.contains(["read"]),
+               configuration_active_clause(Registry, "registry", ProcessInstance.registry_id))
     )
     if params.registry_id:
         query = query.where(ProcessInstance.registry_id == params.registry_id)

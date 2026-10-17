@@ -18,6 +18,7 @@ from app.identity.models import Role, User, UserRole
 from app.identity.policy import Actor
 from app.knowledge import service as knowledge
 from app.processes import service as processes
+from app.registry.archives import configuration_active_clause
 from app.registry.documents import (
     document_summary,
     file_visible,
@@ -81,6 +82,7 @@ def get_instance(session, actor, identity, *, lock=False):
             ProcessInstance.id == identity,
             RegistryAccess.user_id == actor.id,
             RegistryAccess.permissions.contains(["read"]),
+            configuration_active_clause(Registry, "registry", ProcessInstance.registry_id),
         )
     )
     if lock:

@@ -23,8 +23,9 @@ from app.knowledge.models import (
 )
 from app.processes import service as processes
 from app.processes.models import ProcessStep
+from app.registry.archives import configuration_active_clause
 from app.registry.documents import get_document, get_schema, raw_values
-from app.registry.models import DocumentFile, FormSchema, RegistryAccess
+from app.registry.models import DocumentFile, FormSchema, Registry, RegistryAccess
 from app.registry.policy import field_accessible, permissions_for, redact_values, role_actions
 from app.registry.value_validation import validate_value
 
@@ -51,6 +52,7 @@ def scope(session, actor, registry_id, action="read"):
 
 def visible_clause(actor, model):
     return and_(
+        configuration_active_clause(Registry, "registry", model.registry_id),
         RegistryAccess.user_id == actor.id,
         RegistryAccess.permissions.contains(["read"]),
         or_(

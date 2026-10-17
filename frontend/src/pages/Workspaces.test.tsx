@@ -249,10 +249,12 @@ it("boolean extra filter uses typed control and sends false rather than dropping
   const fetch = setup(["viewer"]);
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.change(screen.getByLabelText("Тип"), { target: { value: "t" } });
-  fireEvent.change(await screen.findByLabelText("Дополнительный фильтр"), {
+  fireEvent.click(screen.getByRole("button", {name: "Фильтры"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Добавить условие"}));
+  fireEvent.change(screen.getByLabelText("Поле фильтра 1"), {
     target: { value: "publish" },
   });
-  fireEvent.change(screen.getByLabelText("Значение фильтра"), {
+  fireEvent.change(screen.getByLabelText("Значение фильтра 1"), {
     target: { value: "false" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Найти" }));

@@ -24,6 +24,7 @@ from app.numbering.models import (
     NumberOperation,
     NumberSeries,
 )
+from app.registry.archives import configuration_active_clause
 from app.registry.events import emit
 from app.registry.tabular import export_file
 
@@ -50,7 +51,7 @@ def list_series(session=Depends(db_session, scope="function"), actor=Depends(cur
     return [
         series_output(session, actor, row)
         for row in session.scalars(
-            select(NumberSeries).order_by(NumberSeries.name, NumberSeries.id)
+            select(NumberSeries).where(configuration_active_clause(NumberSeries, "number_series")).order_by(NumberSeries.name, NumberSeries.id)
         )
         if "admin" in actor.roles or "view" in service.permissions(session, actor, row)
     ]

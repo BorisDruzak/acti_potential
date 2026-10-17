@@ -43,6 +43,40 @@ class DocumentUpdate(CardPublicationInput):
     publication_targets: list[Literal["internal", "shared"]] | None = Field(None, max_length=2)
 
 
+class DocumentDelete(Input):
+    revision: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def meaningful_reason(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("Укажите причину удаления")
+        return value
+
+
+class EditorIdentity(BaseModel):
+    id: UUID
+    display_name: str
+
+
+class CollaborationHeartbeat(Input):
+    client_id: UUID
+    editing: bool = False
+
+
+class CollaborationParticipant(EditorIdentity):
+    editing: bool
+
+
+class CollaborationOutput(BaseModel):
+    revision: int
+    updated_at: datetime
+    updated_by: EditorIdentity | None
+    participants: list[CollaborationParticipant]
+
+
 class FileOutput(BaseModel):
     id: UUID
     version: int
@@ -70,6 +104,7 @@ class DocumentSummary(BaseModel):
     current_version: int
     created_at: datetime
     updated_at: datetime
+    updated_by: EditorIdentity | None = None
     permissions: list[str]
     values: dict[str, Any] = Field(default_factory=dict)
     display_values: dict[str, Any] = Field(default_factory=dict)
@@ -95,6 +130,7 @@ class HistoryOutput(BaseModel):
     card_state: Literal["draft", "published"] | None = None
     publication_targets: list[Literal["internal", "shared"]] | None = None
     created_by: UUID
+    created_by_name: str | None = None
     created_at: datetime
 
 

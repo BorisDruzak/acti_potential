@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { configuredColumnSort, configuredSort, configuredValue, presentationField } from "./documentPresentation";
+import { configuredColumnSort, configuredSort, configuredValue, legalActStatus, presentationField } from "./documentPresentation";
 import type { Card, FormSchema } from "./schema";
 
 it("uses configured list aliases with arbitrary field keys and does not guess legacy keys", () => {
@@ -37,4 +37,13 @@ it("only sorts a configured column when all published versions agree across resu
   expect(configuredColumnSort([version("topic"), version("topic")], "Тема")).toBe("custom:topic");
   expect(configuredColumnSort([version("topic"), {sections: []}], "Тема")).toBeUndefined();
   expect(configuredColumnSort([], "Тема")).toBeUndefined();
+});
+
+
+it("resolves legal act status from its configured reference with ACL and never substitutes card state", () => {
+  const schema: FormSchema = {sections: [{key: "main", title: "Main", fields: [{key: "arbitrary_status", label: "Статус", type: "reference", reference_code: "status"}]}]};
+  const card = {values: {arbitrary_status: "opaque"}, display_values: {arbitrary_status: "Утратило силу"}};
+  expect(legalActStatus(card, schema, ["editor"], false)).toBe("Утратило силу");
+  schema.sections[0].fields[0].read_roles = ["admin"];
+  expect(legalActStatus(card, schema, ["editor"], false)).toBe("—");
 });

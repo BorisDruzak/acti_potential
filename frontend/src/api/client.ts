@@ -81,10 +81,10 @@ export async function encodeFile(file: File): Promise<string> {
   return btoa(binary);
 }
 
-export async function apiDownload(path: string): Promise<Blob> {
+export async function apiDownload(path: string, init: RequestInit = {}): Promise<Blob> {
   let response: Response;
   try {
-    response = await fetch("/api/v1" + path, { credentials: "same-origin" });
+    response = await fetch("/api/v1" + path, { ...init, credentials: "same-origin" });
   } catch {
     throw new ApiError(
       0,
@@ -118,6 +118,18 @@ export async function saveDownload(
 
 export async function saveExport(path: string, name: string) {
   saveBlob(await apiDownload(path), name);
+}
+
+export async function saveSelectedExport(
+  ids: string[], format: "csv" | "xlsx", columns: string[] | undefined,
+  mode: "editor" | "viewer", csrfToken: string,
+) {
+  const blob = await apiDownload("/documents/export-selection", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+    body: JSON.stringify({document_ids: ids, format, ...(columns?.length ? {columns} : {}), mode}),
+  });
+  saveBlob(blob, `selected-documents.${format}`);
 }
 
 function saveBlob(blob: Blob, name: string) {

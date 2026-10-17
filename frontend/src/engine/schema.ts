@@ -73,7 +73,7 @@ export type ReferenceSet = {
   description?: string;
   registry_id?: string | null;
 };
-export type ReferenceItem = { id: string; label: string; active: boolean; code?: string; description?: string; sort_order?: number; parent_id?: string | null; valid_from?: string | null; valid_until?: string | null; selectable?: boolean };
+export type ReferenceItem = { metadata?: Record<string, unknown>; id: string; label: string; active: boolean; code?: string; description?: string; sort_order?: number; parent_id?: string | null; valid_from?: string | null; valid_until?: string | null; selectable?: boolean };
 export type FileVersion = {
   id: string;
   version: number;

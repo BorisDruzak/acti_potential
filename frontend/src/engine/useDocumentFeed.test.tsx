@@ -63,3 +63,18 @@ it("does not loop when a server repeats an already consumed cursor", async () =>
   expect(pending).toHaveLength(2);
   expect(result.current.data?.next_cursor).toBeNull();
 });
+
+it("refreshes every loaded batch atomically and drops disappeared rows without clearing the feed", async () => {
+  const {pending, answer} = fixture();
+  const {result} = renderHook(() => useDocumentFeed({query: "one"}, "csrf"));
+  await answer(0, ["a", "b"], "second");
+  act(() => result.current.loadMore());
+  await answer(1, ["c"], "third");
+  act(() => result.current.reload());
+  expect(result.current.data?.items.map(hit => hit.document.id)).toEqual(["a", "b", "c"]);
+  await answer(2, ["b", "d"], "second-new");
+  expect(result.current.data?.items.map(hit => hit.document.id)).toEqual(["a", "b", "c"]);
+  await answer(3, ["e"], "third-new");
+  expect(result.current.data?.items.map(hit => hit.document.id)).toEqual(["b", "d", "e"]);
+  expect(pending).toHaveLength(4);
+});

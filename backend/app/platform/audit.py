@@ -25,6 +25,7 @@ def record_audit(session, event: AuditInput) -> UUID:
         "service.token.revoked",
         "service.queue.retried",
         "search.rebuild.requested",
+        "document.deleted",
     }:
         allowed.add("reason")
     if set(event.details) - allowed:

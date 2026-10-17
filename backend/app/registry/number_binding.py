@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.api.errors import fail
+from app.registry.archives import is_archived
 from app.registry.models import DocumentType, Registry
 from app.registry.validation import iter_fields
 
@@ -17,7 +18,7 @@ def validate_number_bindings(session, schema, registry_ids, document_type_id=Non
 
     for field in bindings:
         series = session.get(NumberSeries, UUID(field["number_series_id"]))
-        if series is None:
+        if series is None or is_archived(session, "number_series", series.id):
             raise ValueError("Number series does not exist")
         registry = session.get(Registry, series.registry_id)
         if registry is None or registry.code in {"okrug", "raion"} or not series.synthetic:
@@ -26,7 +27,7 @@ def validate_number_bindings(session, schema, registry_ids, document_type_id=Non
             raise ValueError("Number series is outside the assigned registry")
         if document_type_id is not None:
             kind = session.get(DocumentType, document_type_id)
-            if kind is None or kind.code == "acti-v2":
+            if kind is None or is_archived(session, "document_type", document_type_id) or kind.code == "acti-v2":
                 raise ValueError("Historical numbering must remain unchanged")
             if series.document_type_ids and str(document_type_id) not in series.document_type_ids:
                 raise ValueError("Number series does not allow this document type")

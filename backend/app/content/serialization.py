@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.identity.models import User
-from app.registry.documents import document_summary, raw_values
+from app.registry.documents import document_summary, latest_editors, raw_values
 from app.registry.models import (
     Document,
     DocumentACL,
@@ -119,6 +119,7 @@ def summaries(session, actor, documents, mode):
             str(document.id),
         )
         cache[("document", str(document.id))] = title
+    editors = latest_editors(session, documents)
     result = {}
     for document in documents:
         permitted = permissions.get(document.registry_id, set())
@@ -126,7 +127,8 @@ def summaries(session, actor, documents, mode):
             permitted = permitted & personal.get(document.id, set())
         schema = schemas[document.schema_version_id].schema_data
         item = document_summary(
-            session, document, actor, schema, mode, permissions=permitted, display_cache=cache
+            session, document, actor, schema, mode, permissions=permitted, display_cache=cache,
+            editor_cache=editors,
         )
         if actor.scoped_operations is not None and not actor.scoped_operations.intersection(
             {"files", "content"}

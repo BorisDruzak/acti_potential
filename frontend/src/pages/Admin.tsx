@@ -513,11 +513,12 @@ export function ReferencesAdmin() {
           className="panel compact-form"
           onSubmit={(event) => {
             event.preventDefault();
+            if (!registryId) return;
             void action.run(async () => {
               const created = await action.request<ReferenceSet>(
                 "/references",
                 "POST",
-                { name, code, registry_id: registryId || null },
+                { name, code, registry_id: registryId === "global" ? null : registryId },
               );
               setSelected(created.id);
               setCreating(false);
@@ -544,10 +545,12 @@ export function ReferencesAdmin() {
           <label>
             Область справочника
             <select
+              required
               value={registryId}
               onChange={(event) => setRegistryId(event.target.value)}
             >
-              <option value="">Общий</option>
+              <option value="" disabled>Выберите область</option>
+              <option value="global">Общий для всех реестров</option>
               {registries.data?.map((registry) => (
                 <option key={registry.id} value={registry.id}>
                   {registry.name}

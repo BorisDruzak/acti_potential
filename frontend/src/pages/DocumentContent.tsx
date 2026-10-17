@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { saveDownload } from "../api/client";
 import { Feedback } from "../components/Feedback";
+import { OfficeOpen } from "../components/OfficeOpen";
+import { useAuth } from "../auth/AuthProvider";
 import { blockKinds, extractionErrors, extractionStates, extractionWarnings, type ContentBlock, type ContentExtraction, type ContentTarget } from "../engine/content";
 import type { Card } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
@@ -27,6 +29,7 @@ function BlockList({extraction, target, mode, documentId}: {extraction: ContentE
 }
 
 export function DocumentContent({card, readOnly, target}: {card: Card; readOnly: boolean; target?: ContentTarget}) {
+  const auth = useAuth();
   const mode = readOnly ? "viewer" : "editor";
   const [page, setPage] = useState(1);
   const [fileId, setFileId] = useState(target?.fileId || "");
@@ -55,7 +58,7 @@ export function DocumentContent({card, readOnly, target}: {card: Card; readOnly:
     {content.data?.items.map(extraction => <details key={extraction.id} className="extraction" open={target?.fileId === extraction.file_id || content.data?.items.length === 1}>
       <summary>{extraction.name} · версия {extraction.version} · {extractionStates[extraction.state] || "Состояние обработки неизвестно"}</summary>
       <div className="toolbar"><p className="muted">{extraction.parser} {extraction.parser_version}{extraction.completed_at ? " · " + new Date(extraction.completed_at).toLocaleString("ru-RU") : ""}</p><div className="button-row">
-        {card.permissions.includes("download") && <button type="button" disabled={action.busy} onClick={() => void action.run(() => saveDownload(extraction.file_id, extraction.name, mode), "Оригинал скачан")}>Скачать оригинал версии {extraction.version}</button>}
+        {card.permissions.includes("download") && <><button type="button" disabled={action.busy} onClick={() => void action.run(() => saveDownload(extraction.file_id, extraction.name, mode), "Оригинал скачан")}>Скачать оригинал версии {extraction.version}</button><OfficeOpen file={{id: extraction.file_id, name: extraction.name}} mode={mode} csrfToken={auth.user?.csrf_token || ""}/></>}
         {canExtract && extraction.state === "failed" && extraction.attempts < 3 && <button type="button" disabled={action.busy} onClick={() => void action.run(() => extract(extraction.file_id), "Повторная обработка запрошена")}>Повторить извлечение</button>}
       </div></div>
       {extraction.state === "no_text" && <p>Нет цифрового текстового слоя. Распознавание сканов пока не подключено.</p>}

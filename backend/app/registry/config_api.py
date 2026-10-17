@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies import current_actor, current_admin, db_session
 from app.api.errors import fail
+from app.registry.archives import configuration_active_clause, is_archived
 from app.registry.events import emit
 from app.registry.models import (
     Document,
@@ -185,7 +186,10 @@ def _get(session, model, object_id, lock=False):
         if lock
         else session.get(model, object_id)
     )
-    if row is None:
+    kind = {Registry: "registry", DocumentType: "document_type", ReferenceSet: "reference_set"}.get(model)
+    if row is None or kind and is_archived(session, kind, object_id):
+        fail(404, "not_found", "Объект не найден")
+    if model is FormSchema and is_archived(session, "document_type", row.document_type_id):
         fail(404, "not_found", "Объект не найден")
     return row
 
@@ -195,7 +199,7 @@ def _is_admin(actor):
 
 
 def _registries(session, actor):
-    rows = list(session.scalars(select(Registry).order_by(Registry.name, Registry.id)))
+    rows = list(session.scalars(select(Registry).where(configuration_active_clause(Registry, "registry")).order_by(Registry.name, Registry.id)))
     return (
         rows
         if _is_admin(actor)
@@ -204,11 +208,21 @@ def _registries(session, actor):
 
 
 def _type_ids(session, actor):
-    return {str(t) for registry in _registries(session, actor) for t in registry.document_type_ids}
+    assigned = {str(t) for registry in _registries(session, actor) for t in registry.document_type_ids}
+    return assigned & _active_type_ids(session)
+
+
+def _active_type_ids(session):
+    key = "configuration_active_type_ids"
+    if key not in session.info:
+        session.info[key] = {str(identity) for identity in session.scalars(
+            select(DocumentType.id).where(configuration_active_clause(DocumentType, "document_type"))
+        )}
+    return session.info[key]
 
 
 def _require_type_read(session, actor, type_id):
-    if not _is_admin(actor) and str(type_id) not in _type_ids(session, actor):
+    if is_archived(session, "document_type", type_id) or not _is_admin(actor) and str(type_id) not in _type_ids(session, actor):
         fail(404, "not_found", "Объект не найден")
 
 
@@ -233,7 +247,7 @@ def _registry_output(session, actor, row):
         "code": row.code,
         "name": configuration_text(row.name),
         "description": configuration_text(row.description),
-        "document_type_ids": row.document_type_ids,
+        "document_type_ids": [identity for identity in row.document_type_ids if identity in _active_type_ids(session)],
         "permissions": sorted(permissions_for(session, actor, row.id)),
     }
 
@@ -258,7 +272,7 @@ def _readable_reference_ids(session, actor, mode=None):
     if _is_admin(actor):
         return None
     allowed = set()
-    all_sets = list(session.scalars(select(ReferenceSet)))
+    all_sets = list(session.scalars(select(ReferenceSet).where(configuration_active_clause(ReferenceSet, "reference_set"))))
     contexts = set()
     for registry in _registries(session, actor):
         if not registry.document_type_ids or "read" not in permissions_for(
@@ -269,6 +283,7 @@ def _readable_reference_ids(session, actor, mode=None):
             select(FormSchema).where(
                 FormSchema.state == "published",
                 FormSchema.document_type_id.in_([UUID(i) for i in registry.document_type_ids]),
+                configuration_active_clause(DocumentType, "document_type", FormSchema.document_type_id),
             )
         )
         for schema in schemas:
@@ -298,6 +313,8 @@ def _readable_reference_ids(session, actor, mode=None):
 
 
 def _require_reference_read(session, actor, reference_id, mode=None):
+    if is_archived(session, "reference_set", reference_id):
+        fail(404, "not_found", "Объект не найден")
     allowed = _readable_reference_ids(session, actor, mode)
     if allowed is not None and reference_id not in allowed:
         fail(404, "not_found", "Объект не найден")
@@ -308,7 +325,7 @@ def _validate_type_assignment(session, type_ids, registry_id=None):
     if result:
         found = set(
             session.scalars(
-                select(DocumentType.id).where(DocumentType.id.in_([UUID(i) for i in result]))
+                select(DocumentType.id).where(DocumentType.id.in_([UUID(i) for i in result]), configuration_active_clause(DocumentType, "document_type"))
             )
         )
         if len(found) != len(result):
@@ -340,20 +357,21 @@ def _check_bindings(session, schema, registry_ids, document_type_id=None):
             raise ValueError("A reference or department field needs a reference set")
         if explicit:
             ref = session.get(ReferenceSet, UUID(explicit))
-            if ref is None or any(ref.registry_id not in {None, r} for r in registry_ids):
+            if ref is None or is_archived(session, "reference_set", ref.id) or any(ref.registry_id not in {None, r} for r in registry_ids):
                 raise ValueError("Reference set is outside the assigned registry")
         elif registry_ids:
             for registry_id in registry_ids:
                 found = session.scalar(
                     select(ReferenceSet.id).where(
                         ReferenceSet.code == code,
+                        configuration_active_clause(ReferenceSet, "reference_set"),
                         (ReferenceSet.registry_id == registry_id)
                         | ReferenceSet.registry_id.is_(None),
                     )
                 )
                 if found is None:
                     raise ValueError("Reference code does not resolve in the assigned registry")
-        elif session.scalar(select(ReferenceSet.id).where(ReferenceSet.code == code)) is None:
+        elif session.scalar(select(ReferenceSet.id).where(ReferenceSet.code == code, configuration_active_clause(ReferenceSet, "reference_set"))) is None:
             raise ValueError("Reference code does not resolve")
 
 
@@ -370,7 +388,8 @@ def _validated(session, row, value, publishing=False, actor=None):
         registry_ids = list(
             session.scalars(
                 select(Registry.id).where(
-                    Registry.document_type_ids.contains([str(row.document_type_id)])
+                    Registry.document_type_ids.contains([str(row.document_type_id)]),
+                    configuration_active_clause(Registry, "registry"),
                 )
             )
         )
@@ -385,7 +404,7 @@ def _validated(session, row, value, publishing=False, actor=None):
                 raise ValueError("A department field needs a reference set")
             if (
                 field.get("reference_set_id")
-                and session.get(ReferenceSet, UUID(field["reference_set_id"])) is None
+                and (session.get(ReferenceSet, UUID(field["reference_set_id"])) is None or is_archived(session, "reference_set", UUID(field["reference_set_id"])))
             ):
                 raise ValueError("Reference set does not exist")
             if publishing and field.get("default") is not None:
@@ -400,7 +419,8 @@ def _validated(session, row, value, publishing=False, actor=None):
                     contexts = list(
                         session.scalars(
                             select(ReferenceSet.registry_id).where(
-                                ReferenceSet.code == field["reference_code"]
+                                ReferenceSet.code == field["reference_code"],
+                                configuration_active_clause(ReferenceSet, "reference_set"),
                             )
                         )
                     )
@@ -468,7 +488,7 @@ def list_types(session=Depends(db_session, scope="function"), actor=Depends(curr
     allowed = _type_ids(session, actor)
     return [
         _type_output(row)
-        for row in session.scalars(select(DocumentType).order_by(DocumentType.name))
+        for row in session.scalars(select(DocumentType).where(configuration_active_clause(DocumentType, "document_type")).order_by(DocumentType.name))
         if _is_admin(actor) or str(row.id) in allowed
     ]
 
@@ -654,7 +674,7 @@ def list_references(
     allowed = _readable_reference_ids(session, actor, mode)
     return [
         _reference_output(row)
-        for row in session.scalars(select(ReferenceSet).order_by(ReferenceSet.name))
+        for row in session.scalars(select(ReferenceSet).where(configuration_active_clause(ReferenceSet, "reference_set")).order_by(ReferenceSet.name))
         if allowed is None or row.id in allowed
     ]
 
@@ -699,8 +719,8 @@ def update_reference(
     return _reference_output(row)
 
 
-def _item_output(row, actor, mode=None):
-    from app.registry.references import selectable
+def _item_output(row, actor, mode=None, reference_code=None):
+    from app.registry.references import business_metadata, selectable
 
     configuration = _is_admin(actor) and mode is None
     return {
@@ -720,7 +740,7 @@ def _item_output(row, actor, mode=None):
             )
         },
         "selectable": selectable(row),
-        "metadata": row.item_metadata if configuration else {},
+        "metadata": row.item_metadata if configuration else business_metadata(row.item_metadata, reference_code),
         "source_database": row.source_database if configuration else None,
         "source_entity": row.source_entity if configuration else None,
         "source_id": row.source_id if configuration else None,
@@ -740,7 +760,7 @@ def create_registry_person(
 
     item, created = create_person(session, request, actor, registry_id, data)
     response.status_code = 201 if created else 200
-    return {"item": _item_output(item, actor, "editor"), "created": created}
+    return {"item": _item_output(item, actor, "editor", session.get(ReferenceSet, item.reference_set_id).code), "created": created}
 
 
 @router.get("/references/{reference_id}/items", response_model=list[ItemOutput])
@@ -751,9 +771,9 @@ def list_items(
     actor=Depends(current_actor),
 ):
     _require_reference_read(session, actor, reference_id, mode)
-    _get(session, ReferenceSet, reference_id)
+    book = _get(session, ReferenceSet, reference_id)
     return [
-        _item_output(row, actor, mode)
+        _item_output(row, actor, mode, book.code)
         for row in session.scalars(
             select(ReferenceItem)
             .where(ReferenceItem.reference_set_id == reference_id)
@@ -846,6 +866,12 @@ REFERENCE_COLUMNS = [
 ]
 
 
+def _reference_columns(book):
+    from app.registry.references import BUSINESS_METADATA, PEOPLE_CODES
+
+    return REFERENCE_COLUMNS + (list(BUSINESS_METADATA) if book.code in PEOPLE_CODES else [])
+
+
 @router.post("/references/{reference_id}/import")
 def import_reference(
     reference_id: UUID,
@@ -859,16 +885,19 @@ def import_reference(
     from app.registry.references import validate_item
     from app.registry.tabular import read_tabular
 
-    _get(session, ReferenceSet, reference_id, lock=True)
+    book = _get(session, ReferenceSet, reference_id, lock=True)
     try:
         content = base64.b64decode(data.content, validate=True)
         rows = read_tabular(data.format, content)
-        if any(set(row) - set(REFERENCE_COLUMNS) for row in rows):
+        if any(set(row) - set(_reference_columns(book)) for row in rows):
             raise ValueError("Unknown columns; provenance cannot be imported")
         created, updated, seen, pending = 0, 0, set(), []
         for values in rows:
             values = dict(values)
             item_id = values.pop("id", None)
+            business = {key: values.pop(key) for key in ("position", "department") if key in values}
+            if any(value is not None and (not isinstance(value, str) or len(value) > 255) for value in business.values()):
+                raise ValueError("Invalid business metadata")
             # Empty cells represent absent optional values, never source identifiers.
             for key in ("parent_id", "valid_from", "valid_until"):
                 if key in values and values[key] in (None, ""):
@@ -903,6 +932,8 @@ def import_reference(
                 if key == "metadata" and item_id:
                     continue
                 setattr(row, "item_metadata" if key == "metadata" else key, value)
+            if business:
+                row.item_metadata = {**(row.item_metadata or {}), **business}
             pending.append(row)
         for row in pending:
             validate_item(session, row)
@@ -933,7 +964,8 @@ def export_reference(
 ):
     from app.registry.tabular import export_file
 
-    _get(session, ReferenceSet, reference_id)
+    book = _get(session, ReferenceSet, reference_id)
+    columns = _reference_columns(book)
     rows = list(
         session.scalars(
             select(ReferenceItem)
@@ -946,8 +978,8 @@ def export_reference(
         fail(422, "reference_export_limit", "Экспорт ограничен 2000 строками")
     content = export_file(
         format,
-        REFERENCE_COLUMNS,
-        ([getattr(row, key) for key in REFERENCE_COLUMNS] for row in rows),
+        columns,
+        ([((row.item_metadata or {}).get(key) if key in {"position", "department"} else getattr(row, key)) for key in columns] for row in rows),
     )
     emit(session, request, actor, "reference.exported", "reference", reference_id)
     return Response(

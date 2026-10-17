@@ -34,7 +34,8 @@ type Props = {
   sectionContent?: Record<string, ReactNode>;
   onCreateReference?: (field: Field, label: string) => Promise<{ item: ReferenceItem; created: boolean }>;
 };
-type Choice = { id: string; label: string; active?: boolean };
+type Choice = { id: string; label: string; name?: string; active?: boolean };
+const participantLabel = (item: ReferenceItem) => [item.label, ...[item.metadata?.position, item.metadata?.department].filter((value): value is string => typeof value === "string" && !!value.trim())].join(" · ");
 const participantBooks = new Set(["executors", "responsible_executors", "signers", "approvers"]);
 const cleanName = (name: string) => name.trim().replace(/\s+/gu, " ");
 const normalizedName = (name: string) => cleanName(name).toLocaleLowerCase("ru");
@@ -92,13 +93,15 @@ function Lookup({
   const matchingReferences = references.filter(
     (reference) => reference.code === field.reference_code,
   );
+  const explicitReference = references.find(reference => reference.id === field.reference_set_id);
+  const explicitInScope = !explicitReference?.registry_id || explicitReference.registry_id === registryId;
   const referenceId =
-    field.reference_set_id ||
+    (field.reference_set_id && explicitInScope ? field.reference_set_id : undefined) || (!field.reference_set_id ?
     (
       matchingReferences.find(
         (reference) => reference.registry_id === registryId,
       ) || matchingReferences.find((reference) => !reference.registry_id)
-    )?.id;
+    )?.id : undefined);
   const referenceBook = references.find(reference => reference.id === referenceId);
   const canCreate = !disabled && !!onCreateReference && !!registryId &&
     ["reference", "multi_reference"].includes(field.type) &&
@@ -140,7 +143,8 @@ function Lookup({
           Array.isArray(data)
             ? data.map((item) => ({
                 id: item.id,
-                label: "label" in item ? item.label : item.display_name,
+                label: "label" in item ? participantLabel(item) : item.display_name,
+                name: "label" in item ? item.label : item.display_name,
                 active: "selectable" in item ? item.selectable : "active" in item ? item.active : true,
               }))
             : data.items.map((item) => ({
@@ -175,7 +179,7 @@ function Lookup({
     normalizedName(choice.label).includes(normalizedQuery),
   );
   const inactiveMatch = !!normalizedQuery && choices.some(choice =>
-    choice.active === false && normalizedName(choice.label) === normalizedQuery);
+    choice.active === false && normalizedName(choice.name || choice.label) === normalizedQuery);
   const selectableMatch = choices.some(choice => choice.active !== false && normalizedName(choice.label).includes(normalizedQuery));
   const offerCreation = canCreate && !!normalizedQuery && !loading && !error && !selectableMatch && !inactiveMatch;
   async function createReference() {
@@ -190,7 +194,7 @@ function Lookup({
       if (generation !== creationGeneration.current) return;
       if (!result.item.active || result.item.selectable === false)
         throw new Error("Участник неактивен. Обратитесь к администратору справочника.");
-      const item = { id: result.item.id, label: result.item.label, active: true };
+      const item = { id: result.item.id, label: participantLabel(result.item), name: result.item.label, active: true };
       setChoices(current => [...current.filter(choice => choice.id !== item.id), item]);
       const current = currentSelection.current;
       const selected = Array.isArray(current.value) ? current.value.map(String) : current.value ? [String(current.value)] : [];

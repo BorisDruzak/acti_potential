@@ -57,6 +57,15 @@ def index_metadata(session, document_id):
     if document is None:
         return
     state = session.get(DocumentIndexState, document.id)
+    if document.deleted_at is not None:
+        session.execute(delete(MetadataFragment).where(MetadataFragment.document_id == document.id))
+        if state is None:
+            state = DocumentIndexState(document_id=document.id, document_revision=document.revision)
+            session.add(state)
+        state.document_revision = document.revision
+        state.index_version, state.indexed_at = 2, datetime.now(UTC)
+        session.flush()
+        return
     if state and state.document_revision == document.revision and state.index_version == 2:
         return
     schema = get_schema(session, document)
@@ -82,6 +91,10 @@ def index_metadata(session, document_id):
 
 def queue_file(session, file, *, retry=False):
     from app.content.parsers import parser_identity
+
+    document = session.get(Document, file.document_id)
+    if document is None or document.deleted_at is not None:
+        return None
 
     parser, version = parser_identity(file.name, file.mime)
     fingerprint = hashlib.sha256(f"{file.id}:{file.sha256}:{parser}:{version}".encode()).hexdigest()
@@ -116,6 +129,9 @@ def queue_file(session, file, *, retry=False):
 
 
 def handle_event(session, event):
+    if event.event_type == "document.deleted":
+        index_metadata(session, event.object_id)
+        return
     if event.event_type in {
         "reference.item.updated",
         "reference.imported",

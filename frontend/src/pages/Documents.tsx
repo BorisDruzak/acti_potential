@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport } from "../api/client";
+import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport, saveSelectedExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
 import { SearchStatus } from "../components/SearchStatus";
@@ -26,6 +26,12 @@ import { CardNumberAssignment } from "./NumberBook";
 import { DocumentContent } from "./DocumentContent";
 import { DocumentLayoutSwitch, DocumentWorkspace, useDocumentLayout } from "../components/DocumentWorkspace";
 import { DocumentResults } from "../components/DocumentResults";
+import { DocumentDialog } from "../components/DocumentDialog";
+import { DocumentContextMenu } from "../components/DocumentContextMenu";
+import { DocumentFieldFilters, parseFieldFilters, serializeFieldFilters } from "../components/DocumentFieldFilters";
+import { OfficeOpen } from "../components/OfficeOpen";
+import { useDocumentSelection } from "../engine/useDocumentSelection";
+import { useDocumentCollaboration } from "../engine/useDocumentCollaboration";
 import { useDocumentSchemas } from "../engine/documentPresentation";
 import { useDocumentFeed } from "../engine/useDocumentFeed";
 import { DocumentFeedEnd } from "../components/DocumentFeedEnd";
@@ -131,6 +137,7 @@ function DocumentCard({
       values: Values;
       created_at: string;
       created_by: string;
+      created_by_name?: string;
       card_state?: CardState | null;
       publication_targets?: PublicationTarget[] | null;
     }[]
@@ -151,6 +158,9 @@ function DocumentCard({
     (JSON.stringify(values) !== JSON.stringify(card.values) ||
       cardState !== (card.card_state || "draft") || JSON.stringify(targets) !== JSON.stringify(card.publication_targets || ["internal"]) ||
       Object.keys(pendingFiles).length > 0);
+  const collaboration = useDocumentCollaboration(card.id, revision, readOnly ? "viewer" : "editor", csrfToken, editing, hasUnsavedChanges, onSaved);
+  const remoteChange = hasUnsavedChanges ? collaboration.remote : null;
+  const blocked = conflict || !!remoteChange || collaboration.unavailable;
   useEffect(() => {onDirtyChange?.(hasUnsavedChanges);}, [hasUnsavedChanges, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   function changeValues(next: Values) {
@@ -258,15 +268,23 @@ function DocumentCard({
         <button className={tab === "content" ? "active" : ""} onClick={() => setTab("content")}>Содержание</button>
       </div>
       <Feedback {...action} />
+      {collaboration.state && <div className="document-collaboration" aria-label="Совместная работа">
+        <p>Последнее изменение: {collaboration.state.updated_by?.display_name || "Автор неизвестен"} · {new Date(collaboration.state.updated_at).toLocaleString("ru-RU")}</p>
+        {collaboration.state.participants.length > 0 && <p>Сейчас в карточке: {collaboration.state.participants.map(person => `${person.display_name}${person.editing ? " (редактирует)" : " (просматривает)"}`).join(", ")}</p>}
+      </div>}
+      {collaboration.unavailable && <div className="error" role="alert">Документ удалён или доступ к нему изменён. Обновите список документов.</div>}
       {!readOnly && card.schema.sections.some(section => section.fields.some(field => field.number_series_id && !card.values[field.key])) && <CardNumberAssignment card={card} onSaved={onSaved}/>}
-      {conflict && (
+      {(conflict || remoteChange) && (
         <div className="error" role="alert">
           <p>
             Документ изменён другим пользователем. Ваши изменения ещё не
             сохранены.
+            {remoteChange && <> Последняя редакция {remoteChange.revision}: {remoteChange.updated_by?.display_name || "другой пользователь"}, {new Date(remoteChange.updated_at).toLocaleString("ru-RU")}. Локальные изменения сохранены в форме.</>}
           </p>
           <button
             onClick={() => {
+              if (hasUnsavedChanges && !window.confirm("Загрузить актуальную редакцию и отменить ваши несохранённые изменения?")) return;
+              setEditing(false);
               setConflict(false);
               onSaved();
             }}
@@ -281,7 +299,7 @@ function DocumentCard({
           onSubmit={(event) => {
             event.preventDefault();
             if (participantCreation.pending.current > 0) return;
-            void action.run(save);
+            if (!blocked) void action.run(save);
           }}
         >
           <DynamicForm
@@ -318,7 +336,7 @@ function DocumentCard({
                     key="save-card"
                     type="submit"
                     className="primary"
-                    disabled={action.busy || conflict || participantCreation.busy}
+                    disabled={action.busy || blocked || participantCreation.busy}
                   >
                     Сохранить карточку
                   </button>
@@ -379,7 +397,7 @@ function DocumentCard({
               Добавить файл или следующую версию
               <input
                 type="file"
-                disabled={action.busy || conflict || hasUnsavedChanges}
+                disabled={action.busy || blocked || hasUnsavedChanges}
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file)
@@ -407,6 +425,7 @@ function DocumentCard({
                     {new Date(file.created_at).toLocaleString("ru-RU")}
                   </small>
                 </span>
+                {card.permissions.includes("download") && <OfficeOpen file={file} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>}
                 {card.permissions.includes("download") && (
                   <button
                     disabled={action.busy}
@@ -441,7 +460,7 @@ function DocumentCard({
             <details key={item.id}>
               <summary>
                 Редакция {item.revision} ·{" "}
-                {new Date(item.created_at).toLocaleString("ru-RU")}
+                {new Date(item.created_at).toLocaleString("ru-RU")} · {item.created_by_name || "Автор неизвестен"}
               </summary>
               {item.card_state && item.publication_targets ? <><DocumentCardState state={item.card_state}/><DocumentPublication targets={item.publication_targets}/></> : <p className="muted">Состояние карточки и базы публикации в этой редакции неизвестны.</p>}
               <DynamicForm
@@ -709,15 +728,9 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   const [from, setFrom] = useState(() => initial.has("reg_date") ? "" : initial.get("date_from") || "");
   const [to, setTo] = useState(() => initial.has("reg_date") ? "" : initial.get("date_to") || "");
   const [typeId, setTypeId] = useState(() => initial.get("document_type_id") || "");
-  const initialFilter = (() => {try {return Object.entries(JSON.parse(initial.get("filters") || "{}"))[0] || ["", null];} catch {return ["", null];}})();
-  const initialFilterKey = String(initialFilter[0]);
-  const initialFilterSpec = initialFilter[1] as {op?: string; value?: unknown} | null;
-  const [filterKey, setFilterKey] = useState(initialFilterKey);
-  const [filterValue, setFilterValue] = useState<unknown>(() => initialFilterSpec && typeof initialFilterSpec === "object" ? (initialFilterSpec.op === "between" && Array.isArray(initialFilterSpec.value) ? initialFilterSpec.value[0] : initialFilterSpec.value) : initialFilterSpec);
+  const [fieldFilters, setFieldFilters] = useState(() => parseFieldFilters(initial.get("filters")));
   const [sort, setSort] = useState(() => initial.get("sort") || "auto");
   const [direction, setDirection] = useState(() => initial.get("direction") || "desc");
-  const [filterOp, setFilterOp] = useState(() => initialFilterSpec && typeof initialFilterSpec === "object" ? initialFilterSpec.op || "eq" : "eq");
-  const [filterEnd, setFilterEnd] = useState(() => initialFilterSpec?.op === "between" && Array.isArray(initialFilterSpec.value) ? String(initialFilterSpec.value[1]) : "");
   const [viewName, setViewName] = useState("");
   const [savedViews, setSavedViews] = useState<{name: string; registry: string; query: string}[]>(() => {
     try { const data = JSON.parse(localStorage.getItem(`acti.views.v1.${auth.user?.id}.${readOnly ? "viewer" : "editor"}`) || "[]"); return Array.isArray(data) ? data.filter(item => typeof item?.name === "string" && typeof item?.registry === "string" && typeof item?.query === "string") : []; } catch { return []; }
@@ -771,11 +784,53 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
       .filter(
         (field) => field.filterable && !field.visible_when && !["file", "group"].includes(field.type),
       ) || [];
-  const filterField = filterFields.find((field) => field.key === filterKey);
   const applied = searchBody(search, registryId, readOnly ? "viewer" : "editor");
   const list = useDocumentFeed(applied, auth.user?.csrf_token || "");
   const resultDocuments = (list.data?.items || []).map(result => "document" in result ? result.document : result as unknown as Card);
   const listSchemas = useDocumentSchemas(resultDocuments, auth.user?.id || "anonymous", readOnly, layout.mode !== "card");
+  const selection = useDocumentSelection(resultDocuments.map(item => item.id));
+  const [contextPoint, setContextPoint] = useState<{x: number; y: number} | null>(null);
+  const closeContext = useCallback(() => setContextPoint(null), []);
+  const selectedRows = resultDocuments.filter(item => selection.ids.has(item.id));
+  const selectionAction = useAction();
+  const [deleteCards, setDeleteCards] = useState<Card[] | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [originalCard, setOriginalCard] = useState<Card | null>(null);
+  const displayMode = readOnly ? "viewer" : "editor";
+  useEffect(() => {
+    const timer = setInterval(() => {if (document.visibilityState !== "hidden") list.reload();}, 5000);
+    return () => clearInterval(timer);
+  }, [list.reload]);
+  async function exportSelected(format: "csv" | "xlsx") {
+    if (!selectedRows.length) return;
+    await saveSelectedExport(selectedRows.map(item => item.id), format, exportColumns.length ? exportColumns.map(column => column.key) : undefined, displayMode, auth.user?.csrf_token || "");
+  }
+  async function original() {
+    const item = selectedRows[0]; if (!item) return;
+    const document = await apiRequest<Card>(`/documents/${item.id}?mode=${displayMode}`);
+    if (!document.permissions.includes("download")) throw new Error("Скачивание оригиналов этого документа недоступно.");
+    setOriginalCard(document);
+  }
+  async function prepareDelete() {
+    if (readOnly || !selectedRows.length) return;
+    const cards = await Promise.all(selectedRows.map(item => apiRequest<Card>(`/documents/${item.id}?mode=editor`)));
+    if (cards.some(item => !item.permissions.includes("update"))) throw new Error("Недостаточно прав для удаления выбранных документов.");
+    setDeleteReason(""); setDeleteCards(cards);
+  }
+  async function deleteSelected() {
+    if (!deleteCards || !deleteReason.trim()) return;
+    // A failure leaves the remaining cards and their original revisions in the dialog.
+    for (const item of deleteCards) {
+      await selectionAction.request(`/documents/${item.id}`, "DELETE", {revision: item.revision, reason: deleteReason.trim()});
+      setDeleteCards(current => current?.filter(card => card.id !== item.id) || null);
+      if (item.id === documentId) {dirtyCard.current = false; setDocumentId(""); setContentTarget(undefined);}
+    }
+    setDeleteCards(null); selection.clear(); list.reload();
+  }
+  async function copySelected() {
+    await navigator.clipboard.writeText(selectedRows.map(item => [item.reg_number, item.title].filter(Boolean).join(" — ")).join("\n"));
+  }
+
   function sortResults(key: string) {
     const nextDirection = applied.sort === key && applied.direction === "asc" ? "desc" : "asc";
     setSort(key); setDirection(nextDirection);
@@ -785,7 +840,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   function changeRegistry(id: string) {
     setRegistryId(id); setSearch(""); setQ(""); setScope("all"); setFuzzy(true); setContentTarget(undefined);
     setNumber(""); setRegistrationDate(""); setStatus(""); setFrom(""); setTo(""); setSort("auto"); setDirection("desc");
-    setTypeId(""); setFilterKey(""); setFilterValue(null); setFilterOp("eq"); setFilterEnd("");
+    setTypeId(""); setFieldFilters([]);
   }
   function openFullResult(id: string) {if (openSearchResult(id)) chooseLayout("card");}
   const card = useData<Card>(
@@ -823,15 +878,11 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     if (typeId) params.set("document_type_id", typeId);
     params.set("sort", sort);
     params.set("direction", direction);
-    if (
-      filterKey &&
-      filterValue !== null &&
-      filterValue !== undefined &&
-      filterValue !== ""
-    ) {
-      params.set("filters", JSON.stringify({ [filterKey]: filterOp === "eq" ? filterValue : {op: filterOp, value: filterOp === "between" ? [filterValue, filterEnd] : filterValue} }));
-    }
-    if (filterKey && ["present", "absent"].includes(filterOp)) params.set("filters", JSON.stringify({[filterKey]: {op: filterOp}}));
+    const predicates = serializeFieldFilters(fieldFilters);
+    if (Object.keys(predicates).length) params.set("filters", JSON.stringify(predicates));
+    // The legacy legal-act status is distinct from the card publication state.
+    const legalStatus = new URLSearchParams(search).get("status");
+    if (legalStatus) params.set("status", legalStatus);
 
     const nextSearch = "&" + params.toString();
     if (nextSearch === search) list.reload();
@@ -847,7 +898,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     params.delete("page"); params.delete("cursor");
     setQ(params.get("q") || params.get("text") || ""); setNumber(params.get("reg_number") || ""); setRegistrationDate(params.get("reg_date") || ""); setStatus(params.get("card_state") || ""); setFrom(params.has("reg_date") ? "" : params.get("date_from") || ""); setTo(params.has("reg_date") ? "" : params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "auto"); setDirection(params.get("direction") || "desc");
     setScope((params.get("scope") as SearchScope) || "all"); setVersionScope(params.get("version_scope") || "current"); setFuzzy(params.get("fuzzy") !== "false");
-    try { const [key, value] = Object.entries(JSON.parse(params.get("filters") || "{}"))[0] || ["", null]; setFilterKey(key); const typed = value as {op?: string; value?: unknown} | null; setFilterOp(typed && typeof typed === "object" ? typed.op || "eq" : "eq"); setFilterValue(typed && typeof typed === "object" ? (Array.isArray(typed.value) && typed.op === "between" ? typed.value[0] : typed.value) : value); setFilterEnd(typed?.op === "between" && Array.isArray(typed.value) ? String(typed.value[1]) : ""); } catch { setFilterKey(""); setFilterValue(null); }
+    setFieldFilters(parseFieldFilters(params.get("filters")));
     setSearch("&" + params.toString());
     startSearchTiming();
   }
@@ -1006,7 +1057,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
                 value={typeId}
                 onChange={(event) => {
                   setTypeId(event.target.value);
-                  setFilterKey(""); setFilterOp("eq"); setFilterEnd(""); setSort("auto");
+                  setFieldFilters([]); setSort("auto");
                 }}
               >
                 <option value="">Все типы</option>
@@ -1025,66 +1076,8 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
             <details open={advanced} onToggle={event => setAdvanced(event.currentTarget.open)}><summary>Расширенные фильтры</summary><div className="filters">
             <label className="checkbox-label"><input type="checkbox" checked={fuzzy} onChange={event => setFuzzy(event.target.checked)}/>Учитывать опечатки</label>
             <label>Версии файлов<select value={versionScope} onChange={event => setVersionScope(event.target.value)}><option value="current">Актуальные</option><option value="all">Все доступные</option></select></label>
-            {filterFields.length > 0 && (
-              <>
-                <label>
-                  Дополнительный фильтр
-                  <select
-                    value={filterKey}
-                    onChange={(event) => {
-                      setFilterKey(event.target.value);
-                      setFilterValue(null); setFilterOp("eq"); setFilterEnd("");
-                    }}
-                  >
-                    <option value="">Без дополнительного фильтра</option>
-                    {filterFields.map((field) => (
-                      <option key={field.key} value={field.key}>
-                        {field.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {filterField && <label>Сравнение<select value={filterOp} onChange={event => setFilterOp(event.target.value)}><option value="eq">Равно</option><option value="ne">Не равно</option>{["text", "textarea"].includes(filterField.type) && <option value="contains">Содержит</option>}{["integer", "decimal", "date", "datetime"].includes(filterField.type) && <><option value="gte">Не меньше</option><option value="lte">Не больше</option><option value="between">В диапазоне</option></>}<option value="present">Заполнено</option><option value="absent">Не заполнено</option></select></label>}
-                {filterField && !["present", "absent"].includes(filterOp) && (
-                  <div className="filter-value">
-                    <DynamicForm
-                      schema={{
-                        sections: [
-                          {
-                            key: "filter",
-                            title: "",
-                            fields: [
-                              {
-                                ...filterField,
-                                label: "Значение фильтра",
-                                type:
-                                  filterField.type === "multi_reference"
-                                    ? "reference"
-                                    : filterField.type,
-                                required: false,
-                                visible_when: null,
-                                required_when: null,
-                                editable: true,
-                                write_roles: [],
-                                modes: [],
-                              },
-                            ],
-                          },
-                        ],
-                      }}
-                      values={{ [filterKey]: filterValue }}
-                      onChange={(values) => setFilterValue(values[filterKey])}
-                      mode="edit"
-                      roles={auth.user?.roles || []}
-                      registryId={registryId}
-                      references={references.data || []}
-                      displayMode={readOnly ? "viewer" : "editor"}
-                    />
-                    {filterOp === "between" && <label>Верхняя граница<input type={filterField.type === "date" ? "date" : filterField.type === "datetime" ? "datetime-local" : "number"} step="any" value={filterEnd} onChange={event => setFilterEnd(event.target.value)} /></label>}
-                  </div>
-                )}
-              </>
-            )}
+            {(filterFields.length > 0 || fieldFilters.length > 0) && <DocumentFieldFilters filters={fieldFilters} fields={filterFields} onChange={setFieldFilters}
+              roles={auth.user?.roles || []} registryId={registryId} references={references.data || []} readOnly={readOnly}/>}
             </div></details>
           </form>
           {!!applied.query && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
@@ -1099,8 +1092,45 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
           </details>
             </div>
           </details>
-          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "card_state", "date_from", "date_to", "document_type_id", "filters"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус правового акта", card_state: "Состояние карточки", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : key === "card_state" ? value === "draft" ? "Черновик" : "Опубликован" : value} ×</button>)}</div>
+          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "card_state", "date_from", "date_to", "document_type_id"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус правового акта", card_state: "Состояние карточки", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : key === "card_state" ? value === "draft" ? "Черновик" : "Опубликован" : value} ×</button>)}</div>
+          <div className="active-search-filters" aria-label="Активные условия полей">{parseFieldFilters(new URLSearchParams(search).get("filters")).map((filter, index) => <button type="button" key={filter.key} onClick={() => {
+            const params = new URLSearchParams(search); const remaining = parseFieldFilters(params.get("filters")).filter(item => item.key !== filter.key);
+            if (remaining.length) params.set("filters", JSON.stringify(serializeFieldFilters(remaining))); else params.delete("filters"); loadView(params.toString());
+          }} aria-label={`Удалить активное условие ${index + 1}`}>{filterFields.find(field => field.key === filter.key)?.label || filter.key} ×</button>)}</div>
           <Feedback error={list.error} />
+          <Feedback {...selectionAction}/>
+          {selection.ids.size > 0 && <div className="document-selection-toolbar" role="group" aria-label="Действия с выбранными документами">
+            <strong>Выбрано: {selection.ids.size} / 1000</strong>
+            <button type="button" onClick={selection.all}>Выделить все загруженные</button>
+            <button type="button" onClick={selection.clear}>Снять выделение</button>
+            {(["csv", "xlsx"] as const).map(format => <button key={format} type="button" disabled={selectionAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void selectionAction.run(() => exportSelected(format), "Экспорт выбранных подготовлен")}>Экспорт выбранных {format.toUpperCase()}</button>)}
+            <button type="button" disabled={selectionAction.busy} onClick={() => void selectionAction.run(copySelected, "Номер и название скопированы")}>Копировать номер и название</button>
+            <button type="button" disabled={selectionAction.busy} onClick={event => {const rect = event.currentTarget.getBoundingClientRect(); setContextPoint({x: rect.left, y: rect.bottom});}}>Действия</button>
+          </div>}
+          {contextPoint && selection.ids.size > 0 && <DocumentContextMenu point={contextPoint} count={selection.ids.size} single={selection.ids.size === 1} busy={selectionAction.busy}
+            canExport={!configuredColumns.length || exportColumns.length > 0} canDelete={!readOnly && selectedRows.every(item => item.permissions?.includes("update"))} onClose={closeContext}
+            onOpen={() => {if (selectedRows[0]) openFullResult(selectedRows[0].id);}}
+            onOriginal={() => void selectionAction.run(original, "Выберите версию оригинала")}
+            onCopy={() => void selectionAction.run(copySelected, "Номер и название скопированы")}
+            onExport={format => void selectionAction.run(() => exportSelected(format), "Экспорт выбранных подготовлен")}
+            onDelete={() => void selectionAction.run(prepareDelete, "Укажите причину удаления")}/>}
+          {deleteCards && <DocumentDialog labelledBy="delete-documents-title" onClose={() => {if (!selectionAction.busy) setDeleteCards(null);}}>
+            <h2 id="delete-documents-title">Удалить выбранные документы?</h2>
+            <p>Документы будут скрыты из рабочих списков и поиска. История, номера и оригиналы сохранятся.</p>
+            <ul>{deleteCards.map(item => <li key={item.id}>{item.reg_number} {item.title}</li>)}</ul>
+            {dirtyCard.current && deleteCards.some(item => item.id === documentId) && <p className="error">В открытой карточке есть несохранённые изменения. При удалении они будут потеряны.</p>}
+            <form onSubmit={event => {event.preventDefault(); if (deleteReason.trim()) void selectionAction.run(deleteSelected, "Документы удалены");}}>
+              <label>Причина удаления<textarea autoFocus required maxLength={2000} value={deleteReason} onChange={event => setDeleteReason(event.target.value)}/></label>
+              <Feedback error={selectionAction.error}/>
+              <div className="button-row"><button type="submit" disabled={selectionAction.busy || !deleteReason.trim()}>Подтвердить удаление</button><button type="button" disabled={selectionAction.busy} onClick={() => setDeleteCards(null)}>Отмена</button></div>
+            </form>
+          </DocumentDialog>}
+          {originalCard && <DocumentDialog label="Оригиналы и версии" onClose={() => setOriginalCard(null)}>
+            <h2>Оригиналы и версии</h2><p>{originalCard.title}</p>
+            {originalCard.files.map(file => <div key={file.id} className="file-line"><span>{file.name} · Версия {file.version}</span><OfficeOpen file={file} mode={displayMode} csrfToken={auth.user?.csrf_token || ""}/><button onClick={() => void selectionAction.run(() => saveDownload(file.id, file.name, displayMode), "Оригинал скачан")}>Скачать {file.name}, версия {file.version}</button></div>)}
+            {!originalCard.files.length && <p>Оригиналы пока не загружены.</p>}
+            <Feedback error={selectionAction.error}/><button autoFocus onClick={() => setOriginalCard(null)}>Закрыть</button>
+          </DocumentDialog>}
           <div className="document-results-toolbar" role="group" aria-label="Вид и сортировка документов">
           <div className="search-sort"><label>Реестр<select value={registryId} onChange={event => changeRegistry(event.target.value)}><option value="">Все реестры</option>{registries.data?.filter(item => item.permissions.includes("read")).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>
               Сортировка
@@ -1126,10 +1156,11 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
             detail={workspaceDetail}
             count={<div className="document-results-heading"><h2>Документы</h2><span className="muted">Найдено: {list.data?.total ?? "…"}</span></div>}
             list={<>
-              <DocumentResults results={list.data?.items || []} schemas={listSchemas.byVersion} sortSchemas={listSchemas.forType(applied.document_type_ids.length === 1 ? applied.document_type_ids[0] || "" : "")} types={types.data || []}
-                roles={auth.user?.roles || []} readOnly={readOnly} selected={documentId} query={applied.query}
+              <DocumentResults columnsSchema={applied.document_type_ids[0] === typeId ? publishedSchema : undefined} results={list.data?.items || []} schemas={listSchemas.byVersion} sortSchemas={listSchemas.forType(applied.document_type_ids.length === 1 ? applied.document_type_ids[0] || "" : "")} types={types.data || []}
+                roles={auth.user?.roles || []} readOnly={readOnly} selected={documentId} selectedIds={selection.ids} query={applied.query}
                 sort={applied.sort} direction={applied.direction} typeId={applied.document_type_ids.length === 1 ? applied.document_type_ids[0] || "" : ""}
-                onSort={sortResults} onSelect={openSearchResult} onOpen={openFullResult}/>
+                onSort={sortResults} onSelect={openSearchResult} onOpen={openFullResult} onSelection={selection.select} onSelectAll={selection.all}
+                onContextMenu={(id, point) => {selection.context(id); setContextPoint(point);}}/>
           {list.data?.items.length === 0 && (
             <div className="empty-state">
               Документов по выбранным условиям пока нет.

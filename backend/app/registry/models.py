@@ -21,6 +21,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
+class ConfigurationArchive(Base):
+    __tablename__ = "configuration_archives"
+    object_type: Mapped[str] = mapped_column(String(80), primary_key=True)
+    object_id: Mapped[UUID] = mapped_column(primary_key=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    archived_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
+    reason: Mapped[str] = mapped_column(Text)
+
+
 class Registry(Base):
     __tablename__ = "registries"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -136,6 +145,9 @@ class Document(Base):
     created_by: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
+    deleted_reason: Mapped[str | None] = mapped_column(Text)
     source_database: Mapped[str | None] = mapped_column(String(100))
     source_entity: Mapped[str | None] = mapped_column(String(100))
     source_id: Mapped[str | None] = mapped_column(String(255))

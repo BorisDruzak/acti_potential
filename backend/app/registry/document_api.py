@@ -1,15 +1,20 @@
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import delete, select
 
 from app.api.dependencies import current_actor, current_admin, db_session
 from app.api.errors import fail
 from app.identity.models import User
+from app.registry.archives import configuration_active_clause, is_archived
 from app.registry.document_contracts import (
     ACLInput,
+    CollaborationHeartbeat,
+    CollaborationOutput,
     DocumentCreate,
+    DocumentDelete,
     DocumentOutput,
     DocumentPage,
     DocumentUpdate,
@@ -30,11 +35,19 @@ from app.registry.documents import (
     get_document,
     get_schema,
     historical_values,
+    latest_editors,
     raw_values,
     write_values,
 )
 from app.registry.events import emit
-from app.registry.models import Document, DocumentACL, FormSchema, MetadataRevision, Registry
+from app.registry.models import (
+    Document,
+    DocumentACL,
+    DocumentType,
+    FormSchema,
+    MetadataRevision,
+    Registry,
+)
 from app.registry.policy import permissions_for
 from app.registry.value_validation import validate_values
 
@@ -47,8 +60,9 @@ Actor = Annotated[object, Depends(current_actor)]
 def list_documents(session: Db, actor: Actor, params: Annotated[SearchParameters, Query()]):
     query, _ = search_query(session, actor, params)
     total = count_rows(session, query)
-    rows = session.scalars(query.offset((params.page - 1) * params.page_size).limit(params.page_size))
-    return {"items": [document_summary(session, row, actor, mode=params.mode) for row in rows],
+    rows = list(session.scalars(query.offset((params.page - 1) * params.page_size).limit(params.page_size)))
+    editors = latest_editors(session, rows)
+    return {"items": [document_summary(session, row, actor, mode=params.mode, editor_cache=editors) for row in rows],
             "total": total, "page": params.page, "page_size": params.page_size}
 
 
@@ -67,7 +81,7 @@ def create_document(data: DocumentCreate, request: Request, session: Db, actor: 
         fail(403, "forbidden", "Создание документов в реестре не разрешено")
     if "read" not in permissions_for(session, actor, data.registry_id):
         fail(403, "forbidden", "Нужен доступ к чтению реестра")
-    if str(data.document_type_id) not in registry.document_type_ids:
+    if is_archived(session, "document_type", data.document_type_id) or str(data.document_type_id) not in registry.document_type_ids:
         fail(422, "document_type_unavailable", "Тип не назначен реестру")
     query = select(FormSchema).where(
         FormSchema.document_type_id == data.document_type_id, FormSchema.state == "published"
@@ -213,8 +227,9 @@ def history(
 
     document = get_document(session, actor, document_id, mode=mode)
     schema = get_schema(session, document)
-    rows = session.scalars(
-        select(MetadataRevision)
+    rows = session.execute(
+        select(MetadataRevision, User.display_name)
+        .outerjoin(User, User.id == MetadataRevision.created_by)
         .where(MetadataRevision.document_id == document.id)
         .order_by(MetadataRevision.revision)
     )
@@ -223,18 +238,62 @@ def history(
             "id": row.id,
             "revision": row.revision,
             "created_by": row.created_by,
+            "created_by_name": name,
             "created_at": row.created_at,
             "values": redact_values(schema, historical_values(schema, row.values), actor, mode),
             "card_state": row.card_state,
             "publication_targets": row.publication_targets,
         }
-        for row in rows
+        for row, name in rows
     ]
+
+
+@router.delete("/documents/{document_id}", status_code=204)
+def delete_document(document_id: UUID, data: DocumentDelete, request: Request, session: Db, actor: Actor):
+    from app.api.middleware import source_address
+    from app.platform.audit import AuditInput, record_audit
+    from app.platform.outbox import enqueue_event
+
+    document = get_document(session, actor, document_id, "update", lock=True)
+    check_revision(document, data.revision)
+    document.deleted_at = datetime.now(UTC)
+    document.updated_at = document.deleted_at
+    document.deleted_by, document.deleted_reason = actor.id, data.reason
+    document.revision += 1
+    append_history(session, document, get_schema(session, document), actor)
+    record_audit(session, AuditInput(actor.id, "document.deleted", "document", document.id,
+                                    {"revision": document.revision, "reason": data.reason},
+                                    request.state.request_id, source_address(request)))
+    enqueue_event(session, "document.deleted", document.id,
+                  {"revision": document.revision, "registry_id": str(document.registry_id)})
+    return Response(status_code=204)
+
+
+@router.get("/documents/{document_id}/collaboration", response_model=CollaborationOutput)
+def get_collaboration(document_id: UUID, request: Request, session: Db, actor: Actor,
+                      mode: Literal["editor", "viewer"] | None = None):
+    from app.registry.collaboration import collaboration_state
+
+    document = get_document(session, actor, document_id, mode=mode)
+    return collaboration_state(session, request, actor, document, mode)
+
+
+@router.post("/documents/{document_id}/collaboration", response_model=CollaborationOutput)
+def heartbeat_collaboration(document_id: UUID, data: CollaborationHeartbeat, request: Request,
+                            session: Db, actor: Actor, mode: Literal["editor", "viewer"] | None = None):
+    from app.registry.collaboration import collaboration_state
+
+    document = get_document(session, actor, document_id, mode=mode)
+    return collaboration_state(session, request, actor, document, mode, data)
 
 
 @router.get("/documents/{document_id}/acl", response_model=ACLInput)
 def get_acl(document_id: UUID, session: Db, actor=Depends(current_admin)):
-    if session.get(Document, document_id) is None:
+    if session.scalar(select(Document).where(
+        Document.id == document_id, Document.deleted_at.is_(None),
+        configuration_active_clause(Registry, "registry", Document.registry_id),
+        configuration_active_clause(DocumentType, "document_type", Document.document_type_id),
+    )) is None:
         fail(404, "not_found", "Документ не найден")
     entries = session.scalars(select(DocumentACL).where(DocumentACL.document_id == document_id))
     return {"entries": [{"user_id": r.user_id, "permissions": r.permissions} for r in entries]}
@@ -244,7 +303,11 @@ def get_acl(document_id: UUID, session: Db, actor=Depends(current_admin)):
 def set_acl(
     document_id: UUID, data: ACLInput, request: Request, session: Db, actor=Depends(current_admin)
 ):
-    if session.scalar(select(Document).where(Document.id == document_id).with_for_update()) is None:
+    if session.scalar(select(Document).where(
+        Document.id == document_id, Document.deleted_at.is_(None),
+        configuration_active_clause(Registry, "registry", Document.registry_id),
+        configuration_active_clause(DocumentType, "document_type", Document.document_type_id),
+    ).with_for_update()) is None:
         fail(404, "not_found", "Документ не найден")
     ids = [entry.user_id for entry in data.entries]
     if len(ids) != len(set(ids)) or any(session.get(User, uid) is None for uid in ids):

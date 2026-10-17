@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import select
 
 from app.api.errors import fail
+from app.identity.models import User
 from app.registry.models import (
     Document,
     DocumentFile,
@@ -125,9 +126,26 @@ def summary(session, document, actor, schema=None):
     }
 
 
-def document_summary(session, document, actor, schema=None, mode=None, *, permissions=None, display_cache=None):
+def latest_editors(session, documents):
+    """Read actual revision authors for a whole page, including imported cards without history."""
+    identities = [document.id for document in documents]
+    if not identities:
+        return {}
+    rows = session.execute(
+        select(MetadataRevision.document_id, User.id, User.display_name)
+        .join(User, User.id == MetadataRevision.created_by)
+        .where(MetadataRevision.document_id.in_(identities))
+        .distinct(MetadataRevision.document_id)
+        .order_by(MetadataRevision.document_id, MetadataRevision.revision.desc())
+    )
+    return {document_id: {"id": identity, "display_name": name} for document_id, identity, name in rows}
+
+
+def document_summary(session, document, actor, schema=None, mode=None, *, permissions=None, display_cache=None, editor_cache=None):
     schema = schema or get_schema(session, document)
     result = summary(session, document, actor, schema)
+    editors = latest_editors(session, [document]) if editor_cache is None else editor_cache
+    result["updated_by"] = editors.get(document.id)
     visible = redact_values(schema, raw_values(document, schema), actor, mode)
     systems = {
         f.get("system"): visible.get(f["key"])

@@ -3,7 +3,8 @@ from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import and_, exists, or_, select
 
-from app.registry.models import Document, DocumentACL, RegistryAccess
+from app.registry.archives import configuration_active_clause, is_archived
+from app.registry.models import Document, DocumentACL, DocumentType, Registry, RegistryAccess
 
 CONTENT_ACTIONS = frozenset({"read", "create", "update", "upload", "download", "confirm_relations", "curate_knowledge"})
 ACTIONS = CONTENT_ACTIONS | {"manage"}
@@ -18,6 +19,8 @@ def role_actions(actor):
 
 
 def permissions_for(session, actor, registry_id) -> set[str]:
+    if is_archived(session, "registry", registry_id):
+        return set()
     if actor.scoped_registry_ids is not None and str(registry_id) not in actor.scoped_registry_ids:
         return set()
     row = session.get(RegistryAccess, (registry_id, actor.id))
@@ -35,7 +38,7 @@ def publication_visible(actor, document, mode=None):
 
 
 def document_permissions(session, actor, document) -> set[str]:
-    if not publication_visible(actor, document):
+    if document.deleted_at is not None or is_archived(session, "document_type", document.document_type_id) or not publication_visible(actor, document):
         return set()
     permissions = permissions_for(session, actor, document.registry_id)
     restricted = session.scalar(select(exists().where(DocumentACL.document_id == document.id)))
@@ -65,7 +68,11 @@ def accessible_document_clause(session, actor, mode=None):
         DocumentACL.user_id == actor.id,
         DocumentACL.permissions.contains(["read"]),
     )
-    clauses = [registry, or_(~restricted, individual), publication_clause(actor, mode)]
+    clauses = [
+        Document.deleted_at.is_(None), registry, or_(~restricted, individual), publication_clause(actor, mode),
+        configuration_active_clause(Registry, "registry", Document.registry_id),
+        configuration_active_clause(DocumentType, "document_type", Document.document_type_id),
+    ]
     if actor.scoped_registry_ids is not None:
         clauses.append(Document.registry_id.in_(actor.scoped_registry_ids))
     return and_(*clauses)

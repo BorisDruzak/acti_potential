@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import select, text
+from sqlalchemy import MetaData, Table, select, text
 from sqlalchemy.orm import Session
 
 from app.content.models import MetadataFragment
@@ -74,6 +74,7 @@ def test_people_upgrade_clones_published_forms_preserving_current_values_and_his
         config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
         config.attributes["connection"] = conn
         command.downgrade(config, "0013_card_publication")
+        old_documents = Table("documents", MetaData(), autoload_with=conn)
         first, second = str(uuid4()), str(uuid4())
         with Session(bind=conn, join_transaction_mode="create_savepoint") as db, db.begin():
             user = User(display_name="Synthetic people migration owner")
@@ -121,20 +122,22 @@ def test_people_upgrade_clones_published_forms_preserving_current_values_and_his
             values = {"executor_id": first, "responsible": [second, first, second],
                       "group": [{"person": first}, {"person": [second, first, second]}],
                       "status": first, "unmapped": {"preserved": True}}
-            document = Document(registry_id=registry.id, document_type_id=kind.id,
-                                schema_version_id=schemas[0].id, created_by=user.id,
-                                custom_data=deepcopy(values), revision=7, current_version=2,
-                                title="Synthetic selection", source_database="okrug",
-                                source_entity="documents", source_id="synthetic-only")
-            db.add(document)
-            db.flush()
+            doc_id = uuid4()
+            # Populate the historical schema under test without assuming today's columns.
+            conn.execute(old_documents.insert().values(
+                id=doc_id, registry_id=registry.id, document_type_id=kind.id,
+                schema_version_id=schemas[0].id, created_by=user.id,
+                custom_data=deepcopy(values), revision=7, current_version=2,
+                title="Synthetic selection", source_database="okrug",
+                source_entity="documents", source_id="synthetic-only",
+            ))
             db.add_all([
-                MetadataRevision(document_id=document.id, revision=7, values=deepcopy(values), created_by=user.id),
-                DocumentACL(document_id=document.id, user_id=user.id, permissions=["read"]),
-                MetadataFragment(document_id=document.id, document_revision=7, field_key="type_id",
+                MetadataRevision(document_id=doc_id, revision=7, values=deepcopy(values), created_by=user.id),
+                DocumentACL(document_id=doc_id, user_id=user.id, permissions=["read"]),
+                MetadataFragment(document_id=doc_id, document_revision=7, field_key="type_id",
                                  label="Тип документа ACTI v2", text="Synthetic classification"),
             ])
-            doc_id, kind_id = document.id, kind.id
+            kind_id = kind.id
             schema_ids = [schema.id for schema in schemas]
             process = Process(registry_id=registry.id, code="synthetic-pinned",
                               metadata_data={}, created_by=user.id)
@@ -180,7 +183,7 @@ def test_people_upgrade_clones_published_forms_preserving_current_values_and_his
             assert sorted(s.version for s in all_schemas) == [1, 2, 4, 8, 9, 10, 11]
             assert max(all_schemas, key=lambda s: s.version).schema_data == latest_data
         after_document = dict(conn.execute(text("SELECT * FROM documents WHERE id=:id"), {"id": doc_id}).mappings().one())
-        assert {k: v for k, v in after_document.items() if k not in {"schema_version_id", "custom_data"}} == {
+        assert {k: after_document[k] for k in original_document if k not in {"schema_version_id", "custom_data"}} == {
             k: v for k, v in original_document.items() if k not in {"schema_version_id", "custom_data"}
         }
         assert dict(conn.execute(text("SELECT * FROM content_metadata_fragments")).mappings().one()) == {
@@ -192,7 +195,7 @@ def test_people_upgrade_clones_published_forms_preserving_current_values_and_his
         assert conn.scalar(text("SELECT count(*) FROM form_schemas")) == 7
         with pytest.raises(RuntimeError, match="pre-upgrade backup"), conn.begin_nested():
             command.downgrade(config, "0013_card_publication")
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0014_people_selection"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0016_configuration_archives"
 
 
 def test_people_arrays_round_trip_and_stale_scalars_or_foreign_registry_ids_do_not_persist(client, factory):

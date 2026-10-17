@@ -240,3 +240,119 @@ def test_reference_provenance_and_historical_inactive_values_are_preserved(clien
             )
     finally:
         client.app.dependency_overrides.pop(current_actor, None)
+
+@pytest.mark.parametrize("code", ["executors", "responsible_executors", "signers", "approvers"])
+def test_people_metadata_preview_and_exchange_preserve_private_attributes(client, factory, code):
+    import base64
+    import csv
+    import io
+
+    from tests.conftest import login_admin
+    from tests.test_config_api import admin_headers
+
+    login_admin(client, factory)
+    headers = admin_headers(client)
+    reference = client.post("/api/v1/references", headers=headers,
+                            json={"code": code, "name": "Synthetic participants"}).json()
+    url = f"/api/v1/references/{reference['id']}"
+    metadata = {"position": "Synthetic lawyer", "department": "Synthetic unit",
+                "source_attributes": {"source_secret": "private"}, "private": "kept"}
+    created = client.post(url + "/items", headers=headers,
+                          json={"label": "Synthetic person", "metadata": metadata})
+    assert created.status_code == 201, created.text
+    for mode in ("editor", "viewer"):
+        preview = client.get(url + f"/items?mode={mode}").json()[0]
+        assert preview["metadata"] == {"position": "Synthetic lawyer", "department": "Synthetic unit"}
+        assert preview["source_database"] is None
+    for format in ("csv", "xlsx"):
+        exported = client.get(url + f"/export?format={format}")
+        assert exported.status_code == 200
+        imported = client.post(url + "/import", headers=headers,
+            json={"format": format, "content": base64.b64encode(exported.content).decode()})
+        assert imported.status_code == 200, imported.text
+        assert client.get(url + "/items").json()[0]["metadata"] == metadata
+    exported = list(csv.DictReader(io.StringIO(client.get(url + "/export").text)))
+    assert exported[0]["position"] == "Synthetic lawyer"
+    assert exported[0]["department"] == "Synthetic unit"
+    assert "private" not in str(exported)
+    invalid = client.patch(url + "/items/" + created.json()["id"], headers=headers,
+                           json={"metadata": {"position": {"secret": "private"}}})
+    assert invalid.status_code == 422
+
+
+def test_reference_import_target_is_source_qualified_idempotent_and_preserves_manual(factory):
+    from uuid import UUID
+
+    from migration.reference_import import plan_snapshot, target_plan
+    from sqlalchemy import select
+
+    from app.registry.models import ReferenceItem, ReferenceSet, Registry
+    from tests.test_reference_import import snapshot
+
+    raw = snapshot()
+    plan = plan_snapshot(raw)
+    with factory.begin() as session:
+        for source in raw["sources"]:
+            session.add(Registry(id=UUID(source["registry_id"]), code=source["database"],
+                                 name="Synthetic registry", document_type_ids=[]))
+    with factory.begin() as session:
+        preview = target_plan(session, plan)
+        assert preview["created"] == 20
+        assert list(session.scalars(select(ReferenceItem))) == []
+    with factory.begin() as session:
+        applied = target_plan(session, plan, apply=True)
+        assert applied["created"] == 20
+        identities = {str(row.id) for row in session.scalars(select(ReferenceItem))}
+        book = session.scalar(select(ReferenceSet).where(ReferenceSet.code == "executors"))
+        session.add(ReferenceItem(reference_set_id=book.id, label="Manual value",
+                                  item_metadata={"manual": True}))
+    with factory.begin() as session:
+        repeated = target_plan(session, plan, apply=True)
+        assert repeated["unchanged"] == 20 and repeated["created"] == 0
+        rows = list(session.scalars(select(ReferenceItem)))
+        assert len(rows) == 21
+        assert identities.issubset({str(row.id) for row in rows})
+        manual = next(row for row in rows if row.label == "Manual value")
+        assert manual.item_metadata == {"manual": True}
+
+
+def test_reference_import_never_overwrites_manual_label_collision_and_supports_explicit_adoption(factory):
+    from uuid import UUID
+
+    from migration.reference_import import SnapshotError, plan_snapshot, target_plan
+    from sqlalchemy import select
+
+    from app.registry.models import ReferenceItem, ReferenceSet, Registry
+    from tests.test_reference_import import snapshot
+
+    raw = snapshot()
+    registry_id = UUID(raw["sources"][0]["registry_id"])
+    with factory.begin() as session:
+        for source in raw["sources"]:
+            session.add(Registry(id=UUID(source["registry_id"]), code=source["database"],
+                                 name="Synthetic registry", document_type_ids=[]))
+        session.flush()
+        book = ReferenceSet(registry_id=registry_id, code="status", name="Synthetic book")
+        session.add(book)
+        session.flush()
+        manual = ReferenceItem(reference_set_id=book.id, label="Synthetic",
+                               item_metadata={"custom": "retained"})
+        session.add(manual)
+        session.flush()
+        identity = str(manual.id)
+    with factory.begin() as session:
+        with pytest.raises(SnapshotError) as error:
+            target_plan(session, plan_snapshot(raw), apply=True)
+        assert error.value.errors == {"manual_label_collision": 1}
+        assert len(list(session.scalars(select(ReferenceItem)))) == 1
+        assert session.get(ReferenceItem, UUID(identity)).source_id is None
+    raw["sources"][0]["adopt"] = {"dbo.ref_status": {"1": identity}}
+    plan = plan_snapshot(raw)
+    with factory.begin() as session:
+        result = target_plan(session, plan, apply=True)
+        assert result["adopted"] == 1 and result["created"] == 19
+        row = session.get(ReferenceItem, UUID(identity))
+        assert row.source_database == "okrug" and row.source_id == "1"
+        assert row.item_metadata["custom"] == "retained"
+    with factory.begin() as session:
+        assert target_plan(session, plan, apply=True)["unchanged"] == 20

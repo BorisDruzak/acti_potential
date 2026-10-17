@@ -31,7 +31,7 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
         ...(mixedVersions ? [{id: "schema2", state: "published", document_type_id: "type", version: 2, schema: newer}] : [])];
     }
     else if (url.endsWith("/document-types")) data = [{id: "type", name: "Приказ"}];
-    else if (url.endsWith("/search")) data = {items: ["a", "b"].map((id, index) => ({document: {id, document_type_id: "type", schema_version_id: "schema", title: index ? "Бета" : "Альфа", card_state: index ? "published" : "draft", reg_number: "Р-" + (index + 1), reg_date: "2026-10-16", values: {caption: "Альфа", x_kind: "Распоряжение", x_topic: "Благоустройство", x_owner: "opaque-id"}, display_values: {x_kind: "Распоряжение", x_topic: "Благоустройство", x_owner: "Сотрудник"}}, matches: []})), total: 40, next_cursor: "page-two", page_size: 20};
+    else if (url.endsWith("/search")) data = {items: ["a", "b"].map((id, index) => ({document: {id, document_type_id: "type", schema_version_id: "schema", title: index ? "Бета" : "Альфа", permissions: ["read", "update", "download"], revision: 1, card_state: index ? "published" : "draft", reg_number: "Р-" + (index + 1), reg_date: "2026-10-16", values: {caption: "Альфа", x_kind: "Распоряжение", x_topic: "Благоустройство", x_owner: "opaque-id"}, display_values: {x_kind: "Распоряжение", x_topic: "Благоустройство", x_owner: "Сотрудник"}}, matches: []})), total: 40, next_cursor: "page-two", page_size: 20};
     else if (url.endsWith("/documents") && init?.method === "POST") data = {id: "a"};
     else if (url.includes("/documents/a/content")) data = {items: [], total: 0, page: 1, page_size: 20};
     else if (url.includes("/documents/a/search-index")) data = {ready: true};
@@ -232,11 +232,11 @@ it("keeps one mounted card and its draft, active tab, selection, query and loade
   fireEvent.click(mode("Карточка")); fireEvent.click(mode("Вместе"));
   expect(screen.getByRole("button", {name: "Файлы и версии"}).className).toContain("active");
 });
-it("renders eight columns from each document's configured schema and sorts via the existing API", async () => {
+it("renders configured columns and independent legal act status from each document's configured schema and sorts via the existing API", async () => {
   const fetch = setup();
   fireEvent.click(await screen.findByRole("radio", {name: "Таблица"}));
   await screen.findAllByText("Благоустройство");
-  expect(screen.getAllByRole("columnheader")).toHaveLength(8);
+  expect(screen.getAllByRole("columnheader")).toHaveLength(10);
   expect(screen.getByRole("columnheader", {name: "Состояние карточки"})).toBeTruthy();
   expect(screen.queryByRole("button", {name: "Сортировать: Состояние карточки"})).toBeNull();
   expect(within(await firstRow()).getByRole("gridcell", {name: "Состояние карточки: Черновик"})).toBeTruthy();
@@ -470,4 +470,82 @@ it("restores the content tab on same-document history even without a file or blo
   window.history.pushState(null, "", "/work?document=a");
   fireEvent(window, new PopStateEvent("popstate"));
   await waitFor(() => expect(screen.getByRole("button", {name: "Карточка"}).className).toContain("active"));
+});
+
+
+it("exports exactly the checkbox selection while retaining the dirty open card on right-click", async () => {
+  const fetch = setup();
+  vi.stubGlobal("URL", class extends URL {static createObjectURL() {return "blob:selection";} static revokeObjectURL() {}});
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  fireEvent.click(await firstRow());
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  const input = screen.getByLabelText("Наименование") as HTMLInputElement;
+  fireEvent.change(input, {target: {value: "Мой черновик"}});
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  fireEvent.click(screen.getByRole("checkbox", {name: "Выделить документ «Альфа»"}));
+  fireEvent.click(screen.getByRole("checkbox", {name: "Выделить документ «Бета»"}));
+  fireEvent.contextMenu(screen.getByRole("row", {name: /Выбрать документ «Бета»/}), {clientX: 300, clientY: 200});
+  expect(screen.getByRole("menu", {name: "Действия с выбранными документами: 2"})).toBeTruthy();
+  expect(screen.getByLabelText("Наименование")).toBe(input);
+  expect(input.value).toBe("Мой черновик"); expect(confirm).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("menuitem", {name: "Экспорт выбранных CSV"}));
+  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/documents/export-selection") && init?.method === "POST" && JSON.parse(String(init.body)).document_ids.join(",") === "a,b")).toBe(true));
+  expect(screen.getByLabelText("Наименование")).toBe(input);
+});
+
+it("requires a deletion reason and submits the confirmed card revision", async () => {
+  const fetch = setup();
+  fireEvent.contextMenu(await firstRow(), {clientX: 150, clientY: 100});
+  fireEvent.click(screen.getByRole("menuitem", {name: "Удалить выбранные документы"}));
+  const dialog = await screen.findByRole("dialog", {name: "Удалить выбранные документы?"});
+  const confirm = within(dialog).getByRole("button", {name: "Подтвердить удаление"});
+  expect(confirm).toHaveProperty("disabled", true);
+  expect(fetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+  fireEvent.change(within(dialog).getByLabelText("Причина удаления"), {target: {value: "Дубликат карточки"}});
+  fireEvent.click(confirm);
+  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/documents/a") && init?.method === "DELETE" && JSON.parse(String(init.body)).revision === 1 && JSON.parse(String(init.body)).reason === "Дубликат карточки")).toBe(true));
+});
+
+it("restores all field predicates from the URL and removes only the requested condition", async () => {
+  const filters = {x_kind: "Распоряжение", x_topic: {op: "contains", value: "Благоустройство"}};
+  window.history.replaceState(null, "", "/work?document_type_id=type&reg_number=17&reg_date=2026-10-17&status=active&filters=" + encodeURIComponent(JSON.stringify(filters)));
+  const fetch = setup();
+  await firstRow();
+  fireEvent.click(screen.getByRole("button", {name: "Фильтры"}));
+  expect(await screen.findByLabelText("Поле фильтра 1")).toHaveProperty("value", "x_kind");
+  expect(screen.getByLabelText("Поле фильтра 2")).toHaveProperty("value", "x_topic");
+  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && Object.keys(JSON.parse(String(init?.body)).filters).length === 2)).toBe(true));
+  fireEvent.click(screen.getByRole("button", {name: "Удалить активное условие 1"}));
+  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => {
+    if (!url.endsWith("/search")) return false;
+    const body = JSON.parse(String(init?.body)); return body.filters.x_topic?.value === "Благоустройство" && !body.filters.x_kind && body.reg_number === "17" && body.date_from === "2026-10-17" && body.status === "active";
+  })).toBe(true));
+});
+
+it("preserves a dirty form and shows the named remote revision before an explicit reload", async () => {
+  const fetch = setup();
+  const base = fetch.getMockImplementation()!; let remoteRevision = 1;
+  fetch.mockImplementation(async (url, init) => url.includes("/collaboration")
+    ? new Response(JSON.stringify({revision: remoteRevision, updated_at: "2026-10-17T12:00:00Z", updated_by: {id: "other", display_name: "Другой редактор"}, participants: [{id: "other", display_name: "Другой редактор", editing: true}]}))
+    : base(url, init));
+  fireEvent.click(await firstRow());
+  await screen.findByRole("button", {name: "Редактировать карточку"});
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(screen.getByRole("button", {name: "Редактировать карточку"}));
+    await act(async () => {});
+    const input = screen.getByLabelText("Наименование") as HTMLInputElement;
+    fireEvent.change(input, {target: {value: "Не терять мои изменения"}});
+    remoteRevision = 2;
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(screen.getByLabelText("Наименование")).toBe(input);
+    expect(input.value).toBe("Не терять мои изменения");
+    expect(screen.getByRole("button", {name: "Сохранить карточку"})).toHaveProperty("disabled", true);
+    expect(screen.getByText(/Последняя редакция 2/).textContent).toContain("Другой редактор");
+    expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", {name: "Загрузить актуальную редакцию"}));
+    expect(confirm).toHaveBeenCalledOnce(); expect(input.isConnected).toBe(true);
+  } finally {cleanup(); vi.useRealTimers();}
 });

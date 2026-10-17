@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.registry.document_contracts import EditorIdentity
 from app.registry.document_search import SearchParameters
 
 
@@ -125,6 +126,7 @@ class SearchDocument(BaseModel):
     current_version: int
     created_at: datetime
     updated_at: datetime
+    updated_by: EditorIdentity | None = None
     title: str | None = None
     reg_number: str | None = None
     reg_date: date | None = None

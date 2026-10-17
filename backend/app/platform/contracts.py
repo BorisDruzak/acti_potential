@@ -19,6 +19,8 @@ SCHEMA_EVENTS = frozenset(
         "document.version.created",
         "document.access.changed",
         "document.file.downloaded",
+        "document.file.opened",
+        "document.deleted",
     }
 )
 

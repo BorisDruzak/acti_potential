@@ -35,11 +35,13 @@ it("keeps decimal filters and configured export columns in the document workspac
   const fetch = setup();
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.change(screen.getByLabelText("Тип"), {target: {value: "t"}});
-  fireEvent.change(await screen.findByLabelText("Дополнительный фильтр"), {target: {value: "amount"}});
+  fireEvent.click(screen.getByRole("button", {name: "Фильтры"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Добавить условие"}));
+  fireEvent.change(screen.getByLabelText("Поле фильтра 1"), {target: {value: "amount"}});
   expect(screen.queryByRole("option", {name: "Условное поле"})).toBeNull();
-  fireEvent.change(screen.getByLabelText("Сравнение"), {target: {value: "between"}});
-  fireEvent.change(screen.getByLabelText("Значение фильтра"), {target: {value: "1.20"}});
-  fireEvent.change(screen.getByLabelText("Верхняя граница"), {target: {value: "2.50"}});
+  fireEvent.change(screen.getByLabelText("Сравнение 1"), {target: {value: "between"}});
+  fireEvent.change(screen.getByLabelText("Значение фильтра 1"), {target: {value: "1.20"}});
+  fireEvent.change(screen.getByLabelText("Верхняя граница 1"), {target: {value: "2.50"}});
   fireEvent.change(screen.getByLabelText("Сортировка"), {target: {value: "custom:amount"}});
   fireEvent.change(screen.getByLabelText("Направление сортировки"), {target: {value: "asc"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
@@ -51,7 +53,7 @@ it("keeps decimal filters and configured export columns in the document workspac
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/search/export?") && new URL(url, "https://test.invalid").searchParams.get("columns") === "amount")).toBe(true));
   const exported = fetch.mock.calls.find(([url]) => url.includes("/search/export?"))![0];
   expect(JSON.parse(new URL(exported, "https://test.invalid").searchParams.get("parameters")!).sort).toBe("custom:amount");
-  expect(screen.getAllByRole("columnheader")).toHaveLength(8);
+  expect(screen.getAllByRole("columnheader")).toHaveLength(9);
 });
 
 it("saves and restores filters per user and workspace without storing result data", async () => {

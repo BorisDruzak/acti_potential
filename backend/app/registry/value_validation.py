@@ -33,6 +33,8 @@ def uuid_value(value, key):
 
 
 def reference_set(session, field, registry_id):
+    from app.registry.archives import is_archived
+
     if field.get("reference_set_id"):
         result = session.get(ReferenceSet, uuid_value(field["reference_set_id"], field["key"]))
     elif field.get("reference_code"):
@@ -50,7 +52,7 @@ def reference_set(session, field, registry_id):
             )
     else:
         return None
-    if result is None or result.registry_id not in (None, registry_id):
+    if result is None or is_archived(session, "reference_set", result.id) or result.registry_id not in (None, registry_id):
         invalid(field["key"], "Справочник недоступен в этом реестре")
     return result
 

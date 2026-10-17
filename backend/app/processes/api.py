@@ -16,6 +16,7 @@ from app.processes.contracts import (
     RevisionInput,
 )
 from app.processes.models import Process, ProcessVersion
+from app.registry.archives import configuration_active_clause
 from app.registry.events import emit
 from app.registry.models import Registry, RegistryAccess
 from app.service_api.contracts import Page, ProcessVersionRead
@@ -55,7 +56,8 @@ def listing(session: Db, actor: Actor, registry_id: UUID | None = None):
     query = (
         select(Process)
         .join(RegistryAccess, RegistryAccess.registry_id == Process.registry_id)
-        .where(RegistryAccess.user_id == actor.id, RegistryAccess.permissions.contains(["read"]))
+        .where(RegistryAccess.user_id == actor.id, RegistryAccess.permissions.contains(["read"]),
+               configuration_active_clause(Registry, "registry", Process.registry_id))
     )
     if registry_id:
         query = query.where(Process.registry_id == registry_id)
@@ -121,6 +123,7 @@ def catalog(
         .where(
             RegistryAccess.user_id == actor.id,
             RegistryAccess.permissions.contains(["read"]),
+            configuration_active_clause(Registry, "registry", Process.registry_id),
             or_(configured, ProcessVersion.id.is_not(None)),
         )
     )

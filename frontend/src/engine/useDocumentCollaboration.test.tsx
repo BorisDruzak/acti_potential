@@ -1,0 +1,20 @@
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { useDocumentCollaboration } from "./useDocumentCollaboration";
+afterEach(() => {cleanup(); vi.unstubAllGlobals(); vi.useRealTimers();});
+it("polls visible cards, refreshes a clean remote revision and sends editing presence", async () => {
+  vi.useFakeTimers(); let revision = 1;
+  const fetch = vi.fn(async () => new Response(JSON.stringify({revision, updated_at: "2026-10-17", updated_by: {id: "other", display_name: "Редактор"}, participants: []})));
+  vi.stubGlobal("fetch", fetch);
+  const refresh = vi.fn();
+  const {result, rerender} = renderHook(({dirty}) => useDocumentCollaboration("a", 1, "editor", "csrf", true, dirty, refresh), {initialProps: {dirty: false}});
+  await act(async () => {});
+  revision = 2;
+  await act(async () => vi.advanceTimersByTimeAsync(5000));
+  expect(refresh).toHaveBeenCalledOnce();
+  rerender({dirty: true}); revision = 3;
+  await act(async () => vi.advanceTimersByTimeAsync(5000));
+  expect(refresh).toHaveBeenCalledOnce();
+  expect(result.current.remote?.revision).toBe(3);
+  expect(fetch.mock.calls.some((args: unknown[]) => (args[1] as RequestInit)?.method === "POST")).toBe(true);
+});
