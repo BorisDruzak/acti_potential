@@ -19,12 +19,12 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-function Editor({ definition = field, initial = {}, mode = "edit", roles = ["editor"] }: {
-  definition?: Field; initial?: Values; mode?: "edit" | "view"; roles?: string[];
+function Editor({ definition = field, initial = {}, mode = "edit", roles = ["editor"], displayMode }: {
+  definition?: Field; initial?: Values; mode?: "edit" | "view"; roles?: string[]; displayMode?: "editor" | "viewer";
 }) {
   const [values, setValues] = useState(initial);
   return <form aria-label="Карточка">
-    <DynamicForm schema={{ sections: [{ key: "main", title: "", fields: [definition] }] }} values={values} onChange={setValues} mode={mode} roles={roles} />
+    <DynamicForm schema={{ sections: [{ key: "main", title: "", fields: [definition] }] }} values={values} onChange={setValues} mode={mode} roles={roles} displayMode={displayMode} />
     <output aria-label="Значения">{JSON.stringify(values)}</output>
   </form>;
 }
@@ -50,6 +50,28 @@ it("lets existing inactive and missing choices be removed but prevents selecting
   expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "Неактивный сотрудник (неактивно)" }).disabled).toBe(true);
   fireEvent.click(screen.getByRole("checkbox", { name: "missing (неактивно)" }));
   expect(screen.getByLabelText("Значения").textContent).toBe('{"custom_people":[]}');
+});
+
+it("refreshes reference selectability when a mounted readonly card enters edit mode", async () => {
+  const initial = { custom_people: ["anna"] };
+  const { rerender } = render(<Editor mode="view" displayMode="editor" initial={initial} />);
+  expect(await screen.findByText("Анна Иванова")).toBeTruthy();
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  fetchMock.mockImplementation(async () => new Response(JSON.stringify(people.map((person) =>
+    person.id === "anna" || person.id === "boris" ? { ...person, selectable: false } : person,
+  ))));
+
+  rerender(<Editor mode="edit" displayMode="editor" initial={initial} />);
+  const selected = await screen.findByRole<HTMLInputElement>("checkbox", { name: "Анна Иванова (неактивно)" });
+  expect(selected.checked).toBe(true);
+  expect(selected.disabled).toBe(false);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "Борис Петров (неактивно)" }).disabled).toBe(true);
+  fireEvent.click(selected);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "Анна Иванова (неактивно)" }).disabled).toBe(true);
+  expect(screen.getByLabelText("Значения").textContent).toBe('{"custom_people":[]}');
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "ВЕРА" } });
+  expect(screen.getByRole("checkbox", { name: "Вера Соколова" })).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
 it("requires a selection even after typing a query and enforces the selection limit without blocking removal", async () => {

@@ -26,7 +26,9 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
       const response=await fetch('/api/v1'+endpoint, {method,headers:{Accept:'application/json',...(data===undefined?{}:{'Content-Type':'application/json'}),...(me?{'X-CSRF-Token':me.csrf_token}:{})},...(data===undefined?{}:{body:JSON.stringify(data)})});
       return {status:response.status,data:await response.json().catch(()=>null)};
     }, {endpoint,method,data});
-    assert.equal(result.status, expected, `${method} ${endpoint.split('?')[0]}`);
+    const problem=result.data?.error;
+    const detail=problem&&typeof problem==='object'?[problem.code,problem.message].filter(value=>typeof value==='string').join(': '):'';
+    assert.equal(result.status, expected, `${method} ${endpoint.split('?')[0]}${detail?' — '+detail:''}`);
     return result.data;
   }
   async function login(page, credentials) {
@@ -68,7 +70,7 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     const type=await json(ap,'/document-types','POST',{code,name:'Участники ACTI v2 '+code},201);
     assert(!/ACTI\s*v\s*2/i.test(type.name));
     const registry=await json(ap,'/registries','POST',{code,name:'Проверка участников '+code,document_type_ids:[type.id]},201);registries.push(registry);
-    const foreignRegistry=await json(ap,'/registries','POST',{code:code+'_foreign',name:'Проверка границы участников '+code,document_type_ids:[type.id]},201);registries.push(foreignRegistry);
+    const foreignRegistry=await json(ap,'/registries','POST',{code:code+'_foreign',name:'Проверка границы участников '+code,document_type_ids:[]},201);registries.push(foreignRegistry);
     const choices={};
     for(const [referenceCode,key,label] of people) {
       const set=await json(ap,'/references','POST',{code:referenceCode,name:label+' ACTI v2',registry_id:registry.id},201);
@@ -143,7 +145,8 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     const detail=ep.getByRole('region',{name:'Содержимое карточки',exact:true});
     await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
     for(const [,key] of people)assert.deepEqual((await json(ep,`/documents/${card.id}`)).values[key],choices[key].items.slice(0,2).map(item=>item.id));
-    assert.equal(await detail.getByRole('checkbox').count(),0,'Saved card is read-only until edit');
+    assert.equal(await detail.locator('.lookup-control').count(),0,'Saved people fields are read-only until edit');
+    assert.equal(await detail.getByRole('searchbox').count(),0);
     await detail.locator('.field-value').filter({hasText:'Иван Петров, Мария Соколова'}).first().waitFor();
     assert.equal(await detail.locator('.field-value').filter({hasText:'Иван Петров, Мария Соколова'}).count(),4);
     pass('Real create/save and reload preserve arrays and human labels; card view has no mutable people controls');
@@ -163,7 +166,7 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     await detail.getByRole('button',{name:'История изменений',exact:true}).click();
     const first=detail.getByText(/^Редакция 1 ·/).locator('..');await first.locator('summary').click();
     await first.locator('.field-value').filter({hasText:'Иван Петров, Мария Соколова'}).first().waitFor();
-    assert.equal(await first.getByRole('checkbox').count(),0);
+    assert.equal(await first.locator('.lookup-control').count(),0);
     pass('Previously selected inactive person can be removed, cannot be newly selected, and historical multiple labels remain readable');
 
     stage='scope and transaction validation';
@@ -179,7 +182,7 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     await vp.goto(`${origin}/view?registry_id=${registry.id}&document=${card.id}`);await dismissNav(vp);
     const reader=vp.getByRole('region',{name:'Содержимое карточки',exact:true});
     await reader.locator('.field-value').filter({hasText:'Мария Соколова'}).first().waitFor();
-    assert.equal(await reader.getByRole('checkbox').count(),0);assert.equal(await reader.getByRole('searchbox').count(),0);
+    assert.equal(await reader.locator('.lookup-control').count(),0);assert.equal(await reader.getByRole('searchbox').count(),0);
     assert.equal(await vp.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);
     await json(vp,`/documents/${card.id}`,'PUT',{revision:card.revision,values:{executor_id:[]}},403);
     await ep.getByRole('button',{name:'Карточка',exact:true}).click();

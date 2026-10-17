@@ -132,7 +132,7 @@ function Lookup({
         if (!abort.signal.aborted) setLoading(false);
       });
     return () => abort.abort();
-  }, [referenceId, field.type, registryId, documentQuery, displayMode]);
+  }, [referenceId, field.type, registryId, documentQuery, displayMode, disabled]);
   const known = new Set(choices.map((choice) => choice.id));
   const merged = [
     ...choices,
