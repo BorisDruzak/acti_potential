@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "../auth/AuthProvider";
 import { Documents } from "./Documents";
@@ -48,6 +48,103 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
 }
 const mode = (name: string) => screen.getByRole("radio", {name});
 const firstRow = () => screen.findByRole("row", {name: /Выбрать документ «Альфа»/});
+
+it.each([["edit", false], ["create", false], ["edit", true], ["create", true]] as const)("waits for every inline participant before submitting the %s document and includes the new selections (simultaneous=%s)", async (operation, simultaneous) => {
+  const fetch = setup(false, false, "editor", true);
+  const base = fetch.getMockImplementation()!;
+  const pending = new Map<string, (response: Response) => void>();
+  const schema: FormSchema = {sections: [{key: "main", title: "Основное", fields: [
+    {key: "caption", label: "Наименование", type: "text", editable: true},
+    {key: "custom_executors", label: "Исполнители", type: "multi_reference", reference_code: "executors", editable: true},
+    {key: "custom_signers", label: "Подписанты", type: "multi_reference", reference_code: "signers", editable: true},
+  ]}]};
+  fetch.mockImplementation(async (url, init) => {
+    if (/\/references(?:\?|$)/.test(url)) return new Response(JSON.stringify(["executors", "signers"].map(code => ({id: code, code, name: code, registry_id: "r"}))));
+    if (/\/references\/.*\/items/.test(url)) return new Response(JSON.stringify([{id: "old", label: "Уже в справочнике", active: true}]));
+    if (url.includes("/document-types/type/versions")) return new Response(JSON.stringify([{id: "schema", state: "published", document_type_id: "type", version: 1, schema}]));
+    if (/\/documents\/a\?/.test(url)) return new Response(JSON.stringify({id: "a", registry_id: "r", schema_version_id: "schema", revision: 1, current_version: 0, values: {caption: "Альфа"}, schema, permissions: ["read", "update"], files: []}));
+    if (url.endsWith("/registries/r/people")) return new Promise<Response>(resolve => { pending.set(JSON.parse(String(init?.body)).field_key, resolve); });
+    return base(url, init);
+  });
+  let form: HTMLFormElement;
+  const saveCalls = () => fetch.mock.calls.filter(([url, init]) => operation === "edit"
+    ? url.endsWith("/documents/a") && init?.method === "PUT"
+    : url.endsWith("/documents") && init?.method === "POST");
+  if (operation === "edit") {
+    fireEvent.click(await firstRow());
+    fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+    form = document.querySelector(".document-card-form") as HTMLFormElement;
+  } else {
+    const toolbar = await screen.findByRole("group", {name: "Вид и сортировка документов"});
+    fireEvent.click(await within(toolbar).findByRole("button", {name: "Создать документ"}));
+    const creation = document.querySelector(".document-create") as HTMLElement;
+    fireEvent.change(within(creation).getByLabelText("Тип документа"), {target: {value: "type"}});
+    await within(creation).findByLabelText("Наименование");
+    form = creation.querySelector(".document-card-form") as HTMLFormElement;
+  }
+  fireEvent.change(within(form).getByLabelText("Наименование"), {target: {value: "Несохранённое название"}});
+  await waitFor(() => expect(within(form).getAllByRole("checkbox", {name: "Уже в справочнике"})).toHaveLength(2));
+  for (const [fieldLabel, name] of [["Исполнители", "Новый исполнитель"], ["Подписанты", "Новый подписант"]]) {
+    fireEvent.change(within(form).getByRole("searchbox", {name: `Поиск: ${fieldLabel}`}), {target: {value: name}});
+    act(() => {
+      within(form).getByRole<HTMLButtonElement>("button", {name: `Создать «${name}»`}).click();
+      form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
+    });
+  }
+  const submit = within(form).getByRole<HTMLButtonElement>("button", {name: operation === "edit" ? "Сохранить карточку" : "Создать документ"});
+  expect(submit.disabled).toBe(true);
+  fireEvent.submit(form);
+  expect(saveCalls()).toHaveLength(0);
+  const resolveExecutor = () => pending.get("custom_executors")!(new Response(JSON.stringify({item: {id: "new-executor", label: "Новый исполнитель", active: true}, created: true}), {status: 201}));
+  const resolveSigner = () => pending.get("custom_signers")!(new Response(JSON.stringify({item: {id: "new-signer", label: "Новый подписант", active: true}, created: true}), {status: 201}));
+  if (simultaneous) {
+    await act(async () => { resolveExecutor(); resolveSigner(); });
+  } else {
+    await act(async () => resolveExecutor());
+    expect(within(form).getByRole<HTMLInputElement>("checkbox", {name: "Новый исполнитель"}).checked).toBe(true);
+    expect(submit.disabled).toBe(true);
+    fireEvent.submit(form);
+    expect(saveCalls()).toHaveLength(0);
+    await act(async () => resolveSigner());
+  }
+  expect(within(form).getByRole<HTMLInputElement>("checkbox", {name: "Новый исполнитель"}).checked).toBe(true);
+  expect(within(form).getByRole<HTMLInputElement>("checkbox", {name: "Новый подписант"}).checked).toBe(true);
+  expect(submit.disabled).toBe(false);
+  fireEvent.click(submit);
+  await waitFor(() => expect(saveCalls()).toHaveLength(1));
+  expect(JSON.parse(String(saveCalls()[0][1]?.body)).values).toEqual({caption: "Несохранённое название", custom_executors: ["new-executor"], custom_signers: ["new-signer"]});
+});
+
+it("creates a participant in the actual card registry with CSRF while all registries are selected and retains the card draft", async () => {
+  const fetch = setup();
+  const base = fetch.getMockImplementation()!;
+  const schema: FormSchema = {sections: [{key: "main", title: "Основное", fields: [
+    {key: "caption", label: "Наименование", type: "text", editable: true},
+    {key: "custom_people", label: "Исполнители", type: "multi_reference", reference_code: "executors", editable: true},
+  ]}]};
+  fetch.mockImplementation(async (url, init) => {
+    if (/\/references(?:\?|$)/.test(url)) return new Response(JSON.stringify([{id: "people-r", code: "executors", name: "Исполнители", registry_id: "r"}]));
+    if (url.includes("/references/people-r/items")) return new Response(JSON.stringify([{id: "old", label: "Уже выбранный", active: true}]));
+    if (url.endsWith("/registries/r/people")) return new Response(JSON.stringify({item: {id: "new", label: "Новый участник", active: true}, created: true}), {status: 201});
+    if (/\/documents\/a\?/.test(url)) return new Response(JSON.stringify({id: "a", registry_id: "r", schema_version_id: "card-schema", revision: 1, current_version: 0, title: "Альфа", values: {caption: "Альфа", custom_people: ["old"]}, schema, permissions: ["read", "update"], files: []}));
+    return base(url, init);
+  });
+  fireEvent.click(await firstRow());
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  fireEvent.change(screen.getByLabelText("Наименование"), {target: {value: "Несохранённая карточка"}});
+  await screen.findByRole("checkbox", {name: "Уже выбранный"});
+  fireEvent.change(screen.getByRole("searchbox", {name: "Поиск: Исполнители"}), {target: {value: "Новый участник"}});
+  fireEvent.click(screen.getByRole("button", {name: "Создать «Новый участник»"}));
+  expect((await screen.findByRole<HTMLInputElement>("checkbox", {name: "Новый участник"})).checked).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", {name: "Уже выбранный"}).checked).toBe(true);
+  expect(screen.getByLabelText<HTMLInputElement>("Наименование").value).toBe("Несохранённая карточка");
+  expect(screen.getByRole<HTMLSelectElement>("combobox", {name: "Реестр"}).value).toBe("");
+  const [, request] = fetch.mock.calls.find(([url]) => url.endsWith("/registries/r/people"))!;
+  expect(request?.method).toBe("POST");
+  expect(new Headers(request?.headers).get("X-CSRF-Token")).toBe("csrf");
+  expect(JSON.parse(String(request?.body))).toEqual({schema_version_id: "card-schema", field_key: "custom_people", label: "Новый участник", document_id: "a"});
+  expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/documents/a") && init?.method === "PUT")).toBe(false);
+});
 
 it("uses each selected card's registry references while the result filter stays on all registries", async () => {
   const fetch = setup();

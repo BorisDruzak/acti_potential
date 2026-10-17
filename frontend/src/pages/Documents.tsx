@@ -14,6 +14,7 @@ import {
   type DocumentType,
   type Field,
   type FileVersion,
+  type ReferenceItem,
   type ReferenceSet,
   type Registry,
   type SchemaVersion,
@@ -72,6 +73,26 @@ async function encodeAttachments(pending: Record<string, File>) {
   );
 }
 
+function useParticipantCreation(registryId: string, schemaVersionId: string, csrfToken: string, documentId?: string) {
+  const pending = useRef(0);
+  const [count, setCount] = useState(0);
+  const create = useCallback(async (field: Field, label: string) => {
+    pending.current += 1;
+    setCount(current => current + 1);
+    try {
+      return await apiRequest<{ item: ReferenceItem; created: boolean }>(`/registries/${registryId}/people`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken },
+        body: JSON.stringify({ schema_version_id: schemaVersionId, field_key: field.key, label, ...(documentId ? { document_id: documentId } : {}) }),
+      });
+    } finally {
+      pending.current -= 1;
+      setCount(current => current - 1);
+    }
+  }, [registryId, schemaVersionId, csrfToken, documentId]);
+  return { create, pending, busy: count > 0 };
+}
+
 function DocumentCard({
   card,
   readOnly,
@@ -123,6 +144,8 @@ function DocumentCard({
   );
   const canEdit = !readOnly && card.permissions.includes("update");
   const canUpload = !readOnly && card.permissions.includes("upload");
+  const csrfToken = auth.user?.csrf_token || "";
+  const participantCreation = useParticipantCreation(card.registry_id, card.schema_version_id, csrfToken, card.id);
   const hasUnsavedChanges =
     editing &&
     (JSON.stringify(values) !== JSON.stringify(card.values) ||
@@ -257,6 +280,7 @@ function DocumentCard({
           className="panel document-card-form"
           onSubmit={(event) => {
             event.preventDefault();
+            if (participantCreation.pending.current > 0) return;
             void action.run(save);
           }}
         >
@@ -271,6 +295,7 @@ function DocumentCard({
             roles={auth.user?.roles || []}
             references={references}
             registryId={card.registry_id}
+            onCreateReference={editing && canEdit && !action.busy ? participantCreation.create : undefined}
             files={card.files}
             canDownload={card.permissions.includes("download")}
             onFile={
@@ -293,7 +318,7 @@ function DocumentCard({
                     key="save-card"
                     type="submit"
                     className="primary"
-                    disabled={action.busy || conflict}
+                    disabled={action.busy || conflict || participantCreation.busy}
                   >
                     Сохранить карточку
                   </button>
@@ -533,7 +558,10 @@ function NewDocumentForm({
   roles: string[];
   onCreated: (id: string) => void;
 }) {
+  const auth = useAuth();
   const action = useAction();
+  const csrfToken = auth.user?.csrf_token || "";
+  const participantCreation = useParticipantCreation(registry.id, version.id, csrfToken);
   const [values, setValues] = useState<Values>(() =>
     initialValues(version.schema),
   );
@@ -583,6 +611,7 @@ function NewDocumentForm({
       className="panel document-card-form"
       onSubmit={(event) => {
         event.preventDefault();
+        if (participantCreation.pending.current > 0) return;
         if (onBeforeCreate()) void action.run(create, "Документ создан");
       }}
     >
@@ -596,6 +625,7 @@ function NewDocumentForm({
         roles={roles}
         references={references}
         registryId={registry.id}
+        onCreateReference={registry.permissions.includes("create") && !action.busy ? participantCreation.create : undefined}
         onFile={
           registry.permissions.includes("upload")
             ? (field, file) =>
@@ -624,7 +654,7 @@ function NewDocumentForm({
         </div>
       ))}
       <Feedback {...action} />
-      <button className="primary" disabled={action.busy}>
+      <button className="primary" disabled={action.busy || participantCreation.busy}>
         {action.busy ? "Сохранение…" : "Создать документ"}
       </button>
     </form>

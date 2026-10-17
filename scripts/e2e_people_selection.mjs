@@ -190,6 +190,33 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     assert.equal(await first.locator('.lookup-control').count(),0);
     pass('Previously selected inactive person can be removed, cannot be newly selected, and historical multiple labels remain readable');
 
+    stage='inline creation in existing card';
+    await detail.getByRole('button',{name:'Карточка',exact:true}).click();
+    await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+    const originalValues=card.values, createdPeople={};
+    for(const [,key,label] of people) {
+      const search=detail.getByRole('searchbox',{name:'Поиск: '+label,exact:true});
+      const name=`Новый участник ${label} ${code}`;
+      await search.fill(name);
+      const offering=detail.getByRole('button',{name:`Создать «${name}»`,exact:true});await offering.waitFor();
+      if(key==='executor_id')await offering.locator('..').locator('..').screenshot({path:path.join(outputDir,'inline-person-creation-offer.png')});
+      const adding=ep.waitForResponse(response=>new URL(response.url()).pathname===`/api/v1/registries/${registry.id}/people`&&response.request().method()==='POST');
+      await offering.click();const added=await adding;assert.equal(added.status(),201);const result=await added.json();
+      assert.equal(result.created,true);assert.equal(result.item.reference_set_id,choices[key].set.id);createdPeople[key]=result.item;
+      const group=detail.getByRole('group',{name:label,exact:true});
+      await group.getByRole('checkbox',{name,exact:true}).waitFor();assert.equal(await group.getByRole('checkbox',{name,exact:true}).isChecked(),true);
+      await search.fill(name);assert.equal(await detail.getByRole('button',{name:`Создать «${name}»`,exact:true}).count(),0);await search.fill('');
+      const reused=await json(ep,`/registries/${registry.id}/people`,'POST',{schema_version_id:version.id,document_id:card.id,field_key:key,label:'  '+name.toLocaleUpperCase('ru')+'  '});
+      assert.equal(reused.created,false);assert.equal(reused.item.id,result.item.id);
+    }
+    await detail.getByRole('group',{name:'Исполнитель',exact:true}).locator('..').screenshot({path:path.join(outputDir,'inline-created-person.png')});
+    const updating=ep.waitForResponse(response=>new URL(response.url()).pathname===`/api/v1/documents/${card.id}`&&response.request().method()==='PUT');
+    await detail.getByRole('button',{name:'Сохранить карточку',exact:true}).click();const updated=await updating;assert.equal(updated.status(),200);card=await updated.json();
+    for(const [,key] of people)assert.deepEqual(card.values[key],[...originalValues[key],createdPeople[key].id]);
+    await ep.reload();await dismissNav(ep);await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
+    for(const [,key] of people)assert((await json(ep,`/documents/${card.id}`)).values[key].includes(createdPeople[key].id));
+    pass('Editor creates all four participant kinds inside the current card, auto-selects and saves them in its registry, preserves prior selections and reuses normalized duplicates');
+
     stage='scope and transaction validation';
     const before=await json(ep,`/documents/${card.id}`), historyBefore=await json(ep,`/documents/${card.id}/history`);
     await json(ep,`/documents/${card.id}`,'PUT',{revision:before.revision,values:{executor_id:[foreign.id]}},422);
@@ -225,6 +252,22 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     }
     pass('All-registry search switches all four scoped reference lists with the selected document while preserving the all-registry filter');
 
+    stage='inline creation before a document exists';
+    await toolbar.getByRole('button',{name:'Создать документ',exact:true}).click();
+    const fresh=ep.locator('.document-create');await fresh.waitFor();
+    await fresh.getByRole('combobox',{name:'Реестр документа',exact:true}).selectOption(foreignRegistry.id);
+    await fresh.getByRole('combobox',{name:'Тип документа',exact:true}).selectOption(type.id);
+    const freshName='Участник новой карточки '+code;
+    await fresh.getByRole('searchbox',{name:'Поиск: Ответственный исполнитель',exact:true}).fill(freshName);
+    const freshRequest=ep.waitForResponse(response=>new URL(response.url()).pathname===`/api/v1/registries/${foreignRegistry.id}/people`&&response.request().method()==='POST');
+    await fresh.getByRole('button',{name:`Создать «${freshName}»`,exact:true}).click();
+    const freshResponse=await freshRequest;assert.equal(freshResponse.status(),201);const freshPerson=(await freshResponse.json()).item;
+    assert.equal(freshPerson.reference_set_id,otherChoices.responsible_executor_id.set.id);
+    assert.equal(await fresh.getByRole('checkbox',{name:freshName,exact:true}).isChecked(),true);
+    ep.once('dialog',dialog=>dialog.accept());await fresh.getByRole('button',{name:'Отмена создания',exact:true}).click();
+    assert((await json(ep,`/references/${otherChoices.responsible_executor_id.set.id}/items?mode=editor`)).some(item=>item.id===freshPerson.id));
+    pass('New-card creation writes into the explicitly selected registry without requiring a saved document; cancelling its draft preserves the reference entry');
+
     stage='reader and small screen';
     const vp=roles.viewer.page;
     await vp.goto(`${origin}/view?registry_id=${registry.id}&document=${card.id}`);await dismissNav(vp);
@@ -232,6 +275,8 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     await reader.locator('.field-value').filter({hasText:'Мария Соколова'}).first().waitFor();
     assert.equal(await reader.locator('.lookup-control').count(),0);assert.equal(await reader.getByRole('searchbox').count(),0);
     assert.equal(await vp.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);
+    assert.equal(await reader.getByRole('button',{name:/^Создать «/}).count(),0);
+    await json(vp,`/registries/${registry.id}/people`,'POST',{schema_version_id:version.id,document_id:card.id,field_key:'executor_id',label:'Запрещённое создание '+code},403);
     await json(vp,`/documents/${card.id}`,'PUT',{revision:card.revision,values:{executor_id:[]}},403);
     await ep.getByRole('button',{name:'Карточка',exact:true}).click();
     await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();

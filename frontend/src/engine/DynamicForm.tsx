@@ -32,8 +32,12 @@ type Props = {
   displayMode?: "editor" | "viewer";
   navigationPlacement?: "side";
   sectionContent?: Record<string, ReactNode>;
+  onCreateReference?: (field: Field, label: string) => Promise<{ item: ReferenceItem; created: boolean }>;
 };
 type Choice = { id: string; label: string; active?: boolean };
+const participantBooks = new Set(["executors", "responsible_executors", "signers", "approvers"]);
+const cleanName = (name: string) => name.trim().replace(/\s+/gu, " ");
+const normalizedName = (name: string) => cleanName(name).toLocaleLowerCase("ru");
 function Lookup({
   field,
   value,
@@ -43,6 +47,7 @@ function Lookup({
   references = [],
   id,
   displayMode = "editor",
+  onCreateReference,
 }: {
   field: Field;
   value: unknown;
@@ -52,11 +57,19 @@ function Lookup({
   references?: ReferenceSet[];
   id: string;
   displayMode?: "editor" | "viewer";
+  onCreateReference?: Props["onCreateReference"];
 }) {
   const [choices, setChoices] = useState<Choice[]>([]);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [creationError, setCreationError] = useState("");
+  const [creationMessage, setCreationMessage] = useState("");
+  const creationGeneration = useRef(0);
+  const creationPending = useRef(false);
+  const currentSelection = useRef({ value, onChange });
+  currentSelection.current = { value, onChange };
   const searchRef = useRef<HTMLInputElement>(null);
   const multiple = field.type === "multi_reference";
   const label = displayConfigText(field.label);
@@ -86,6 +99,19 @@ function Lookup({
         (reference) => reference.registry_id === registryId,
       ) || matchingReferences.find((reference) => !reference.registry_id)
     )?.id;
+  const referenceBook = references.find(reference => reference.id === referenceId);
+  const canCreate = !disabled && !!onCreateReference && !!registryId &&
+    ["reference", "multi_reference"].includes(field.type) &&
+    referenceBook?.registry_id === registryId && participantBooks.has(referenceBook.code);
+  useEffect(() => {
+    creationGeneration.current += 1;
+    creationPending.current = false;
+    setCreating(false);
+    setCreationError("");
+    setCreationMessage("");
+    setQuery("");
+    return () => { creationGeneration.current += 1; };
+  }, [registryId, referenceId, disabled, onCreateReference]);
   useEffect(() => {
     const abort = new AbortController();
     let path: string;
@@ -140,17 +166,50 @@ function Lookup({
       .filter((current) => !known.has(current))
       .map((current) => ({ id: current, label: current, active: false })),
   ];
-  const normalizedQuery = query.trim().toLocaleLowerCase("ru");
+  const normalizedQuery = normalizedName(query);
   const visibleChoices = merged.filter((choice) =>
     values.includes(choice.id) || field.type === "document" ||
-    choice.label.toLocaleLowerCase("ru").includes(normalizedQuery),
+    normalizedName(choice.label).includes(normalizedQuery),
   );
   const matches = choices.some((choice) =>
-    choice.label.toLocaleLowerCase("ru").includes(normalizedQuery),
+    normalizedName(choice.label).includes(normalizedQuery),
   );
-  const status = loading ? "Загрузка…" : error ? "" : !choices.length
+  const inactiveMatch = !!normalizedQuery && choices.some(choice =>
+    choice.active === false && normalizedName(choice.label) === normalizedQuery);
+  const selectableMatch = choices.some(choice => choice.active !== false && normalizedName(choice.label).includes(normalizedQuery));
+  const offerCreation = canCreate && !!normalizedQuery && !loading && !error && !selectableMatch && !inactiveMatch;
+  async function createReference() {
+    if (!offerCreation || !onCreateReference || creationPending.current || multiple && values.length >= maximum) return;
+    const generation = creationGeneration.current;
+    creationPending.current = true;
+    setCreating(true);
+    setCreationError("");
+    setCreationMessage("");
+    try {
+      const result = await onCreateReference(field, cleanName(query));
+      if (generation !== creationGeneration.current) return;
+      if (!result.item.active || result.item.selectable === false)
+        throw new Error("Участник неактивен. Обратитесь к администратору справочника.");
+      const item = { id: result.item.id, label: result.item.label, active: true };
+      setChoices(current => [...current.filter(choice => choice.id !== item.id), item]);
+      const current = currentSelection.current;
+      const selected = Array.isArray(current.value) ? current.value.map(String) : current.value ? [String(current.value)] : [];
+      current.onChange(multiple ? [...new Set([...selected, item.id])] : item.id);
+      setQuery("");
+      setCreationMessage(result.created ? `Участник «${item.label}» создан и выбран.` : `Участник «${item.label}» уже существует и выбран.`);
+    } catch (failure) {
+      if (generation === creationGeneration.current)
+        setCreationError(failure instanceof Error ? failure.message : "Не удалось создать участника.");
+    } finally {
+      if (generation === creationGeneration.current) {
+        creationPending.current = false;
+        setCreating(false);
+      }
+    }
+  }
+  const status = creating ? "Создание участника…" : creationMessage || (canCreate && inactiveMatch ? "Участник уже есть в справочнике, но неактивен. Обратитесь к администратору справочника." : loading ? "Загрузка…" : error ? "" : !choices.length
     ? "Нет доступных значений"
-    : normalizedQuery && !matches && field.type !== "document" ? "Ничего не найдено" : "";
+    : normalizedQuery && !matches && field.type !== "document" ? "Ничего не найдено" : "");
   if (disabled)
     return (
       <div className="field-value" id={id}>
@@ -171,13 +230,19 @@ function Lookup({
         aria-describedby={multiple ? `${id}-selection` : undefined}
         aria-required={multiple && minimum > 0 || undefined}
         type="search"
+        disabled={creating}
         placeholder={field.type === "document" ? "Найти документ" : "Поиск по имени или названию"}
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => {
+          if (creationPending.current) return;
+          setQuery(event.target.value);
+          setCreationError("");
+          setCreationMessage("");
+        }}
       />
       {multiple ? (
         <>
-          <div className="lookup-options" role="group" aria-label={label} aria-busy={loading}>
+          <div className="lookup-options" role="group" aria-label={label} aria-busy={loading || creating}>
             {visibleChoices.map((choice) => {
               const selected = values.includes(choice.id);
               const unavailable = !selected && (choice.active === false || values.length >= maximum);
@@ -186,9 +251,9 @@ function Lookup({
                   <input
                     type="checkbox"
                     checked={selected}
-                    disabled={loading || unavailable}
+                    disabled={loading || creating || unavailable}
                     onChange={() => {
-                      if (loading || unavailable) return;
+                      if (loading || creationPending.current || unavailable) return;
                       onChange(selected ? values.filter((current) => current !== choice.id) : [...values, choice.id]);
                     }}
                   />
@@ -205,11 +270,11 @@ function Lookup({
         </>
       ) : <select
         id={id}
-        disabled={loading}
+        disabled={loading || creating}
         value={values[0] || ""}
         required={field.required}
         onChange={(event) =>
-          onChange(event.target.value || null)
+          !creationPending.current && onChange(event.target.value || null)
         }
       >
         <option value="">{loading ? "Загрузка…" : "Не указано"}</option>
@@ -224,10 +289,16 @@ function Lookup({
           </option>
         ))}
       </select>}
+      {offerCreation && <div className="lookup-create">
+        <button type="button" className="lookup-create-button" disabled={creating || multiple && values.length >= maximum} onClick={() => void createReference()}>
+          Создать «{cleanName(query)}»
+        </button>
+        <small>Запись сразу сохраняется в справочник реестра.</small>
+      </div>}
       <div className="lookup-status" role="status" aria-label={`Состояние: ${label}`}>{status}</div>
-      {error && (
+      {(error || creationError) && (
         <p className="error" role="alert">
-          {error}
+          {error || creationError}
         </p>
       )}
     </div>
@@ -348,6 +419,7 @@ function FieldControl({
         onChange={onChange}
         registryId={props.registryId}
         references={props.references}
+        onCreateReference={props.prefix ? undefined : props.onCreateReference}
         id={id}
         displayMode={
           props.displayMode || (props.mode === "view" ? "viewer" : "editor")
@@ -494,6 +566,8 @@ function FieldControl({
 
 export function DynamicForm({ schema, values, onChange, ...props }: Props) {
   const navigationId = useId();
+  const currentValues = useRef(values);
+  currentValues.current = values;
   const conditionFields = props.conditionFields || schema.sections.flatMap((section) => section.fields);
   const hasNavigation = !props.prefix && schema.sections.length > 2;
   const sideNavigation = hasNavigation && props.navigationPlacement === "side";
@@ -522,9 +596,11 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
               field={field}
               values={values}
               value={values[field.key]}
-              onChange={(value) =>
-                onChange?.({ ...values, [field.key]: value })
-              }
+              onChange={(value) => {
+                const next = { ...currentValues.current, [field.key]: value };
+                currentValues.current = next;
+                onChange?.(next);
+              }}
             />
           ))}
         </div>

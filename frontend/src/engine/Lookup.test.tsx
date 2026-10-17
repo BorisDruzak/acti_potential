@@ -2,7 +2,7 @@ import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DynamicForm } from "./DynamicForm";
-import type { Field, Values } from "./schema";
+import type { Field, ReferenceItem, ReferenceSet, Values } from "./schema";
 
 const people = [
   { id: "anna", label: "Анна Иванова", active: true },
@@ -19,12 +19,15 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-function Editor({ definition = field, initial = {}, mode = "edit", roles = ["editor"], displayMode }: {
+const roleBooks: ReferenceSet[] = [{ id: "people", code: "executors", name: "Исполнители", registry_id: "registry-a" }];
+type CreateReference = (field: Field, label: string) => Promise<{ item: ReferenceItem; created: boolean }>;
+function Editor({ definition = field, initial = {}, mode = "edit", roles = ["editor"], displayMode, onCreateReference, registryId = "registry-a", references = roleBooks }: {
   definition?: Field; initial?: Values; mode?: "edit" | "view"; roles?: string[]; displayMode?: "editor" | "viewer";
+  onCreateReference?: CreateReference; registryId?: string; references?: ReferenceSet[];
 }) {
   const [values, setValues] = useState(initial);
   return <form aria-label="Карточка">
-    <DynamicForm schema={{ sections: [{ key: "main", title: "", fields: [definition] }] }} values={values} onChange={setValues} mode={mode} roles={roles} displayMode={displayMode} />
+    <DynamicForm schema={{ sections: [{ key: "main", title: "", fields: [definition] }] }} values={values} onChange={setValues} mode={mode} roles={roles} displayMode={displayMode} registryId={registryId} references={references} onCreateReference={onCreateReference} />
     <output aria-label="Значения">{JSON.stringify(values)}</output>
   </form>;
 }
@@ -40,6 +43,119 @@ it("toggles multiple people by normal click and keeps selected people while filt
   fireEvent.click(screen.getByRole("checkbox", { name: "Анна Иванова" }));
   expect(screen.getByLabelText("Значения").textContent).toBe('{"custom_people":["boris"]}');
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("creates a missing participant inline and selects it while retaining unsaved values", async () => {
+  const create = vi.fn<CreateReference>().mockResolvedValue({ item: { id: "new", label: "Новый Участник", active: true }, created: true });
+  render(<Editor initial={{ custom_people: ["anna"], title: "Несохранённый заголовок" }} onCreateReference={create} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "  Новый   Участник  " } });
+  const button = screen.getByRole<HTMLButtonElement>("button", { name: "Создать «Новый Участник»" });
+  expect(button.type).toBe("button");
+  fireEvent.click(button);
+  await waitFor(() => expect(screen.getByLabelText("Значения").textContent).toBe('{"custom_people":["anna","new"],"title":"Несохранённый заголовок"}'));
+  expect(create).toHaveBeenCalledWith(expect.objectContaining(field), "Новый Участник");
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "Новый Участник" }).checked).toBe(true);
+  expect(screen.getByRole("status", { name: "Состояние: Участники" }).textContent).toContain("создан");
+});
+
+it.each(["executors", "responsible_executors", "signers", "approvers"])("allows inline creation for the %s book without relying on the field key", async (code) => {
+  render(<Editor references={[{ ...roleBooks[0], code }]} onCreateReference={vi.fn()} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Новое имя" } });
+  expect(screen.getByRole("button", { name: "Создать «Новое имя»" })).toBeTruthy();
+});
+
+it.each([
+  { onCreateReference: undefined },
+  { references: [{ ...roleBooks[0], code: "departments" }] },
+  { references: [{ ...roleBooks[0], registry_id: null }] },
+  { references: [{ ...roleBooks[0], registry_id: "registry-b" }] },
+  { definition: { ...field, type: "user" as const } },
+])("does not expose creation outside explicitly enabled scoped participant books: %j", async (props) => {
+  if ("definition" in props) fetchMock.mockImplementation(async () => new Response(JSON.stringify(people.map(person => ({ ...person, display_name: person.label })))));
+  render(<Editor onCreateReference={vi.fn()} {...props} />);
+  await screen.findByText("Анна Иванова", { selector: "span, option" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Новое имя" } });
+  expect(screen.queryByRole("button", { name: /Создать/ })).toBeNull();
+});
+
+it("hides creation for an existing normalized match and explains an inactive exact match", async () => {
+  render(<Editor onCreateReference={vi.fn()} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "  аННА   иВАНОВА  " } });
+  expect(screen.queryByRole("button", { name: /Создать/ })).toBeNull();
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "неактивный СОТРУДНИК" } });
+  expect(screen.queryByRole("button", { name: /Создать/ })).toBeNull();
+  expect(screen.getByRole("status", { name: "Состояние: Участники" }).textContent).toContain("неактив");
+});
+
+it("keeps the draft unchanged on creation failure and permits retry", async () => {
+  const create = vi.fn<CreateReference>().mockRejectedValue(new Error("Нет права добавлять участника"));
+  render(<Editor initial={{ custom_people: ["anna"] }} onCreateReference={create} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Новое имя" } });
+  fireEvent.click(screen.getByRole("button", { name: /Создать/ }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Нет права");
+  expect(screen.getByLabelText("Значения").textContent).toBe('{"custom_people":["anna"]}');
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: /Создать/ }).disabled).toBe(false);
+});
+
+it("selects a concurrently reused item without adding duplicate selections", async () => {
+  const create = vi.fn<CreateReference>().mockResolvedValue({ item: people[0], created: false });
+  render(<Editor initial={{ custom_people: ["anna"] }} onCreateReference={create} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Другое написание" } });
+  fireEvent.click(screen.getByRole("button", { name: /Создать/ }));
+  await waitFor(() => expect(screen.getByRole("status", { name: "Состояние: Участники" }).textContent).toContain("выбран"));
+  expect(screen.getByLabelText("Значения").textContent).toBe('{"custom_people":["anna"]}');
+  expect(screen.getAllByRole("checkbox", { name: "Анна Иванова" })).toHaveLength(1);
+});
+
+it("disables creation at the field selection limit", async () => {
+  const create = vi.fn<CreateReference>();
+  render(<Editor definition={{ ...field, constraints: { max_items: 1 } }} initial={{ custom_people: ["anna"] }} onCreateReference={create} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Новое имя" } });
+  const button = screen.getByRole<HTMLButtonElement>("button", { name: /Создать/ });
+  expect(button.disabled).toBe(true);
+  fireEvent.click(button);
+  expect(create).not.toHaveBeenCalled();
+});
+
+it("locks lookup controls while creating and ignores a response after the registry changes", async () => {
+  let resolve!: (value: { item: ReferenceItem; created: boolean }) => void;
+  const create = vi.fn<CreateReference>(() => new Promise((done) => { resolve = done; }));
+  const { rerender } = render(<Editor onCreateReference={create} initial={{ custom_people: ["anna"] }} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Новое имя" } });
+  fireEvent.click(screen.getByRole("button", { name: /Создать/ }));
+  expect(screen.getByRole<HTMLInputElement>("searchbox").disabled).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "Анна Иванова" }).disabled).toBe(true);
+  rerender(<Editor onCreateReference={create} registryId="registry-b" initial={{ custom_people: ["anna"] }} />);
+  await act(async () => resolve({ item: { id: "wrong", label: "Чужой участник", active: true }, created: true }));
+  expect(screen.getByLabelText("Значения").textContent).toBe('{"custom_people":["anna"]}');
+  expect(screen.queryByRole("checkbox", { name: "Чужой участник" })).toBeNull();
+});
+
+it("ignores a pending creation after the card leaves edit mode", async () => {
+  let resolve!: (value: { item: ReferenceItem; created: boolean }) => void;
+  const create = vi.fn<CreateReference>(() => new Promise(done => { resolve = done; }));
+  const { rerender } = render(<Editor onCreateReference={create} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Новое имя" } });
+  fireEvent.click(screen.getByRole("button", { name: /Создать/ }));
+  rerender(<Editor mode="view" onCreateReference={create} />);
+  await act(async () => resolve({ item: { id: "late", label: "Поздний ответ", active: true }, created: true }));
+  expect(screen.getByLabelText("Значения").textContent).toBe("{}");
+  expect(screen.queryByText("Поздний ответ")).toBeNull();
+});
+
+it("does not offer top-level participant creation for fields nested inside repeat groups", async () => {
+  render(<Editor definition={{ key: "rows", label: "Строки", type: "group", children: [field] }} initial={{ rows: [{ custom_people: [] }] }} onCreateReference={vi.fn()} />);
+  await screen.findByRole("checkbox", { name: "Анна Иванова" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Новое имя" } });
+  expect(screen.queryByRole("button", { name: /Создать/ })).toBeNull();
 });
 
 it("lets existing inactive and missing choices be removed but prevents selecting inactive choices again", async () => {
@@ -131,7 +247,7 @@ it.each([
   { mode: "edit" as const, definition: { ...field, editable: false } },
   { mode: "edit" as const, definition: { ...field, write_roles: ["admin"] } },
 ])("keeps $mode readonly references free from mutation controls", async ({ mode, definition }) => {
-  render(<Editor mode={mode} definition={definition} initial={{ custom_people: ["anna"] }} />);
+  render(<Editor mode={mode} definition={definition} initial={{ custom_people: ["anna"] }} onCreateReference={vi.fn()} />);
   expect(await screen.findByText("Анна Иванова")).toBeTruthy();
   expect(screen.queryByRole("searchbox")).toBeNull();
   expect(screen.queryByRole("checkbox")).toBeNull();

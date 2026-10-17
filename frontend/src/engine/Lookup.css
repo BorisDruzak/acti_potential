@@ -58,6 +58,19 @@
   color: #74858c;
   font-size: 12px;
 }
+.lookup-create {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.lookup-create-button {
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 12px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 @media (pointer: coarse) {
   .lookup-options { --lookup-row-height: 40px; }
 }

@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -146,6 +146,25 @@ class ItemOutput(BaseModel):
     source_database: str | None = None
     source_entity: str | None = None
     source_id: str | None = None
+
+
+class PersonInput(Input):
+    schema_version_id: UUID
+    field_key: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,99}$")]
+    label: Name
+    document_id: UUID | None = None
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def normalize_label(cls, value):
+        from app.registry.people_creation import normalized_label
+
+        return normalized_label(value) if isinstance(value, str) else value
+
+
+class PersonOutput(BaseModel):
+    item: ItemOutput
+    created: bool
 
 
 def _flush(session):
@@ -706,6 +725,22 @@ def _item_output(row, actor, mode=None):
         "source_entity": row.source_entity if configuration else None,
         "source_id": row.source_id if configuration else None,
     }
+
+
+@router.post("/registries/{registry_id}/people", response_model=PersonOutput, status_code=201)
+def create_registry_person(
+    registry_id: UUID,
+    data: PersonInput,
+    request: Request,
+    response: Response,
+    session=Depends(db_session, scope="function"),
+    actor=Depends(current_actor),
+):
+    from app.registry.people_creation import create_person
+
+    item, created = create_person(session, request, actor, registry_id, data)
+    response.status_code = 201 if created else 200
+    return {"item": _item_output(item, actor, "editor"), "created": created}
 
 
 @router.get("/references/{reference_id}/items", response_model=list[ItemOutput])
