@@ -12,6 +12,7 @@ from app.numbering import service
 from app.numbering.contracts import (
     AssignInput,
     GrantsInput,
+    NextNumberInput,
     ReserveInput,
     SeriesInput,
     SeriesPatch,
@@ -29,6 +30,17 @@ from app.registry.events import emit
 from app.registry.tabular import export_file
 
 router = APIRouter()
+
+
+@router.post("/registries/{registry_id}/next-number")
+def next_card_number(
+    registry_id: UUID, data: NextNumberInput, request: Request,
+    session=Depends(db_session, scope="function"), actor=Depends(current_actor),
+):
+    try:
+        return service.next_card_number(session, request, actor, registry_id, data)
+    except IntegrityError:
+        fail(409, "number_conflict", "Регистрационный номер уже занят в этом реестре")
 
 
 def series_output(session, actor, row):

@@ -102,7 +102,7 @@ def test_general_query_number_and_registration_date_are_intersected(client, fact
         source = db.get(Document, sample["document"])
         source.title, source.reg_number, source.reg_date = "Озеленение", "42-П", date(2026, 10, 16)
         index_metadata(db, source.id)
-        for number, day in [("42-П", 17), ("43-П", 16)]:
+        for number, day in [("42-П/other", 17), ("43-П", 16)]:
             document = Document(
                 card_state="published",
                 publication_targets=["internal", "shared"],

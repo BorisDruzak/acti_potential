@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.errors import fail
 from app.numbering import service
@@ -11,7 +12,17 @@ from app.numbering.contracts import AssignInput, ReserveInput
 from app.numbering.models import NumberEntry
 
 
-def sync_card_number(session, request, actor, document, schema):
+def sync_card_number(session, request, actor, document, schema, number_entry_id=None):
+    try:
+        with session.no_autoflush:
+            service.lock_registry(session, document.registry_id)
+            _sync_card_number(session, request, actor, document, schema, number_entry_id)
+        session.flush()
+    except IntegrityError:
+        fail(409, "number_conflict", "Регистрационный номер уже занят в этом реестре")
+
+
+def _sync_card_number(session, request, actor, document, schema, number_entry_id):
     bound = next(
         (
             field
@@ -21,9 +32,22 @@ def sync_card_number(session, request, actor, document, schema):
         ),
         None,
     )
-    if bound is None:
-        return
     existing = session.scalar(select(NumberEntry).where(NumberEntry.document_id == document.id))
+    if number_entry_id is not None:
+        if existing is not None and existing.id != number_entry_id:
+            fail(409, "number_already_present", "Существующий регистрационный номер защищён")
+        candidate = session.get(NumberEntry, number_entry_id)
+        if candidate is None:
+            fail(404, "number_entry_not_found", "Резерв номера не найден")
+        if candidate.document_id not in (None, document.id):
+            fail(409, "number_already_linked", "Резерв уже связан с другим документом")
+        if candidate.owner_id != actor.id and candidate.document_id != document.id:
+            fail(403, "number_forbidden", "Резерв принадлежит другому пользователю")
+        if document.reg_number not in (None, "", candidate.number_string):
+            fail(422, "number_entry_mismatch", "Номер не соответствует выбранному резерву")
+        existing = candidate
+    if bound is None and existing is None:
+        return
     if existing is None and document.reg_number:
         # Binding a series later must never replace a manual or imported number.
         return
@@ -32,10 +56,10 @@ def sync_card_number(session, request, actor, document, schema):
             fail(409, "number_already_present", "Существующий регистрационный номер защищён")
         return
 
-    if existing is not None and str(existing.series_id) != bound["number_series_id"]:
+    if existing is not None and bound is not None and str(existing.series_id) != bound["number_series_id"]:
         fail(422, "number_document_scope", "Резерв использует другую серию")
 
-    series = service.get_series(session, UUID(bound["number_series_id"]), lock=True)
+    series = service.lock_series_scope(session, existing.series_id if existing is not None else UUID(bound["number_series_id"]))
     service.ensure_allocation_safe(session, series)
     service.assignment_field(session, actor, series, document, schema)
     published = document.card_state == "published"
@@ -52,7 +76,7 @@ def sync_card_number(session, request, actor, document, schema):
     if entry.state != "reserved" or entry.expires_at and entry.expires_at <= datetime.now(UTC):
         fail(409, "number_not_reserved", "Резерв недоступен или срок истёк")
     linked = entry.document_id is not None
-    service.write_entry_number(session, actor, series, entry, document, schema)
+    service.write_entry_number(session, actor, series, entry, document, schema, supplied=number_entry_id is not None)
     if published:
         data = AssignInput(
             document_id=document.id,

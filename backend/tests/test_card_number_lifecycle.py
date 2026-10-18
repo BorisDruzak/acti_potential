@@ -258,17 +258,18 @@ def test_explicit_assign_links_draft_as_reserved_and_publication_reuses_it(clien
     assert str(finalized.id) == entry["id"] and finalized.state == "assigned"
 
 
-def test_synthetic_series_cannot_escape_historical_registry_issuance_guard(client, factory):
+def test_real_registry_new_v3_issuance_uses_existing_bound_series(client, factory):
     from app.registry.models import Registry
 
     series, registry, kind, me, headers = setup_series(client, factory)
     configured_schema(client, series, kind, headers)
     with factory.begin() as db:
         db.get(Registry, UUID(registry["id"])).code = "okrug"
-    denied = create_card(client, registry, kind, headers)
-    assert denied.status_code == 422, denied.text
+    created = create_card(client, registry, kind, headers)
+    assert created.status_code == 201, created.text
+    assert created.json()["reg_number"] == "P/0001"
     with factory() as db:
-        assert db.scalar(select(func.count()).select_from(NumberEntry)) == 0
+        assert db.scalar(select(func.count()).select_from(NumberEntry)) == 1
 
 
 def test_assignment_receipt_replay_cannot_reveal_a_now_private_draft(client, factory):

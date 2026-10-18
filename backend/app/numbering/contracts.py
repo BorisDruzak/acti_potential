@@ -40,10 +40,6 @@ class SeriesInput(Input):
 
     @model_validator(mode="after")
     def valid_configuration(self):
-        if not self.synthetic:
-            raise ValueError(
-                "Only isolated synthetic series are available before migration acceptance"
-            )
         try:
             ZoneInfo(self.timezone)
             date(2025, self.boundary_month, self.boundary_day)
@@ -116,6 +112,14 @@ class ReserveInput(Input):
 class AssignInput(Input):
     document_id: UUID
     revision: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+
+class NextNumberInput(Input):
+    document_type_id: UUID
+    schema_version_id: UUID | None = None
+    document_id: UUID | None = None
+    revision: int | None = Field(default=None, ge=1)
     idempotency_key: str = Field(min_length=1, max_length=120)
 
 

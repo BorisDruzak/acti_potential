@@ -37,13 +37,11 @@ def test_number_binding_only_allows_system_text_field_without_literal_default():
             validate_schema(schema)
 
 
-def test_number_binding_is_filled_only_by_server_assignment_and_can_start_blank():
+def test_number_binding_allows_manual_input_and_can_start_blank():
     actor = Actor(uuid4(), "Synthetic editor", frozenset({"editor"}))
     schema = numbered_schema(uuid4())
     assert validate_values(None, actor, schema, {}, uuid4()) == {}
-    with pytest.raises(HTTPException) as error:
-        validate_values(None, actor, schema, {"number": "0012"}, uuid4())
-    assert error.value.status_code == 403
+    assert validate_values(None, actor, schema, {"number": "0012"}, uuid4()) == {"number": "0012"}
     assert validate_values(None, actor, schema, {}, uuid4(), previous={"number": "0012"}) == {
         "number": "0012"
     }
@@ -83,8 +81,7 @@ def test_published_binding_checks_registry_and_document_type(factory):
         db.flush()
         series.registry_id = legacy.id
         db.flush()
-        with pytest.raises(ValueError, match="Historical"):
-            validate_number_bindings(db, schema, [legacy.id], document.document_type_id)
+        validate_number_bindings(db, schema, [legacy.id], document.document_type_id)
 
 
 def test_existing_book_entry_protects_even_unbound_historical_form_after_void(client, factory):

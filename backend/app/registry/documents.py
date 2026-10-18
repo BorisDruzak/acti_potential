@@ -241,10 +241,18 @@ def files_for(session, document, actor, schema, mode=None):
 
 
 def document_output(session, document, actor, mode=None):
+    from app.numbering.models import NumberEntry
+
     schema = get_schema(session, document)
+    values = redact_values(schema, raw_values(document, schema), actor, mode)
+    visible_number = any(field.get("system") == "reg_number" and field["key"] in values
+                         for section in schema.get("sections", []) for field in section.get("fields", []))
+    entry_id = session.scalar(select(NumberEntry.id).where(NumberEntry.document_id == document.id)) if visible_number else None
     return {
         **document_summary(session, document, actor, schema, mode),
-        "values": redact_values(schema, raw_values(document, schema), actor, mode),
+        "values": values,
+        "number_entry_id": entry_id,
+        "number_locked": entry_id is not None,
         "schema": configuration_schema(redact_schema(schema, actor, mode)),
         "files": files_for(session, document, actor, schema, mode),
     }

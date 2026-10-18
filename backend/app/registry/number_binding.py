@@ -21,14 +21,14 @@ def validate_number_bindings(session, schema, registry_ids, document_type_id=Non
         if series is None or is_archived(session, "number_series", series.id):
             raise ValueError("Number series does not exist")
         registry = session.get(Registry, series.registry_id)
-        if registry is None or registry.code in {"okrug", "raion"} or not series.synthetic:
-            raise ValueError("Historical number issuance is blocked until controlled migration")
+        if registry is None or is_archived(session, "registry", registry.id):
+            raise ValueError("Number series registry does not exist")
         if any(r != series.registry_id for r in registry_ids):
             raise ValueError("Number series is outside the assigned registry")
         if document_type_id is not None:
             kind = session.get(DocumentType, document_type_id)
-            if kind is None or is_archived(session, "document_type", document_type_id) or kind.code == "acti-v2":
-                raise ValueError("Historical numbering must remain unchanged")
+            if kind is None or is_archived(session, "document_type", document_type_id):
+                raise ValueError("Number series document type does not exist")
             if series.document_type_ids and str(document_type_id) not in series.document_type_ids:
                 raise ValueError("Number series does not allow this document type")
 

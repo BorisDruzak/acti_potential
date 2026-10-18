@@ -76,6 +76,16 @@ def validate_value(
     if kind in {"text", "textarea"}:
         if not isinstance(value, str):
             invalid(key, "Ожидается текст")
+        if field.get("system") == "reg_number":
+            if value == previous:
+                # Sending an unchanged historical value is not permission to
+                # normalize its spelling or rewrite its immutable receipt.
+                return value
+            value = value.strip()
+            if not value:
+                return None
+            if any(ord(character) < 32 for character in value):
+                invalid(key, "Номер не должен содержать управляющие символы")
         if len(value) > constraints.get("max_length", 100000 if kind == "textarea" else 1000):
             invalid(key, "Текст слишком длинный")
         system_limit = {"reg_number": 255, "status": 100}.get(field.get("system"))
@@ -257,8 +267,6 @@ def validate_values(
         field = fields[key]
         if not field_writable(field, actor):
             fail(403, "field_forbidden", "Изменение поля не разрешено")
-        if field.get("number_series_id") and value != (previous or {}).get(key):
-            fail(403, "number_assignment_required", "Номер присваивается через реестр номеров")
         if (
             field.get("system") == "reg_number" and document_id is not None
             and value != (previous or {}).get(key)

@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from app.api.errors import fail
 from app.numbering.contracts import PERMISSIONS
@@ -18,6 +18,7 @@ from app.numbering.models import (
     NumberOperation,
     NumberRequest,
     NumberSeries,
+    RegistryNumberClaim,
 )
 from app.registry.archives import configuration_active_clause, is_archived
 from app.registry.documents import (
@@ -29,7 +30,7 @@ from app.registry.documents import (
     write_values,
 )
 from app.registry.events import emit
-from app.registry.models import Document, DocumentType, Registry
+from app.registry.models import Document, DocumentType, FormSchema, Registry
 from app.registry.policy import (
     accessible_document_clause,
     field_accessible,
@@ -101,23 +102,113 @@ def validate_scope(session, data):
     )}
     if types - active_types:
         fail(422, "number_types", "Типы серии недоступны")
-    legacy_type = session.scalar(select(DocumentType.id).where(DocumentType.code == "acti-v2"))
-    if registry.code in {"okrug", "raion"} or (
-        legacy_type and str(legacy_type) in (types or set(registry.document_type_ids))
-    ):
-        fail(
-            422,
-            "historical_series_unverified",
-            "Историческая нумерация закрыта до контролируемой миграции",
-        )
 
 
 def ensure_allocation_safe(session, series):
     if series.state != "active":
         fail(409, "number_series_blocked", "Серия заблокирована")
-    if not series.synthetic:
-        fail(409, "historical_series_unverified", "Разрешены только отдельные синтетические серии")
     validate_scope(session, series)
+
+
+def lock_registry(session, registry_id):
+    """Registry precedes series locks, including across independent series."""
+    # NO KEY UPDATE serializes allocation while remaining compatible with the
+    # foreign-key KEY SHARE locks held by newly inserted, still blank cards.
+    session.scalar(select(Registry).where(Registry.id == registry_id).with_for_update(key_share=True))
+
+
+def lock_series_scope(session, series_id):
+    with session.no_autoflush:
+        registry_id = session.scalar(select(NumberSeries.registry_id).where(NumberSeries.id == series_id))
+        if registry_id is None:
+            fail(404, "number_series_not_found", "Серия не найдена")
+        lock_registry(session, registry_id)
+        return get_series(session, series_id, lock=True)
+
+
+def number_occupied(session, registry_id, number):
+    return session.scalar(select(RegistryNumberClaim.number_key).where(
+        RegistryNumberClaim.registry_id == registry_id,
+        RegistryNumberClaim.number_key == func.acti_number_key(number),
+    )) is not None
+
+
+def next_card_number(session, request, actor, registry_id, data):
+    """Reserve for an unsaved form; never save its fields or advance its revision."""
+    from app.numbering.contracts import ReserveInput
+
+    document = None
+    if data.document_id:
+        document = get_document(session, actor, data.document_id, "update", lock=True)
+        if document.registry_id != registry_id or document.document_type_id != data.document_type_id:
+            fail(422, "number_document_scope", "Документ не соответствует реестру и типу")
+        if data.revision is None:
+            fail(422, "revision_required", "Укажите версию карточки")
+        check_revision(document, data.revision)
+        if document.reg_number:
+            fail(409, "number_already_present", "Карточке уже присвоен регистрационный номер")
+        if data.schema_version_id and document.schema_version_id != data.schema_version_id:
+            fail(422, "number_document_scope", "Версия формы не соответствует карточке")
+        schema = get_schema(session, document)
+    else:
+        allowed = permissions_for(session, actor, registry_id)
+        if not {"read", "create"}.issubset(allowed):
+            fail(403, "number_forbidden", "Создание карточек в реестре не разрешено")
+        query = select(FormSchema).where(FormSchema.document_type_id == data.document_type_id,
+                                         FormSchema.state == "published")
+        if data.schema_version_id:
+            query = query.where(FormSchema.id == data.schema_version_id)
+        version = session.scalar(query.order_by(FormSchema.version.desc()).limit(1))
+        if version is None:
+            fail(422, "schema_unavailable", "Нет опубликованной формы")
+        schema = version.schema_data
+    registry = session.get(Registry, registry_id)
+    if (registry is None or str(data.document_type_id) not in registry.document_type_ids
+            or is_archived(session, "document_type", data.document_type_id)):
+        fail(422, "document_type_unavailable", "Тип не назначен реестру")
+    fields = {f["key"]: f for section in schema.get("sections", []) for f in section.get("fields", [])}
+    field = next((f for f in fields.values() if f.get("system") == "reg_number"), None)
+    if field is None or not field_writable(field, actor) or not field_accessible(
+        field, actor, fields, values=raw_values(document, schema) if document else {}
+    ):
+        fail(403, "number_field_forbidden", "Поле регистрационного номера недоступно")
+    lock_registry(session, registry_id)
+    if field.get("number_series_id"):
+        series = get_series(session, UUID(field["number_series_id"]), lock=True)
+        if series.registry_id != registry_id or (series.document_type_ids and
+                str(data.document_type_id) not in series.document_type_ids):
+            fail(422, "number_document_scope", "Серия не соответствует реестру и типу")
+    else:
+        # This new v3 sequence has no relationship to a historical SQL counter.
+        # A non-resetting period keeps decimal identifiers stable across years.
+        code = "registry-v3-" + registry_id.hex
+        series = session.scalar(select(NumberSeries).where(NumberSeries.code == code))
+        if series is None:
+            series = NumberSeries(code=code, name="Номера карточек: " + registry.name[:230],
+                                  registry_id=registry_id, document_type_ids=[], synthetic=False,
+                                  period_mode="manual", current_period="v3", padding=1,
+                                  format="{ordinal}", reservation_hours=None,
+                                  allow_indefinite=True)
+            session.add(series)
+            session.flush()
+        if series.registry_id != registry_id:
+            fail(409, "number_series_scope", "Серия принадлежит другому реестру")
+        # Registry permissions authorize this default card action. Explicit
+        # form-bound series retain their independent number-book ACL.
+        grant = session.get(NumberGrant, (series.id, actor.id))
+        if grant is None:
+            session.add(NumberGrant(series_id=series.id, user_id=actor.id,
+                                    permissions=["view", "reserve", "assign"]))
+            session.flush()
+    key = "card-next:" + hashlib.sha256(data.idempotency_key.encode()).hexdigest()
+    reserved = reserve(session, request, actor, series.id,
+                       ReserveInput(idempotency_key=key), receipt_data=data.model_copy(
+                           update={"idempotency_key": key}), receipt_action="card-next")
+    item = reserved["items"][0]
+    from app.registry.value_validation import validate_value
+
+    validate_value(session, actor, field, item["number"], registry_id)
+    return {"number": item["number"], "number_entry_id": item["id"], "series_id": item["series_id"]}
 
 
 def visible_entries(session, actor, series, *, period=None, state=None, mine=False, search=None):
@@ -228,7 +319,7 @@ def replay(session, actor, series, action, data):
             current_entries.append(output(session, actor, entry))
         # The immutable receipt records the original operation. Delivery always
         # applies today's document/field ACL, including changed title visibility.
-        return jsonable_encoder({"items": current_entries} if action == "reserve" else current_entries[0])
+        return jsonable_encoder({"items": current_entries} if action in {"reserve", "card-next"} else current_entries[0])
     return None
 
 
@@ -272,10 +363,11 @@ def operation(session, request, actor, entry, action, key, reason=""):
     )
 
 
-def reserve(session, request, actor, series_id, data):
-    series = get_series(session, series_id, lock=True)
+def reserve(session, request, actor, series_id, data, *, receipt_data=None, receipt_action="reserve"):
+    series = lock_series_scope(session, series_id)
     require(session, actor, series, "reserve")
-    previous = replay(session, actor, series, "reserve", data)
+    receipt = receipt_data if receipt_data is not None else data
+    previous = replay(session, actor, series, receipt_action, receipt)
     if previous is not None:
         return previous
     ensure_allocation_safe(session, series)
@@ -300,16 +392,23 @@ def reserve(session, request, actor, series_id, data):
         session.add(counter)
     now = datetime.now(UTC)
     entries = []
-    for offset in range(data.count):
-        ordinal = counter.next_ordinal + offset * series.step
-        if ordinal > 10**15:
-            fail(409, "number_exhausted", "Достигнут предел последовательности")
+    ordinal = counter.next_ordinal
+    for _ in range(data.count):
+        # Retained manual cards, spent reservations, other series and periods
+        # all occupy the same registry namespace. Never infer a legacy counter.
+        while True:
+            if ordinal > 10**15:
+                fail(409, "number_exhausted", "Достигнут предел последовательности")
+            number = render_number(series, period, ordinal).strip()
+            if not number_occupied(session, series.registry_id, number):
+                break
+            ordinal += series.step
         entry = NumberEntry(
             id=uuid4(),
             series_id=series.id,
             period_key=period,
             ordinal=ordinal,
-            number_string=render_number(series, period, ordinal),
+            number_string=number,
             state="reserved",
             owner_id=actor.id,
             reserved_at=now,
@@ -317,7 +416,10 @@ def reserve(session, request, actor, series_id, data):
         )
         session.add(entry)
         entries.append(entry)
-    counter.next_ordinal += data.count * series.step
+        # Flush each claim so another number in this batch sees it too.
+        session.flush()
+        ordinal += series.step
+    counter.next_ordinal = ordinal
     session.flush()
     for entry in entries:
         operation(session, request, actor, entry, "reserved", data.idempotency_key)
@@ -325,8 +427,8 @@ def reserve(session, request, actor, series_id, data):
         session,
         actor,
         series,
-        "reserve",
-        data,
+        receipt_action,
+        receipt,
         entries,
         {"items": [output(session, actor, entry) for entry in entries]},
     )
@@ -336,7 +438,7 @@ def locked_entry(session, actor, identity, action):
     before = session.get(NumberEntry, identity)
     if before is None:
         fail(404, "number_entry_not_found", "Номер не найден")
-    series = get_series(session, before.series_id, lock=True)
+    series = lock_series_scope(session, before.series_id)
     require(session, actor, series, action)
     entry = session.scalar(
         select(NumberEntry)
@@ -364,7 +466,7 @@ def assignment_field(session, actor, series, document, schema):
         (
             f
             for f in fields.values()
-            if f.get("system") == "reg_number" and f.get("number_series_id") == str(series.id)
+            if f.get("system") == "reg_number" and f.get("number_series_id") in (None, str(series.id))
         ),
         None,
     )
@@ -377,16 +479,30 @@ def assignment_field(session, actor, series, document, schema):
     return bound
 
 
-def write_entry_number(session, actor, series, entry, document, schema):
+def write_entry_number(session, actor, series, entry, document, schema, *, supplied=False):
     bound = assignment_field(session, actor, series, document, schema)
     if entry.document_id not in (None, document.id):
         fail(409, "number_already_linked", "Резерв уже связан с другим документом")
     if document.reg_number and not (
-        entry.document_id == document.id and document.reg_number == entry.number_string
+        (entry.document_id == document.id or supplied) and document.reg_number == entry.number_string
     ):
         fail(
             409, "number_already_present", "Существующий регистрационный номер нельзя перезаписать"
         )
+    # Move the existing reservation claim before either ORM row flushes; this
+    # allows the database triggers to validate both write orders atomically.
+    with session.no_autoflush:
+        claim = session.scalar(select(RegistryNumberClaim).where(
+            RegistryNumberClaim.registry_id == series.registry_id,
+            RegistryNumberClaim.number_entry_id == entry.id,
+        ).with_for_update())
+        if claim is None or claim.document_id not in (None, document.id):
+            fail(409, "number_conflict", "Регистрационный номер уже занят")
+        session.connection().execute(RegistryNumberClaim.__table__.update().where(
+            RegistryNumberClaim.registry_id == series.registry_id,
+            RegistryNumberClaim.number_entry_id == entry.id,
+        ).values(document_id=document.id))
+        session.expire(claim)
     from app.registry.value_validation import validate_value, validate_values
 
     validated_number = validate_value(
@@ -397,6 +513,9 @@ def write_entry_number(session, actor, series, entry, document, schema):
         document.registry_id,
         previous=document.reg_number,
     )
+    # Earlier reserved receipts may contain surrounding whitespace. Validate
+    # them but keep their exact recorded spelling when linking the card.
+    validated_number = entry.number_string
     candidate = {**raw_values(document, schema), bound["key"]: validated_number}
     checked = validate_values(
         session,

@@ -109,3 +109,13 @@ class NumberOperation(Base):
     reason: Mapped[str] = mapped_column(String(1000), default="")
     source: Mapped[str] = mapped_column(String(30), default="api")
     idempotency_key: Mapped[str] = mapped_column(String(120))
+
+
+class RegistryNumberClaim(Base):
+    """Occupied registry numbers, including retained cards and spent reservations."""
+
+    __tablename__ = "registry_number_claims"
+    registry_id: Mapped[UUID] = mapped_column(ForeignKey("registries.id"), primary_key=True)
+    number_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    document_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), index=True)
+    number_entry_id: Mapped[UUID | None] = mapped_column(ForeignKey("number_entries.id"), unique=True)

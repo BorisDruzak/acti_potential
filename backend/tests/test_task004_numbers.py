@@ -129,14 +129,16 @@ def test_reserve_retry_cancel_nonreuse_and_period_transition(client, factory):
     next_period = client.post(
         endpoint + "/reserve", headers=headers, json={"idempotency_key": "new-period"}
     ).json()["items"][0]
-    assert next_period["ordinal"] == 1 and next_period["period_key"] == "2027"
+    # A new period keeps its counter, but the rendered registration number
+    # cannot collide with previous periods or spent reservations.
+    assert next_period["ordinal"] == 4 and next_period["period_key"] == "2027"
     assert (
         client.post(
             endpoint + "/reserve", headers=headers, json={"count": 4, "idempotency_key": "too-many"}
         ).status_code
         == 422
     )
-    assert client.get(endpoint + "/stats").json()["next_ordinal"] == 2
+    assert client.get(endpoint + "/stats").json()["next_ordinal"] == 5
 
 
 def bound_document(

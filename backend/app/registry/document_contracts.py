@@ -29,6 +29,7 @@ class DocumentCreate(CardPublicationInput):
     registry_id: UUID
     document_type_id: UUID
     schema_version_id: UUID | None = None
+    number_entry_id: UUID | None = None
     values: dict[str, Any]
     files: list[AttachmentCreate] = Field(default_factory=list, max_length=100)
     card_state: Literal["draft", "published"] = "draft"
@@ -37,6 +38,7 @@ class DocumentCreate(CardPublicationInput):
 
 class DocumentUpdate(CardPublicationInput):
     revision: int = Field(ge=1)
+    number_entry_id: UUID | None = None
     values: dict[str, Any]
     files: list[AttachmentCreate] = Field(default_factory=list, max_length=100)
     card_state: Literal["draft", "published"] | None = None
@@ -111,6 +113,8 @@ class DocumentSummary(BaseModel):
 
 
 class DocumentOutput(DocumentSummary):
+    number_entry_id: UUID | None = None
+    number_locked: bool = False
     values: dict[str, Any]
     schema_content: dict[str, Any] = Field(alias="schema")
     files: list[FileOutput]

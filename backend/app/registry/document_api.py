@@ -128,7 +128,7 @@ def create_document(data: DocumentCreate, request: Request, session: Db, actor: 
     write_values(document, schema.schema_data, values)
     from app.registry.card_numbers import sync_card_number
 
-    sync_card_number(session, request, actor, document, schema.schema_data)
+    sync_card_number(session, request, actor, document, schema.schema_data, data.number_entry_id)
     append_history(session, document, schema.schema_data, actor)
     emit(
         session,
@@ -204,7 +204,7 @@ def update_document(
     write_values(document, schema, values)
     from app.registry.card_numbers import sync_card_number
 
-    sync_card_number(session, request, actor, document, schema)
+    sync_card_number(session, request, actor, document, schema, data.number_entry_id)
     append_history(session, document, schema, actor)
     emit(
         session,
