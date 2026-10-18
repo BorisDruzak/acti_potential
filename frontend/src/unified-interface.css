@@ -68,8 +68,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .document-state { display: inline-flex; align-items: center; width: fit-content; padding: 3px 8px; border-radius: 6px; font-size: 12px; line-height: 1.4; font-weight: 500; background: #edf1f3; color: #5b6c76; white-space: nowrap; }
 .document-state.published { background: #dff3e9; color: #126448; }
 .compact-document-meta { display: none; }
-.document-detail-body { padding: 14px; }
-.document-card-top { position: static; background: white; padding: 0; margin-bottom: 8px; }
+.document-detail-body { padding: 0 14px 14px; }
+.document-card-top { position: static; background: white; padding: 14px 0 0; margin-bottom: 8px; }
 .document-actions-strip .document-save-actions { display: contents; position: static; margin: 0; border: 0; padding: 0; }
 .document-card-top .tabs { margin-bottom: 0; border-bottom: 0; }
 .document-card-top > .toolbar { margin: 0 0 8px; }
@@ -162,7 +162,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .search-drawer-footer { position: sticky; bottom: 0; z-index: 3; display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding: 16px 20px; background: white; border-top: 1px solid var(--acti-border); }
 @media (max-width: 900px) {
   .navigation-shell #content { padding: 18px; }
-  .document-detail-body { padding: 14px; }
+  .document-detail-body { padding: 0 14px 14px; }
   .document-card-top { top: -14px; }
   .document-save-actions:has(button) { bottom: -14px; }
 }
