@@ -7,11 +7,13 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -78,7 +80,8 @@ class NumberEntry(Base):
         UniqueConstraint(
             "series_id", "period_key", "number_string", name="uq_number_entry_rendering"
         ),
-        UniqueConstraint("document_id"),
+        Index("uq_number_entries_reserved_document", "document_id", unique=True,
+              postgresql_where=text("state='reserved'")),
         CheckConstraint(
             "state IN ('reserved','assigned','cancelled','expired','void')", name="number_state"
         ),

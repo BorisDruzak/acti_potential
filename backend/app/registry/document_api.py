@@ -102,7 +102,7 @@ def create_document(data: DocumentCreate, request: Request, session: Db, actor: 
         document_type_id=data.document_type_id,
         schema_version_id=schema.id,
         created_by=actor.id,
-        card_state=data.card_state,
+        card_state="draft",
         publication_targets=data.publication_targets,
     )
     session.add(document)
@@ -128,7 +128,9 @@ def create_document(data: DocumentCreate, request: Request, session: Db, actor: 
     write_values(document, schema.schema_data, values)
     from app.registry.card_numbers import sync_card_number
 
-    sync_card_number(session, request, actor, document, schema.schema_data, data.number_entry_id)
+    sync_card_number(session, request, actor, document, schema.schema_data, data.number_entry_id,
+                     target_state=data.card_state)
+    document.card_state = data.card_state
     append_history(session, document, schema.schema_data, actor)
     emit(
         session,
@@ -161,8 +163,6 @@ def update_document(
     check_revision(document, data.revision)
     if document.card_state == "published" and data.card_state == "draft":
         fail(409, "card_already_published", "Официальную карточку нельзя вернуть в черновик")
-    if data.card_state is not None:
-        document.card_state = data.card_state
     if data.publication_targets is not None:
         document.publication_targets = data.publication_targets
     schema = get_schema(session, document)
@@ -204,7 +204,10 @@ def update_document(
     write_values(document, schema, values)
     from app.registry.card_numbers import sync_card_number
 
-    sync_card_number(session, request, actor, document, schema, data.number_entry_id)
+    sync_card_number(session, request, actor, document, schema, data.number_entry_id,
+                     target_state=data.card_state)
+    if data.card_state is not None:
+        document.card_state = data.card_state
     append_history(session, document, schema, actor)
     emit(
         session,

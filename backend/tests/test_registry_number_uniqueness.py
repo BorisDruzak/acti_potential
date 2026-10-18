@@ -118,7 +118,7 @@ def test_next_number_does_not_save_existing_card_and_attachment_updates_once(cli
         "number_entry_id": result.json()["number_entry_id"],
     })
     assert assigned.status_code == 200, assigned.text
-    assert assigned.json()["number_locked"] is True
+    assert assigned.json()["number_locked"] is False
     assert assigned.json()["number_entry_id"] == result.json()["number_entry_id"]
     assert (assigned.json()["revision"], assigned.json()["title"]) == (2, "Pending edits")
 

@@ -34,11 +34,11 @@ def corpus(factory):
                 "type": "text",
                 "visible_when": {"field": "secret", "op": "present"},
             },
-        ],
+        ], reg_number="12-Р/2026",
     )
     with factory.begin() as db:
         source = db.get(Document, sample["document"])
-        source.title, source.reg_number = "Содержание территорий", "12-Р/2026"
+        source.title = "Содержание территорий"
         source.custom_data = {
             "public": "Жилищно-коммунальное хозяйство",
             "secret": "Скрытыймаркер",
@@ -96,11 +96,11 @@ def test_general_query_number_and_registration_date_are_intersected(client, fact
                 "system": "reg_date",
                 "filterable": True,
             },
-        ],
+        ], reg_number="42-П", reg_date=date(2026, 10, 16),
     )
     with factory.begin() as db:
         source = db.get(Document, sample["document"])
-        source.title, source.reg_number, source.reg_date = "Озеленение", "42-П", date(2026, 10, 16)
+        source.title = "Озеленение"
         index_metadata(db, source.id)
         for number, day in [("42-П/other", 17), ("43-П", 16)]:
             document = Document(
@@ -310,10 +310,9 @@ def test_decimal_presence_nested_same_key_and_normalized_scores(client, factory)
         {"key": "rows", "label": "Строки", "type": "group", "children": [
             {"key": "gate", "label": "Вложенное", "type": "text", "visible_when": {"field": "gate", "op": "present"}}]},
         {"key": "number", "label": "Номер", "type": "text", "system": "reg_number"},
-    ])
+    ], reg_number="АБВ")
     with factory.begin() as db:
         document = db.get(Document, sample["document"])
-        document.reg_number = "АБВ"
         document.custom_data = {"amount": "1.2", "conditional": "Разрешенныймаркер", "gate": "да", "rows": [{"gate": "Вложенныймаркер"}]}
         index_metadata(db, document.id)
     headers = sign_in_as(client, factory, sample["viewer"])

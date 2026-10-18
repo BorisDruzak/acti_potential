@@ -247,12 +247,15 @@ def document_output(session, document, actor, mode=None):
     values = redact_values(schema, raw_values(document, schema), actor, mode)
     visible_number = any(field.get("system") == "reg_number" and field["key"] in values
                          for section in schema.get("sections", []) for field in section.get("fields", []))
-    entry_id = session.scalar(select(NumberEntry.id).where(NumberEntry.document_id == document.id)) if visible_number else None
+    entry_id = session.scalar(select(NumberEntry.id).where(
+        NumberEntry.document_id == document.id,
+        NumberEntry.number_string == document.reg_number,
+    )) if visible_number else None
     return {
         **document_summary(session, document, actor, schema, mode),
         "values": values,
         "number_entry_id": entry_id,
-        "number_locked": entry_id is not None,
+        "number_locked": visible_number and document.card_state == "published",
         "schema": configuration_schema(redact_schema(schema, actor, mode)),
         "files": files_for(session, document, actor, schema, mode),
     }

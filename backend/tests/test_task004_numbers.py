@@ -184,9 +184,8 @@ def bound_document(
     )
     published = client.post(f"/api/v1/form-schemas/{draft['id']}/publish", headers=headers, json={})
     assert published.status_code == 200, published.text
-    # Explicit assignment still supports existing, unnumbered official cards.
-    # New API-created bound cards now reserve a number during creation; build
-    # this pre-existing state directly rather than disabling that lifecycle.
+    # Assignment is performed while the card is a draft. Published registration
+    # is immutable, including a blank number; construct an unnumbered draft here.
     from uuid import UUID
 
     from app.registry.documents import append_history
@@ -200,7 +199,7 @@ def bound_document(
             schema_version_id=UUID(draft["id"]),
             title="Synthetic numbered document",
             created_by=UUID(me["id"]),
-            card_state="published",
+            card_state="draft",
             publication_targets=["internal", "shared"],
         )
         db.add(document)
@@ -230,16 +229,19 @@ def test_assignment_revision_history_void_and_manual_guard(client, factory):
     payload["revision"] = card["revision"]
     assigned = client.post(endpoint + "/assign", headers=headers, json=payload)
     assert assigned.status_code == 200, assigned.text
-    assert assigned.json()["state"] == "assigned"
+    assert assigned.json()["state"] == "reserved"
     assert (
         client.post(endpoint + "/assign", headers=headers, json=payload).json() == assigned.json()
     )
     card_url = f"/api/v1/documents/{card['id']}"
     updated = client.get(card_url).json()
     assert updated["reg_number"] == entry["number"] and updated["revision"] == 2
+    assert client.put(card_url, headers=headers, json={
+        "revision": 2, "values": {}, "card_state": "published",
+    }).status_code == 200
     assert (
         client.put(
-            card_url, headers=headers, json={"revision": 2, "values": {"number": "hack"}}
+            card_url, headers=headers, json={"revision": 3, "values": {"number": "hack"}}
         ).status_code
         == 403
     )
@@ -260,7 +262,7 @@ def test_assignment_revision_history_void_and_manual_guard(client, factory):
                 .where(NumberOperation.entry_id == UUID(entry["id"]))
                 .order_by(NumberOperation.created_at)
             )
-        ] == ["reserved", "assigned", "void"]
+        ] == ["reserved", "linked", "assigned", "void"]
 
 
 @pytest.mark.parametrize(
@@ -397,6 +399,9 @@ def test_reader_row_acl_applies_to_counts_export_history_and_intervals(client, f
         ).status_code
         == 200
     )
+    assert client.put(f"/api/v1/documents/{card['id']}", headers=headers, json={
+        "revision": 2, "values": {}, "card_state": "published",
+    }).status_code == 200
     with factory.begin() as db:
         viewer = User(display_name="Synthetic reader")
         db.add(viewer)

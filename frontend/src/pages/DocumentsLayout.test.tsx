@@ -49,6 +49,85 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
 const mode = (name: string) => screen.getByRole("radio", {name});
 const firstRow = () => screen.findByRole("row", {name: /Выбрать документ «Альфа»/});
 
+function registrationFixture(state: "draft" | "published", rejectPublication = false) {
+ const fetch=setup(),base=fetch.getMockImplementation()!;
+ const schema: FormSchema={sections:[{key:"main",title:"Основное",fields:[
+  {key:"caption",label:"Наименование",type:"text",system:"title",editable:true},
+  {key:"number",label:"Регистрационный номер",type:"text",system:"reg_number",editable:true},
+  {key:"date",label:"Дата регистрации",type:"date",system:"reg_date",editable:true},
+ ]}]};
+ let revision=1,values={caption:"Альфа",number:"Draft/42",date:"2026-10-18"};
+ fetch.mockImplementation(async(url,init)=>{
+  if(/\/documents\/a(?:\?|$)/.test(url)){
+   if(init?.method==="PUT"){
+    const request=JSON.parse(String(init.body));
+    if(rejectPublication&&request.card_state==="published")return new Response(JSON.stringify({error:{code:"invalid_field",message:"Публикация не прошла проверку"}}),{status:422});
+    state=request.card_state;revision++;values={...values,...request.values};
+   }
+   return new Response(JSON.stringify({id:"a",registry_id:"r",document_type_id:"type",schema_version_id:"schema",revision,current_version:0,
+    values,schema,card_state:state,publication_targets:["internal"],number_entry_id:null,number_locked:false,permissions:["read","update"],files:[]}));
+  }
+  return base(url,init);
+ });
+ return fetch;
+}
+
+it("locks both published registration fields even without a journal entry while other fields remain editable",async()=>{
+ const fetch=registrationFixture("published");
+ fireEvent.click(await firstRow());fireEvent.click(await screen.findByRole("button",{name:"Редактировать карточку"}));
+ const form=document.querySelector(".document-card-form")as HTMLFormElement;
+ const number=within(form).getByLabelText("Регистрационный номер")as HTMLInputElement;
+ expect(number.readOnly).toBe(true);
+ const date=within(form).getByLabelText("Дата регистрации")as HTMLInputElement;
+ expect(date.tagName!=="INPUT"||date.readOnly||date.disabled).toBe(true);
+ expect(screen.queryByRole("button",{name:"Опубликовать"})).toBeNull();
+ fireEvent.change(screen.getByLabelText("Наименование"),{target:{value:"Другие изменения"}});
+ fireEvent.submit(document.querySelector(".document-card-form")!);
+ await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT")).toBe(true));
+ const body=JSON.parse(String(fetch.mock.calls.find(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT")![1]?.body));
+ expect(body.card_state).toBe("published");expect(body.values).toEqual({caption:"Другие изменения"});
+});
+
+it.each([false,true])("keeps save separate from publication and retains unsaved fields (publish=%s)",async publish=>{
+ const fetch=registrationFixture("draft");
+ fireEvent.click(await firstRow());fireEvent.click(await screen.findByRole("button",{name:"Редактировать карточку"}));
+ const form=document.querySelector(".document-card-form")as HTMLFormElement;
+ fireEvent.change(within(form).getByLabelText("Регистрационный номер"),{target:{value:"Edited/42"}});
+ fireEvent.change(within(form).getByLabelText("Дата регистрации"),{target:{value:"2026-10-19"}});
+ expect(within(form).queryByRole("combobox",{name:"Состояние карточки"})).toBeNull();
+ const button=within(form).getByRole("button",{name:publish?"Опубликовать":"Сохранить карточку"});
+ fireEvent.click(button);
+ await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT")).toBe(true));
+ const body=JSON.parse(String(fetch.mock.calls.find(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT")![1]?.body));
+ expect(body).toMatchObject({card_state:publish?"published":"draft",values:{number:"Edited/42",date:"2026-10-19"}});
+});
+
+it("does not make a later ordinary save publish a draft after a failed publication",async()=>{
+ const fetch=registrationFixture("draft",true);
+ fireEvent.click(await firstRow());fireEvent.click(await screen.findByRole("button",{name:"Редактировать карточку"}));
+ fireEvent.change(screen.getByLabelText("Наименование"),{target:{value:"Несохранённое"}});
+ fireEvent.click(screen.getByRole("button",{name:"Опубликовать"}));
+ await screen.findByText("Публикация не прошла проверку");
+ expect((screen.getByLabelText("Наименование")as HTMLInputElement).value).toBe("Несохранённое");
+ fireEvent.click(screen.getByRole("button",{name:"Сохранить карточку"}));
+ await waitFor(()=>expect(fetch.mock.calls.filter(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT")).toHaveLength(2));
+ const bodies=fetch.mock.calls.filter(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT").map(([,init])=>JSON.parse(String(init?.body)));
+ expect(bodies.map(body=>body.card_state)).toEqual(["published","draft"]);
+});
+
+it.each([false,true])("creates a draft by default or publishes through the separate create-form action (publish=%s)",async publish=>{
+ const fetch=setup(false,false,"editor",true);
+ const toolbar=await screen.findByRole("group",{name:"Вид и сортировка документов"});
+ fireEvent.click(within(toolbar).getByRole("button",{name:"Создать документ"}));
+ const creation=document.querySelector(".document-create")as HTMLElement;
+ fireEvent.change(within(creation).getByLabelText("Тип документа"),{target:{value:"type"}});
+ fireEvent.change(await within(creation).findByLabelText("Наименование"),{target:{value:"Новый документ"}});
+ fireEvent.click(within(creation).getByRole("button",{name:publish?"Опубликовать":"Создать документ"}));
+ await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>url.endsWith("/documents")&&init?.method==="POST")).toBe(true));
+ const body=JSON.parse(String(fetch.mock.calls.find(([url,init])=>url.endsWith("/documents")&&init?.method==="POST")![1]?.body));
+ expect(body.card_state).toBe(publish?"published":"draft");
+});
+
 it("allows correcting a duplicate manual registration number without treating it as a stale document revision", async () => {
  const fetch=setup(),base=fetch.getMockImplementation()!;let writes=0;
  const schema: FormSchema={sections:[{key:"main",title:"Основное",fields:[
@@ -374,12 +453,12 @@ it("places saved filters below search and creation beside the view switch with A
   const creation = document.querySelector(".document-create") as HTMLElement;
   const form = within(creation);
   const create = await form.findByRole("button", {name: "Создать документ"});
-  expect(form.getByLabelText("Состояние карточки")).toHaveProperty("value", "draft");
+  expect(form.getByText("Черновик",{exact:true})).toBeTruthy();
   expect(form.getByLabelText("Внутренняя база")).toHaveProperty("checked", true);
   expect(form.getByLabelText("Общая база")).toHaveProperty("checked", false);
-  fireEvent.change(form.getByLabelText("Состояние карточки"), {target: {value: "published"}});
   fireEvent.click(form.getByLabelText("Общая база"));
-  fireEvent.click(create);
+  expect(create).toBeTruthy();
+  fireEvent.click(form.getByRole("button",{name:"Опубликовать"}));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/documents") && init?.method === "POST" && JSON.parse(String(init.body)).card_state === "published" && JSON.parse(String(init.body)).publication_targets.join(",") === "internal,shared")).toBe(true));
   await waitFor(() => expect(mode("Вместе").getAttribute("aria-checked")).toBe("true"));
   fireEvent.click(await screen.findByRole("button", {name: "К списку"}));
@@ -395,9 +474,9 @@ it("keeps lifecycle in Main information and targets in the existing Publication 
   expect(within(publication).getByLabelText("Место публикации")).toBeTruthy();
   const main = within(card).getByRole("heading", {name: "Основное"}).closest("section")!;
   expect(within(publication).queryByLabelText("Состояние карточки")).toBeNull();
-  fireEvent.change(within(main).getByLabelText("Состояние карточки"), {target: {value: "published"}});
+  expect(within(main).getByText("Черновик",{exact:true})).toBeTruthy();
   fireEvent.click(within(publication).getByLabelText("Общая база"));
-  fireEvent.click(screen.getByRole("button", {name: "Сохранить карточку"}));
+  fireEvent.click(within(card).getByRole("button", {name: "Опубликовать"}));
   await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT" && JSON.parse(String(init.body)).card_state === "published" && JSON.parse(String(init.body)).publication_targets.includes("shared"))).toBe(true));
 });
 

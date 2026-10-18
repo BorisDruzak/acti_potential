@@ -29,7 +29,7 @@ from app.registry.policy import (
 from app.registry.value_validation import validate_values
 
 
-def actors_and_document(factory, fields=None):
+def actors_and_document(factory, fields=None, *, reg_number=None, reg_date=None, card_state="published"):
     with factory.begin() as db:
         administrator = User(display_name="Synthetic administrator")
         editor = User(display_name="Synthetic editor")
@@ -66,7 +66,9 @@ def actors_and_document(factory, fields=None):
         db.add(schema)
         db.flush()
         document = Document(
-            card_state="published",
+            card_state=card_state,
+            reg_number=reg_number,
+            reg_date=reg_date,
             publication_targets=["internal", "shared"],
             registry_id=registry.id,
             document_type_id=dtype.id,

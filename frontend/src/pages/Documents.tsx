@@ -120,11 +120,11 @@ function DocumentCard({
   const action = useAction();
   const [editing, setEditing] = useState(false);
   const [values, setValues] = useState<Values>(card.values);
-  const [cardState, setCardState] = useState<CardState>(card.card_state || "draft");
+  const cardState = card.card_state || "draft";
   const [targets, setTargets] = useState<PublicationTarget[]>(card.publication_targets || ["internal"]);
   const publicationKey = publicationSection(card.schema);
   const mainKey = mainInformationSection(card.schema);
-  const lifecycle = <DocumentCardState state={cardState} onChange={editing ? setCardState : undefined} published={card.card_state === "published"}/>;
+  const lifecycle = <DocumentCardState state={cardState}/>;
   const publication = <DocumentPublication targets={targets} onTargets={editing ? setTargets : undefined}/>;
   const [conflict, setConflict] = useState(false);
   const [tab, setTab] = useState(contentTarget ? "content" : "card");
@@ -155,7 +155,7 @@ function DocumentCard({
   const participantCreation = useParticipantCreation(card.registry_id, card.schema_version_id, csrfToken, card.id);
   const registrationNumber = useRegistrationNumber({schema:card.schema,values,roles:auth.user?.roles||[],mode:"edit",
     registryId:card.registry_id,documentTypeId:card.document_type_id,schemaVersionId:card.schema_version_id,
-    documentId:card.id,revision,csrfToken,locked:card.number_locked,disabled:action.busy,onValues:changeValues});
+    documentId:card.id,revision,csrfToken,locked:cardState==="published",disabled:action.busy,onValues:changeValues});
   const hasUnsavedChanges =
     editing &&
     (JSON.stringify(values) !== JSON.stringify(card.values) ||
@@ -179,7 +179,7 @@ function DocumentCard({
     );
     setValues(next);
   }
-  async function save() {
+  async function save(targetState: CardState = cardState) {
     try {
       const files = await encodeAttachments(
         prunePendingFiles(
@@ -195,7 +195,7 @@ function DocumentCard({
         "PUT",
         {
           revision,
-          card_state: cardState,
+          card_state: targetState,
           publication_targets: targets,
           values: registrationNumber.serialize(),
           ...(registrationNumber.numberEntryId ? {number_entry_id:registrationNumber.numberEntryId} : {}),
@@ -297,7 +297,9 @@ function DocumentCard({
           onSubmit={(event) => {
             event.preventDefault();
             if (participantCreation.pending.current > 0) return;
-            if (!blocked && !registrationNumber.pending.current) void action.run(save);
+            const publish=(event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-action")==="publish";
+            if (!action.busy && !blocked && !registrationNumber.pending.current)
+              void action.run(()=>save(publish?"published":cardState),publish?"Карточка опубликована":"Изменения сохранены");
           }}
         >
           <DynamicForm
@@ -340,13 +342,14 @@ function DocumentCard({
                   >
                     Сохранить карточку
                   </button>
+                  {cardState !== "published" && <button type="submit" className="primary" data-action="publish"
+                    disabled={action.busy || blocked || participantCreation.busy || registrationNumber.busy}>Опубликовать</button>}
                   <button
                     key="cancel-card-edit"
                     type="button"
                     onClick={() => {
                       setValues(card.values);
                       registrationNumber.reset();
-                      setCardState(card.card_state || "draft");
                       setTargets(card.publication_targets || ["internal"]);
                       setPendingFiles({});
                       setEditing(false);
@@ -586,14 +589,14 @@ function NewDocumentForm({
     initialValues(version.schema),
   );
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
-  const [cardState, setCardState] = useState<CardState>("draft");
+  const cardState: CardState = "draft";
   const [targets, setTargets] = useState<PublicationTarget[]>(["internal"]);
   const registrationNumber=useRegistrationNumber({schema:version.schema,values,roles,mode:"create",
     registryId:registry.id,documentTypeId:version.document_type_id,schemaVersionId:version.id,csrfToken,
     disabled:action.busy,onValues:changeValues});
   const publicationKey = publicationSection(version.schema);
   const mainKey = mainInformationSection(version.schema);
-  const lifecycle = <DocumentCardState state={cardState} onChange={setCardState}/>;
+  const lifecycle = <DocumentCardState state={cardState}/>;
   const publication = <DocumentPublication targets={targets} onTargets={setTargets}/>;
   const dirty = JSON.stringify(values) !== JSON.stringify(initialValues(version.schema)) || cardState !== "draft" || JSON.stringify(targets) !== '["internal"]' || Object.keys(pendingFiles).length > 0 || registrationNumber.busy;
   useEffect(() => {onDirtyChange(dirty);}, [dirty, onDirtyChange]);
@@ -604,7 +607,7 @@ function NewDocumentForm({
     );
     setValues(next);
   }
-  async function create() {
+  async function create(targetState: CardState = "draft") {
     const allowedFiles = prunePendingFiles(
       pendingFiles,
       version.schema,
@@ -617,7 +620,7 @@ function NewDocumentForm({
       "/documents",
       "POST",
       {
-        card_state: cardState,
+        card_state: targetState,
         publication_targets: targets,
         registry_id: registry.id,
         document_type_id: version.document_type_id,
@@ -636,7 +639,8 @@ function NewDocumentForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (participantCreation.pending.current > 0 || registrationNumber.pending.current) return;
-        if (onBeforeCreate()) void action.run(create, "Документ создан");
+        const publish=(event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-action")==="publish";
+        if (!action.busy && onBeforeCreate()) void action.run(()=>create(publish?"published":"draft"),publish?"Карточка опубликована":"Документ создан");
       }}
     >
       <DynamicForm
@@ -680,9 +684,10 @@ function NewDocumentForm({
         </div>
       ))}
       <Feedback {...action} />
-      <button className="primary" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>
+      <div className="button-row"><button type="submit" className="primary" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>
         {action.busy ? "Сохранение…" : "Создать документ"}
       </button>
+      <button type="submit" className="primary" data-action="publish" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>Опубликовать</button></div>
     </form>
   );
 }

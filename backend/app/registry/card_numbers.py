@@ -12,17 +12,17 @@ from app.numbering.contracts import AssignInput, ReserveInput
 from app.numbering.models import NumberEntry
 
 
-def sync_card_number(session, request, actor, document, schema, number_entry_id=None):
+def sync_card_number(session, request, actor, document, schema, number_entry_id=None, *, target_state=None):
     try:
         with session.no_autoflush:
             service.lock_registry(session, document.registry_id)
-            _sync_card_number(session, request, actor, document, schema, number_entry_id)
+            _sync_card_number(session, request, actor, document, schema, number_entry_id, target_state)
         session.flush()
     except IntegrityError:
         fail(409, "number_conflict", "Регистрационный номер уже занят в этом реестре")
 
 
-def _sync_card_number(session, request, actor, document, schema, number_entry_id):
+def _sync_card_number(session, request, actor, document, schema, number_entry_id, target_state):
     bound = next(
         (
             field
@@ -32,7 +32,20 @@ def _sync_card_number(session, request, actor, document, schema, number_entry_id
         ),
         None,
     )
-    existing = session.scalar(select(NumberEntry).where(NumberEntry.document_id == document.id))
+    linked_entries = list(session.scalars(select(NumberEntry).where(
+        NumberEntry.document_id == document.id).with_for_update()))
+    existing = next((entry for entry in linked_entries if entry.number_string == document.reg_number), None)
+    if document.card_state == "draft":
+        superseded = [old for old in linked_entries if old is not existing and old.state == "reserved"]
+        for old in superseded:
+            old.state = "cancelled"
+            service.operation(session, request, actor, old, "cancelled",
+                              f"card:{document.id}:replace:{document.revision}",
+                              "Номер заменён в черновике")
+        # Release only the live-reservation slot, never its occupied number claim.
+        # Historical document links and original response receipts remain intact.
+        if superseded:
+            session.flush(superseded)
     if number_entry_id is not None:
         if existing is not None and existing.id != number_entry_id:
             fail(409, "number_already_present", "Существующий регистрационный номер защищён")
@@ -62,11 +75,11 @@ def _sync_card_number(session, request, actor, document, schema, number_entry_id
     series = service.lock_series_scope(session, existing.series_id if existing is not None else UUID(bound["number_series_id"]))
     service.ensure_allocation_safe(session, series)
     service.assignment_field(session, actor, series, document, schema)
-    published = document.card_state == "published"
+    published = (target_state or document.card_state) == "published"
     if existing is None:
         reserved = service.reserve(
             session, request, actor, series.id,
-            ReserveInput(idempotency_key=f"card:{document.id}:reserve"),
+            ReserveInput(idempotency_key=f"card:{document.id}:reserve:{document.revision}"),
         )
         existing = session.get(NumberEntry, UUID(reserved["items"][0]["id"]))
     permission = "assign" if published else "reserve"

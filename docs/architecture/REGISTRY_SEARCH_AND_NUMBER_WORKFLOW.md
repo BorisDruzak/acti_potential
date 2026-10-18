@@ -36,7 +36,11 @@ The adjacent manual-entry action allows an arbitrary valid number. Saving checks
 uniqueness within the registry after trimming surrounding whitespace and
 case-insensitive comparison. A duplicate returns `409 number_conflict`; the form
 remains editable for correction. Different registries have independent number
-namespaces. A linked journal number remains protected against replacement.
+namespaces. A draft's number and registration date remain editable, including
+when its number is linked to a journal reservation. Replacing the number cancels
+the superseded live reservation while retaining its document link, receipts,
+history and occupied claim. Neither its old number nor its current number can
+be assigned to another card.
 
 New unbound cards use a dedicated non-resetting v3 series starting with decimal
 ordinals and skipping all occupied keys. This sequence does not infer or continue
@@ -59,12 +63,35 @@ occupied claims; after a committed migration, recovery must preserve them.
 SQL Server remains read-only. This change neither imports documents nor changes
 source databases or original files.
 
+## Publication and registration locks
+
+The card footer offers separate save and publish actions. Ordinary save retains
+the stored lifecycle state. Publish validates and saves the current values,
+attachments and final number, and changes the card to `published` atomically.
+A failed publication leaves the draft and unsaved form editable; a later ordinary
+save does not publish it. Creation offers the same explicit publication action.
+
+After publication, the registration number and date are read-only, including
+manual numbers without journal entries and empty registration fields. Other
+authorized fields remain editable. API validation rejects registration changes
+with `403 registration_locked`; number-book routes enforce the same restriction.
+Published cards cannot return to draft.
+
+Migration `0018_draft_registration_history` preserves existing rows and replaces
+the one-entry-per-document constraint with one live reservation per document,
+allowing immutable historical links. A database trigger also blocks changing
+published registration fields or returning to draft through direct SQL. Downgrade
+refuses to discard multiple historical links.
+
 ## Verification
 
 Focused regressions cover explicit/background search generations, schema-scoped
 filters, false versus missing publication values, combobox cancellation/scope,
 manual-number correction, concurrent allocation, direct SQL guards, foreign
 reservation tokens, immutable historical spelling and durable ordinary drafts.
+Publication regressions also cover editable draft registration, atomic final
+edits and publication, frozen published number/date, failed-publication recovery,
+immutable superseded receipts and migration preservation/downgrade guards.
 
 `scripts/e2e_search_number_workflow.mjs` runs real HTTPS browser sessions for two
 editors and a viewer against an explicitly supplied disposable environment. It

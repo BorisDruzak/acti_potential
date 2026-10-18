@@ -2,11 +2,9 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
-
 from app.api.errors import fail
 from app.registry.archives import is_archived
-from app.registry.models import DocumentType, Registry
+from app.registry.models import Document, DocumentType, Registry
 from app.registry.validation import iter_fields
 
 
@@ -34,7 +32,6 @@ def validate_number_bindings(session, schema, registry_ids, document_type_id=Non
 
 
 def protect_registered_number(session, document_id):
-    from app.numbering.models import NumberEntry
-
-    if session.scalar(select(NumberEntry.id).where(NumberEntry.document_id == document_id).limit(1)):
-        fail(403, "number_assignment_required", "Присвоенный номер защищён реестром номеров")
+    document = session.get(Document, document_id)
+    if document is not None and document.card_state == "published":
+        fail(403, "registration_locked", "Номер и дата регистрации опубликованной карточки защищены")

@@ -268,7 +268,7 @@ def validate_values(
         if not field_writable(field, actor):
             fail(403, "field_forbidden", "Изменение поля не разрешено")
         if (
-            field.get("system") == "reg_number" and document_id is not None
+            field.get("system") in {"reg_number", "reg_date"} and document_id is not None
             and value != (previous or {}).get(key)
         ):
             from app.registry.number_binding import protect_registered_number

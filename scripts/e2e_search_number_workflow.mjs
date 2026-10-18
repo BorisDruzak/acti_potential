@@ -191,7 +191,7 @@ export async function runSearchNumberWorkflow(config) {
     const automatic=await saveNew(editor,pane);
     assert.equal(automatic.request.number_entry_id,reservation.number_entry_id);
     assert.equal(automatic.request.values[lookupField.key],target.id);
-    assert.equal(automatic.card.reg_number,reservation.number);assert.equal(automatic.card.number_locked,true);
+    assert.equal(automatic.card.reg_number,reservation.number);assert.equal(automatic.card.number_locked,false);
     pass('New-card UI reserves without saving, preserves unsaved fields/lookup UUID and attaches exactly that receipt on create');
     await screenshot(editor,'02-automatic-card');
 

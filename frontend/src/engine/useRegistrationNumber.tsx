@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useRef, useState, type ReactNode} from "react";
 import {RegistrationNumberControl, type NumberReservation} from "../components/RegistrationNumberControl";
 import {canRead, canWrite, editableValues, type FormSchema, type Values} from "./schema";
 
@@ -17,20 +17,26 @@ export function useRegistrationNumber(options: {
  useEffect(()=>{setReservation(null);},[context]);
  const selected=reservation&&field&&options.values[field.key]===reservation.number?reservation:null;
  const reset=()=>setReservation(null);
- const fieldContent=available?{[field.key]:(id:string)=><RegistrationNumberControl id={id} label={field.label}
+ const fieldContent:Record<string,(id:string)=>ReactNode>=available?{[field.key]:(id:string)=><RegistrationNumberControl id={id} label={field.label}
   registryId={options.registryId} documentTypeId={options.documentTypeId} schemaVersionId={options.schemaVersionId}
   documentId={options.documentId} revision={options.revision} csrfToken={options.csrfToken}
   value={options.values[field.key]} required={field.required} locked={options.locked} disabled={options.disabled}
   maxLength={Number(field.constraints?.max_length)||255} pattern={typeof field.constraints?.pattern==="string"?field.constraints.pattern:undefined}
   onChange={value=>{setReservation(null);current.current.onValues({...current.current.values,[field.key]:value});}}
   onReserved={result=>{setReservation(result);current.current.onValues({...current.current.values,[field.key]:result.number});}}
-  onBusyChange={value=>{pending.current=value;setBusy(value);}}/>}:undefined;
+  onBusyChange={value=>{pending.current=value;setBusy(value);}}/>}:{};
+ if(options.locked)for(const dateField of fields.filter(field=>field.system==="reg_date")){
+  fieldContent[dateField.key]=(id:string)=><input id={id} aria-label={dateField.label} type="date" readOnly value={String(options.values[dateField.key]??"")}/>;
+ }
  return {fieldContent,busy,pending,reset,numberEntryId:selected?.number_entry_id,
   serialize(){
    const values=editableValues(options.schema,options.values,options.mode,options.roles);
    if(available&&field){
     if(options.locked)delete values[field.key];
     else if(Object.hasOwn(options.values,field.key))values[field.key]=options.values[field.key];
+   }
+   if(options.locked)for(const field of fields){
+    if(field.system==="reg_number"||field.system==="reg_date")delete values[field.key];
    }
    return values;
   },

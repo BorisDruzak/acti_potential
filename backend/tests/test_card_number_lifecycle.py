@@ -312,6 +312,9 @@ def test_user_reader_cannot_use_old_number_grants_or_see_privileged_identifiers(
         "document_id": card["id"], "revision": 1, "idempotency_key": "before-role-change-assign",
     })
     assert linked.status_code == 200, linked.text
+    assert client.put(f"/api/v1/documents/{card['id']}", headers=headers, json={
+        "revision": 2, "values": {}, "card_state": "published",
+    }).status_code == 200
     cancelled_response = client.post(
         f"/api/v1/number-entries/{cancelled['id']}/cancel", headers=headers,
         json={"reason": "Private cancellation justification", "idempotency_key": "before-cancel"},

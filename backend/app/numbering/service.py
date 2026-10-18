@@ -145,8 +145,8 @@ def next_card_number(session, request, actor, registry_id, data):
         if data.revision is None:
             fail(422, "revision_required", "Укажите версию карточки")
         check_revision(document, data.revision)
-        if document.reg_number:
-            fail(409, "number_already_present", "Карточке уже присвоен регистрационный номер")
+        if document.card_state == "published":
+            fail(403, "registration_locked", "Номер и дата регистрации опубликованной карточки защищены")
         if data.schema_version_id and document.schema_version_id != data.schema_version_id:
             fail(422, "number_document_scope", "Версия формы не соответствует карточке")
         schema = get_schema(session, document)
@@ -539,6 +539,8 @@ def assign(session, request, actor, identity, data):
     previous = replay(session, actor, series, action, data)
     if previous is not None:
         return previous
+    if document.card_state == "published" and document.reg_number != entry.number_string:
+        fail(403, "registration_locked", "Номер и дата регистрации опубликованной карточки защищены")
     ensure_allocation_safe(session, series)
     if entry.state != "reserved" or entry.expires_at and entry.expires_at <= datetime.now(UTC):
         fail(409, "number_not_reserved", "Резерв недоступен или срок истёк")

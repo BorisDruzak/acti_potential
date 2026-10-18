@@ -67,11 +67,10 @@ def test_document_export_and_ranges_enforce_row_and_field_acl(client, factory):
         {"key": "secret", "type": "text", "label": "Скрыто", "read_roles": ["editor"],
          "filterable": True, "exportable": True},
         {"key": "no_export", "type": "text", "label": "Не экспортировать"},
-    ])
+    ], reg_number="0012")
     with factory.begin() as db:
         row = db.get(Document, sample["document"])
         db.get(Registry, sample["registry"]).document_type_ids = [str(row.document_type_id)]
-        row.reg_number = "0012"
         row.custom_data = {"amount": "12.50", "secret": "HIDDEN", "no_export": "NO-EXPORT"}
     sign_in_as(client, factory, sample["viewer"])
     params = {"filters": json.dumps({"amount": {"op": "between", "value": ["12", "13"]}})}
@@ -153,10 +152,9 @@ def test_numeric_and_date_presence_filters_do_not_cast_empty_text(client, factor
     sample = actors_and_document(factory, fields=[
         {"key": "date", "type": "date", "system": "reg_date", "filterable": True},
         {"key": "quantity", "type": "integer", "filterable": True},
-    ])
+    ], reg_date=date(2026, 1, 1))
     with factory.begin() as db:
         row = db.get(Document, sample["document"])
-        row.reg_date = date(2026, 1, 1)
         row.custom_data = {"quantity": 5}
     sign_in_as(client, factory, sample["viewer"])
     for key in ("date", "quantity"):

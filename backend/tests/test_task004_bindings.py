@@ -89,10 +89,9 @@ def test_existing_book_entry_protects_even_unbound_historical_form_after_void(cl
     from app.registry.models import Document
     from tests.test_content_security import actors_and_document, sign_in_as
 
-    sample = actors_and_document(factory, fields=numbered_schema()["sections"][0]["fields"])
+    sample = actors_and_document(factory, fields=numbered_schema()["sections"][0]["fields"], reg_number="0012")
     with factory.begin() as db:
         document = db.get(Document, sample["document"])
-        document.reg_number = "0012"
         series = NumberSeries(code="binding", name="Synthetic", registry_id=sample["registry"],
                               document_type_ids=[str(document.document_type_id)], synthetic=True)
         db.add(series)
