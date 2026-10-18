@@ -1,0 +1,5 @@
+.registration-number-row{display:grid;grid-template-columns:minmax(6rem,1fr) auto auto;gap:.45rem;align-items:center}
+.registration-number-row input{min-width:0;width:100%}
+.registration-number-row button{white-space:nowrap;font-size:.85rem;padding-inline:.65rem}
+.registration-number-control>small{display:block;margin-top:.3rem}
+@media(max-width:700px){.registration-number-row{grid-template-columns:1fr 1fr}.registration-number-row input{grid-column:1/-1}}

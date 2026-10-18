@@ -19,8 +19,8 @@ export function serializeFieldFilters(filters: FieldFilter[]) {
   return Object.fromEntries(filters.filter(filter => filter.key && (["present", "absent"].includes(filter.op) || (filter.value !== null && filter.value !== undefined && filter.value !== ""))).map(filter =>
     [filter.key, filter.op === "eq" ? filter.value : {op: filter.op, ...(!["present", "absent"].includes(filter.op) ? {value: filter.op === "between" ? [filter.value, filter.end] : filter.value} : {})}]));
 }
-export function DocumentFieldFilters({filters, fields, onChange, references, registryId, roles, readOnly}: {
-  filters: FieldFilter[]; fields: Field[]; onChange: (filters: FieldFilter[]) => void; references: ReferenceSet[]; registryId: string; roles: string[]; readOnly: boolean;
+export function DocumentFieldFilters({filters, fields, onChange, references, registryId, registryNames = {}, roles, readOnly}: {
+  filters: FieldFilter[]; fields: Field[]; onChange: (filters: FieldFilter[]) => void; references: ReferenceSet[]; registryId: string; registryNames?: Record<string,string>; roles: string[]; readOnly: boolean;
 }) {
   const update = (index: number, patch: Partial<FieldFilter>) => onChange(filters.map((filter, current) => current === index ? {...filter, ...patch} : filter));
   return <div className="document-field-filters" aria-label="Фильтры полей: все условия одновременно">
@@ -38,9 +38,13 @@ export function DocumentFieldFilters({filters, fields, onChange, references, reg
           {field && ["integer", "decimal", "date", "datetime"].includes(field.type) && <><option value="gte">Не меньше</option><option value="lte">Не больше</option><option value="between">В диапазоне</option></>}
           <option value="present">Заполнено</option><option value="absent">Не заполнено</option>
         </select></label>
-        {field && !["present", "absent"].includes(filter.op) && <div className="filter-value">
+        {field?.type === "boolean" && ["eq", "absent"].includes(filter.op) ? <label>Значение фильтра {index + 1}<select value={filter.op === "absent" ? "unspecified" : filter.value === true ? "true" : filter.value === false ? "false" : ""} onChange={event => update(index, event.target.value === "unspecified" ? {op: "absent", value: null} : {op: "eq", value: event.target.value === "" ? null : event.target.value === "true"})}>
+          <option value="">Выберите значение</option><option value="true">Да</option><option value="false">Нет</option><option value="unspecified">Не указано</option>
+        </select></label> : field && !["present", "absent"].includes(filter.op) && <div className="filter-value">
           <DynamicForm schema={{sections: [{key: "filter", title: "", fields: [{...field, label: `Значение фильтра ${index + 1}`, type: field.type === "multi_reference" ? "reference" : field.type, required: false, visible_when: null, required_when: null, editable: true, write_roles: [], modes: []}]}]}}
-            values={{[field.key]: filter.value}} onChange={values => update(index, {value: values[field.key]})} mode="edit" roles={roles} registryId={registryId} references={references} displayMode={readOnly ? "viewer" : "editor"}/>
+            values={{[field.key]: filter.value}} onChange={values => update(index, {value: values[field.key]})} mode="edit" roles={roles} registryId={registryId}
+            references={!registryId ? references.map(reference=>({...reference,name:reference.name+(reference.registry_id && registryNames[reference.registry_id] ? ` · ${registryNames[reference.registry_id]}` : "")})) : references}
+            referenceScope="available" displayMode={readOnly ? "viewer" : "editor"}/>
           {filter.op === "between" && <label>Верхняя граница {index + 1}<input type={field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local" : "number"} step="any" value={String(filter.end ?? "")} onChange={event => update(index, {end: event.target.value})}/></label>}
         </div>}
         {!field && filter.key && <p className="muted">Сохранённое условие сохранено. Выберите его тип документа для редактирования.</p>}

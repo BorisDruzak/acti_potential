@@ -61,6 +61,7 @@ def unified_parameters(params):
             date_to=params.date_to,
             status=params.status,
             card_state=params.card_state,
+            publication_target=params.publication_target,
             reg_number=params.reg_number,
             filters=json.loads(params.filters or "{}"),
             fuzzy=params.fuzzy,

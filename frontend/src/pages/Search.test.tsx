@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "../auth/AuthProvider";
 import { Documents } from "./Documents";
 
-afterEach(() => {cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/");});
+afterEach(() => {cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); window.history.replaceState(null, "", "/");});
 
 it("uses one search field and retains the list, query and URL when opening a result", async () => {
   const card = {id: "document", registry_id: "registry", document_type_id: "type", schema_version_id: "schema",
@@ -82,6 +82,67 @@ it("submits the general query, registration number and registration dates togeth
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({query: "озеленение", reg_number: "42-П", date_from: "2026-10-16", date_to: "2026-10-16"})));
   expect(new URLSearchParams(window.location.search).get("reg_date")).toBe("2026-10-16");
+});
+
+it("keeps the last search time visible throughout a five-second background refresh", async () => {
+  let now = 100;
+  vi.spyOn(performance, "now").mockImplementation(() => now);
+  const timers = vi.spyOn(globalThis, "setInterval");
+  const pending: ((response: Response) => void)[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.endsWith("/search")) return new Promise<Response>(resolve => pending.push(resolve));
+    return new Response(JSON.stringify(url.endsWith("/users/me") ? {id: "user", roles: ["editor"], csrf_token: "csrf"} : url.endsWith("/registries") ? [{id: "registry", name: "Реестр", permissions: ["read"], document_type_ids: []}] : []));
+  }));
+  function Ready() {return useAuth().user ? <Documents/> : null;}
+  render(<AuthProvider><Ready/></AuthProvider>);
+  await waitFor(() => expect(pending).toHaveLength(1));
+  now = 350;
+  await act(async () => pending[0](new Response(JSON.stringify({items: [], total: 0, next_cursor: null}))));
+  expect(screen.getByText("Время поиска: 0,25 с")).toBeTruthy();
+  now = 5100;
+  const refresh = timers.mock.calls.find(call => call[1] === 5000)![0] as () => void;
+  act(refresh);
+  expect(pending).toHaveLength(2);
+  expect(screen.queryByText("Идёт поиск…")).toBeNull();
+  expect(screen.getByText("Время поиска: 0,25 с")).toBeTruthy();
+  now = 7200;
+  await act(async () => pending[1](new Response(JSON.stringify({items: [], total: 0, next_cursor: null}))));
+  expect(screen.getByText("Время поиска: 0,25 с")).toBeTruthy();
+});
+
+it("offers all published filter fields with no selected type or search results and preserves legal and card publication predicates", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const fields = [
+    {key: "should_publish", label: "Подлежит опубликованию", type: "boolean", filterable: true},
+    {key: "published_date", label: "Дата опубликования", type: "date", filterable: true},
+    {key: "removed_from_control", label: "Снято с контроля", type: "boolean", filterable: true},
+    {key: "secret", label: "Скрытое поле", type: "text", read_roles: ["admin"], filterable: true},
+  ];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    let data: unknown = [];
+    if (url.endsWith("/users/me")) data = {id: "user", roles: ["editor"], csrf_token: "csrf"};
+    else if (url.endsWith("/registries")) data = [{id: "r", name: "Реестр", permissions: ["read"], document_type_ids: ["t"]}];
+    else if (url.endsWith("/document-types")) data = [{id: "t", name: "Тип", code: "type"}];
+    else if (url.includes("/document-types/t/versions")) data = [{id: "v", document_type_id: "t", state: "published", version: 1, schema: {sections: [{key: "s", title: "S", fields}]}}];
+    else if (url.endsWith("/search")) {requests.push(JSON.parse(String(init?.body))); data = {items: [], total: 0, next_cursor: null};}
+    return new Response(JSON.stringify(data));
+  }));
+  function Ready() {return useAuth().user ? <Documents/> : null;}
+  render(<AuthProvider><Ready/></AuthProvider>);
+  await screen.findByText("Документов по выбранным условиям пока нет.");
+  fireEvent.click(screen.getByRole("button", {name: "Фильтры"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Добавить условие"}));
+  const field = screen.getByLabelText("Поле фильтра 1");
+  expect(field.textContent).toContain("Дата опубликования");
+  expect(field.textContent).toContain("Снято с контроля");
+  expect(field.textContent).not.toContain("Скрытое поле");
+  fireEvent.change(field, {target: {value: "should_publish"}});
+  fireEvent.change(screen.getByLabelText("Значение фильтра 1"), {target: {value: "false"}});
+  fireEvent.change(screen.getByLabelText("База публикации карточки"), {target: {value: "shared"}});
+  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({filters: {should_publish: false}, publication_target: "shared", document_type_ids: []})));
+  expect(new URLSearchParams(window.location.search).get("publication_target")).toBe("shared");
+  expect(screen.getByRole("button", {name: "Удалить фильтр publication_target"})).toBeTruthy();
 });
 
 it("refreshes retained search results after a saved revision is indexed", async () => {

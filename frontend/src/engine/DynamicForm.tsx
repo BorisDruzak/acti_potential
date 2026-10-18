@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { apiRequest, saveDownload } from "../api/client";
 import { displayConfigText } from "./presentation";
 import "./Lookup.css";
+import { LookupCombobox, type LookupChoice } from "./LookupCombobox";
 import {
   canRead,
   canWrite,
@@ -23,6 +24,7 @@ type Props = {
   roles: string[];
   registryId?: string;
   references?: ReferenceSet[];
+  referenceScope?: "registry" | "available";
   files?: FileVersion[];
   canDownload?: boolean;
   onFile?: (field: string, file: File) => void;
@@ -32,9 +34,10 @@ type Props = {
   displayMode?: "editor" | "viewer";
   navigationPlacement?: "side";
   sectionContent?: Record<string, ReactNode>;
+  fieldContent?: Record<string, ReactNode | ((id: string) => ReactNode)>;
   onCreateReference?: (field: Field, label: string) => Promise<{ item: ReferenceItem; created: boolean }>;
 };
-type Choice = { id: string; label: string; name?: string; active?: boolean };
+type Choice = LookupChoice;
 const participantLabel = (item: ReferenceItem) => [item.label, ...[item.metadata?.position, item.metadata?.department].filter((value): value is string => typeof value === "string" && !!value.trim())].join(" · ");
 const participantBooks = new Set(["executors", "responsible_executors", "signers", "approvers"]);
 const cleanName = (name: string) => name.trim().replace(/\s+/gu, " ");
@@ -46,6 +49,7 @@ function Lookup({
   onChange,
   registryId,
   references = [],
+  referenceScope = "registry",
   id,
   displayMode = "editor",
   onCreateReference,
@@ -56,6 +60,7 @@ function Lookup({
   onChange: (value: unknown) => void;
   registryId?: string;
   references?: ReferenceSet[];
+  referenceScope?: "registry" | "available";
   id: string;
   displayMode?: "editor" | "viewer";
   onCreateReference?: Props["onCreateReference"];
@@ -71,7 +76,6 @@ function Lookup({
   const creationPending = useRef(false);
   const currentSelection = useRef({ value, onChange });
   currentSelection.current = { value, onChange };
-  const searchRef = useRef<HTMLInputElement>(null);
   const multiple = field.type === "multi_reference";
   const label = displayConfigText(field.label);
   const documentQuery = field.type === "document" ? query : "";
@@ -80,21 +84,20 @@ function Lookup({
     : value
       ? [String(value)]
       : [];
-  const minimum = Math.max(field.required ? 1 : 0, Number(field.constraints?.min_items) || 0);
-  const maximum = Math.min(500, Number(field.constraints?.max_items ?? 500));
+  const minimum = Math.max(field.required ? 1 : 0, multiple ? Number(field.constraints?.min_items) || 0 : 0);
+  const maximum = multiple ? Math.min(500, Number(field.constraints?.max_items ?? 500)) : 1;
   const selectionError = values.length < minimum
     ? `Выберите минимум ${minimum}`
     : values.length > maximum
       ? `Выберите не более ${maximum}`
       : "";
-  useEffect(() => {
-    searchRef.current?.setCustomValidity(multiple && !disabled ? selectionError : "");
-  }, [multiple, disabled, selectionError]);
   const matchingReferences = references.filter(
     (reference) => reference.code === field.reference_code,
   );
   const explicitReference = references.find(reference => reference.id === field.reference_set_id);
-  const explicitInScope = !explicitReference?.registry_id || explicitReference.registry_id === registryId;
+  const explicitInScope = referenceScope === "available" && !registryId
+    ? !!explicitReference
+    : !explicitReference?.registry_id || explicitReference.registry_id === registryId;
   const referenceId =
     (field.reference_set_id && explicitInScope ? field.reference_set_id : undefined) || (!field.reference_set_id ?
     (
@@ -102,6 +105,11 @@ function Lookup({
         (reference) => reference.registry_id === registryId,
       ) || matchingReferences.find((reference) => !reference.registry_id)
     )?.id : undefined);
+  const aggregateReferences = referenceScope === "available" && !registryId && !!field.reference_code && !field.reference_set_id;
+  const referenceIds = aggregateReferences
+    ? [...new Set(matchingReferences.map(reference => reference.id))]
+    : referenceId ? [referenceId] : [];
+  const referenceIdsKey = JSON.stringify(referenceIds.map(reference => [reference, aggregateReferences ? references.find(book => book.id === reference)?.name : ""]));
   const referenceBook = references.find(reference => reference.id === referenceId);
   const canCreate = !disabled && !!onCreateReference && !!registryId &&
     ["reference", "multi_reference"].includes(field.type) &&
@@ -114,16 +122,13 @@ function Lookup({
     setCreationMessage("");
     setQuery("");
     return () => { creationGeneration.current += 1; };
-  }, [registryId, referenceId, disabled, onCreateReference]);
+  }, [registryId, referenceIdsKey, disabled, onCreateReference]);
   useEffect(() => {
     const abort = new AbortController();
-    let path: string;
-    if (field.type === "user") path = "/users/options";
-    else if (field.type === "document")
-      path = `/documents?${new URLSearchParams({ q: documentQuery, page_size: "100", mode: displayMode })}`;
-    else if (referenceId)
-      path = `/references/${referenceId}/items?mode=${displayMode}`;
-    else {
+    const paths = field.type === "user" ? ["/users/options"]
+      : field.type === "document" ? [`/documents?${new URLSearchParams({ q: documentQuery, page_size: "100", mode: displayMode })}`]
+      : referenceIds.map(reference => `/references/${reference}/items?mode=${displayMode}`);
+    if (!paths.length) {
       setChoices([]);
       setLoading(false);
       setError("");
@@ -132,28 +137,35 @@ function Lookup({
     setLoading(true);
     setError("");
     setChoices([]);
-    apiRequest<
+    Promise.all(paths.map(path => apiRequest<
       | ReferenceItem[]
       | { id: string; display_name: string }[]
       | { items: { id: string; title?: string; reg_number?: string }[] }
-    >(path, { signal: abort.signal })
-      .then((data) => {
+    >(path, { signal: abort.signal })))
+      .then((responses) => {
         if (abort.signal.aborted) return;
-        setChoices(
+        const allChoices = responses.flatMap((data, index) => (
           Array.isArray(data)
             ? data.map((item) => ({
                 id: item.id,
                 label: "label" in item ? participantLabel(item) : item.display_name,
                 name: "label" in item ? item.label : item.display_name,
-                active: "selectable" in item ? item.selectable : "active" in item ? item.active : true,
+                active: !("active" in item && item.active === false) && !("selectable" in item && item.selectable === false),
               }))
             : data.items.map((item) => ({
                 id: item.id,
                 label:
                   [item.reg_number, item.title].filter(Boolean).join(" · ") ||
                   item.id,
-              })),
-        );
+              }))
+        ).map(choice => ({
+          ...choice,
+          label: aggregateReferences && referenceIds.length > 1
+            ? `${choice.label} · ${references.find(book => book.id === referenceIds[index])!.name}`
+            : choice.label,
+        })));
+        // Preserve each persisted UUID even when separate books use the same label.
+        setChoices([...new Map(allChoices.map(choice => [choice.id, choice])).values()]);
       })
       .catch((failure) => {
         if (!abort.signal.aborted) setError(failure.message);
@@ -162,7 +174,7 @@ function Lookup({
         if (!abort.signal.aborted) setLoading(false);
       });
     return () => abort.abort();
-  }, [referenceId, field.type, registryId, documentQuery, displayMode, disabled]);
+  }, [referenceIdsKey, field.type, registryId, documentQuery, displayMode, disabled]);
   const known = new Set(choices.map((choice) => choice.id));
   const merged = [
     ...choices,
@@ -172,9 +184,23 @@ function Lookup({
   ];
   const normalizedQuery = normalizedName(query);
   const visibleChoices = merged.filter((choice) =>
-    values.includes(choice.id) || field.type === "document" ||
+    field.type === "document" ||
     normalizedName(choice.label).includes(normalizedQuery),
   );
+  function selectChoice(choiceId: string) {
+    if (disabled || loading || creationPending.current || multiple && values.length >= maximum) return;
+    const choice = choices.find(item => item.id === choiceId);
+    if (!choice || choice.active === false || values.includes(choiceId)) return;
+    onChange(multiple ? [...values, choiceId] : choiceId);
+    setQuery("");
+    setCreationError("");
+    setCreationMessage("");
+  }
+  useEffect(() => {
+    if (normalizedQuery.length < 3 || disabled || loading || error || creating || multiple && values.length >= maximum) return;
+    const candidates = choices.filter(choice => choice.active !== false && !values.includes(choice.id) && normalizedName(choice.label).includes(normalizedQuery));
+    if (candidates.length === 1) selectChoice(candidates[0].id);
+  }, [query, choices, value, disabled, loading, error, creating]);
   const matches = choices.some((choice) =>
     normalizedName(choice.label).includes(normalizedQuery),
   );
@@ -227,78 +253,20 @@ function Lookup({
     );
   return (
     <div className="lookup-control">
-      <input
-        ref={searchRef}
-        id={multiple ? id : `${id}-search`}
-        aria-label={`Поиск: ${label}`}
-        aria-describedby={multiple ? `${id}-selection` : undefined}
-        aria-required={multiple && minimum > 0 || undefined}
-        type="search"
-        disabled={creating}
-        placeholder={field.type === "document" ? "Найти документ" : "Поиск по имени или названию"}
-        value={query}
-        onChange={(event) => {
-          if (creationPending.current) return;
-          setQuery(event.target.value);
-          setCreationError("");
-          setCreationMessage("");
-        }}
-      />
-      {multiple ? (
-        <>
-          <div className="lookup-options" role="group" aria-label={label} aria-busy={loading || creating}>
-            {visibleChoices.map((choice) => {
-              const selected = values.includes(choice.id);
-              const unavailable = !selected && (choice.active === false || values.length >= maximum);
-              return (
-                <label className={`lookup-option${selected ? " lookup-option-selected" : ""}`} key={choice.id}>
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    disabled={loading || creating || unavailable}
-                    onChange={() => {
-                      if (loading || creationPending.current || unavailable) return;
-                      onChange(selected ? values.filter((current) => current !== choice.id) : [...values, choice.id]);
-                    }}
-                  />
-                  <span title={choice.label}>{choice.label}{choice.active === false ? " (неактивно)" : ""}</span>
-                </label>
-              );
-            })}
-          </div>
-          <small id={`${id}-selection`}>
-            Выбрано: {values.length}. Нажмите на имя, чтобы выбрать или убрать значение.
-            {minimum > 0 ? ` Минимум: ${minimum}.` : ""}
-            {maximum < 500 ? ` Максимум: ${maximum}.` : ""}
-          </small>
-        </>
-      ) : <select
-        id={id}
-        disabled={loading || creating}
-        value={values[0] || ""}
-        required={field.required}
-        onChange={(event) =>
-          !creationPending.current && onChange(event.target.value || null)
-        }
-      >
-        <option value="">{loading ? "Загрузка…" : "Не указано"}</option>
-        {visibleChoices.map((choice) => (
-          <option
-            key={choice.id}
-            value={choice.id}
-            disabled={choice.active === false && !values.includes(choice.id)}
-          >
-            {choice.label}
-            {choice.active === false ? " (неактивно)" : ""}
-          </option>
-        ))}
-      </select>}
+      <LookupCombobox id={id} label={label} choices={visibleChoices}
+        selected={values.map(current => merged.find(choice => choice.id === current)!)}
+        multiple={multiple} query={query} onQuery={next => { if (!creationPending.current) { setQuery(next); setCreationError(""); setCreationMessage(""); } }}
+        onSelect={selectChoice} onRemove={current => { if (!creationPending.current) { setQuery(""); onChange(multiple ? values.filter(value => value !== current) : null); } }}
+        disabled={creating} busy={loading || !!error || creating} atLimit={multiple && values.length >= maximum}
+        required={minimum > 0} validation={selectionError}
+        placeholder={field.type === "document" ? "Найти документ" : "Поиск по имени или названию"}>
       {offerCreation && <div className="lookup-create">
         <button type="button" className="lookup-create-button" disabled={creating || multiple && values.length >= maximum} onClick={() => void createReference()}>
           Создать «{cleanName(query)}»
         </button>
         <small>Запись сразу сохраняется в справочник реестра.</small>
       </div>}
+      </LookupCombobox>
       <div className="lookup-status" role="status" aria-label={`Состояние: ${label}`}>{status}</div>
       {(error || creationError) && (
         <p className="error" role="alert">
@@ -410,7 +378,11 @@ function FieldControl({
         (Array.isArray(value) && value.includes(file.id)),
     ) || [];
   let control;
-  if (
+  if (!props.prefix && props.fieldContent?.[field.key] !== undefined) {
+    const custom = props.fieldContent[field.key];
+    control = typeof custom === "function" ? custom(id) : custom;
+  }
+  else if (
     ["reference", "multi_reference", "user", "department", "document"].includes(
       field.type,
     )
@@ -423,6 +395,7 @@ function FieldControl({
         onChange={onChange}
         registryId={props.registryId}
         references={props.references}
+        referenceScope={props.referenceScope}
         onCreateReference={props.prefix ? undefined : props.onCreateReference}
         id={id}
         displayMode={

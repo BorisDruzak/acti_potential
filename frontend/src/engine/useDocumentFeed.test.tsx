@@ -78,3 +78,42 @@ it("refreshes every loaded batch atomically and drops disappeared rows without c
   expect(result.current.data?.items.map(hit => hit.document.id)).toEqual(["b", "d", "e"]);
   expect(pending).toHaveLength(4);
 });
+
+it("keeps the explicit search duration and search spinner unchanged during paging and background refresh", async () => {
+  const {answer} = fixture();
+  const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+  const {result} = renderHook(() => useDocumentFeed({query: "one"}, "csrf"));
+  expect(result.current.searching).toBe(true);
+  clock.mockReturnValue(350);
+  await answer(0, ["a"], "second");
+  expect(result.current.durationMs).toBe(250);
+  expect(result.current.searching).toBe(false);
+  clock.mockReturnValue(1000);
+  act(() => result.current.loadMore());
+  expect(result.current.searching).toBe(false);
+  expect(result.current.startedAt).toBeNull();
+  clock.mockReturnValue(1800);
+  await answer(1, ["b"], null);
+  expect(result.current.durationMs).toBe(250);
+  act(() => result.current.reload());
+  expect(result.current.searching).toBe(false);
+  clock.mockReturnValue(3000);
+  await answer(2, ["a", "b"], null);
+  expect(result.current.durationMs).toBe(250);
+  clock.mockRestore();
+});
+
+it("retries an explicit search while a background request is pending and ignores its late response", async () => {
+  const {pending, answer} = fixture();
+  const {result} = renderHook(() => useDocumentFeed({query: "one"}, "csrf"));
+  await answer(0, ["a"], null);
+  act(() => result.current.reload());
+  act(() => result.current.retry());
+  expect(pending[1].signal.aborted).toBe(true);
+  expect(result.current.searching).toBe(true);
+  await answer(2, ["retry"], null);
+  const measured = result.current.durationMs;
+  await answer(1, ["stale"], null);
+  expect(result.current.data?.items.map(hit => hit.document.id)).toEqual(["retry"]);
+  expect(result.current.durationMs).toBe(measured);
+});

@@ -10,6 +10,7 @@ export function searchBody(search: string, registryId: string, mode: string, cur
     registry_ids: registryId ? [registryId] : [],
     document_type_ids: params.get("document_type_id") ? [params.get("document_type_id")] : [],
     card_state: mode === "viewer" ? "published" : params.get("card_state") || null,
+    publication_target: params.get("publication_target") || null,
     reg_number: params.get("reg_number") || null, status: params.get("status") || null,
     date_from: params.get("reg_date") || params.get("date_from") || null,
     date_to: params.get("reg_date") || params.get("date_to") || null,

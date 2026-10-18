@@ -3,20 +3,20 @@ import { apiRequest } from "../api/client";
 import type { ContentHit } from "./content";
 
 type Batch = {items: ContentHit[]; total: number; next_cursor: string | null};
-type Feed = {key: string; data: Batch | null; loading: boolean; error: string; appendError: string; startedAt: number | null; durationMs: number | null};
+type Feed = {key: string; data: Batch | null; loading: boolean; searching: boolean; searchError: string; error: string; appendError: string; startedAt: number | null; durationMs: number | null};
 type Generation = {key: string; controller: AbortController; busy: boolean; data: Batch | null; consumed: Set<string>; pages: number};
-const empty = (key: string): Feed => ({key, data: null, loading: true, error: "", appendError: "", startedAt: null, durationMs: null});
+const empty = (key: string): Feed => ({key, data: null, loading: true, searching: true, searchError: "", error: "", appendError: "", startedAt: null, durationMs: null});
 
 /** Replace all previously loaded batches atomically on refresh; cursors never cross generations. */
 export function useDocumentFeed(body: unknown, csrfToken: string) {
   const key = JSON.stringify([body, csrfToken]);
   const [state, setState] = useState<Feed>(() => empty(key));
   const active = useRef<Generation | null>(null);
-  const request = useCallback(async (generation: Generation, cursor: string | null, refresh = false) => {
+  const request = useCallback(async (generation: Generation, cursor: string | null, refresh = false, measure = false) => {
     if (generation.busy || generation.controller.signal.aborted) return;
     generation.busy = true;
-    const started = performance.now();
-    setState(current => ({...current, loading: true, startedAt: started, error: "", appendError: ""}));
+    const started = measure ? performance.now() : null;
+    setState(current => ({...current, loading: true, ...(measure ? {searching: true, startedAt: started, searchError: ""} : {}), error: "", appendError: ""}));
     try {
       const [parameters, token] = JSON.parse(generation.key);
       const rows = new Map((refresh ? [] : generation.data?.items || []).map(hit => [hit.document.id, hit]));
@@ -38,20 +38,25 @@ export function useDocumentFeed(body: unknown, csrfToken: string) {
     } catch (failure) {
       if (active.current === generation && !generation.controller.signal.aborted) {
         const message = failure instanceof Error ? failure.message : "Не удалось загрузить документы";
-        setState(current => ({...current, ...(cursor ? {appendError: message} : {error: message})}));
+        setState(current => ({...current, ...(cursor ? {appendError: message} : {error: message}), ...(measure ? {searchError: message} : {})}));
       }
     } finally {
       generation.busy = false;
-      if (active.current === generation && !generation.controller.signal.aborted) setState(current => ({...current, loading: false, startedAt: null, durationMs: Math.max(0, performance.now() - started)}));
+      if (active.current === generation && !generation.controller.signal.aborted) setState(current => ({...current, loading: false, ...(started !== null ? {searching: false, startedAt: null, durationMs: Math.max(0, performance.now() - started)} : {})}));
     }
   }, []);
-  useEffect(() => {
+  const begin = useCallback(() => {
+    active.current?.controller.abort();
     const generation: Generation = {key, controller: new AbortController(), busy: false, data: null, consumed: new Set(), pages: 0};
     active.current = generation;
     setState(empty(key));
-    void request(generation, null);
-    return () => generation.controller.abort();
+    void request(generation, null, false, true);
+    return generation;
   }, [key, request]);
+  useEffect(() => {
+    const generation = begin();
+    return () => generation.controller.abort();
+  }, [begin]);
   const loadMore = useCallback(() => {
     const generation = active.current;
     if (generation?.key === key && generation.data?.next_cursor) void request(generation, generation.data.next_cursor);
@@ -61,5 +66,6 @@ export function useDocumentFeed(body: unknown, csrfToken: string) {
     if (generation?.key !== key || generation.busy) return;
     void request(generation, null, true);
   }, [key, request]);
-  return {...(state.key === key ? state : empty(key)), loadMore, reload};
+  const retry = useCallback(() => {begin();}, [begin]);
+  return {...(state.key === key ? state : empty(key)), loadMore, reload, retry};
 }

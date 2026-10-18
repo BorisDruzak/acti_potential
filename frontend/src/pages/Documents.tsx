@@ -5,7 +5,6 @@ import { Feedback } from "../components/Feedback";
 import { SearchStatus } from "../components/SearchStatus";
 import { DynamicForm } from "../engine/DynamicForm";
 import {
-  editableValues,
   initialValues,
   prunePendingFiles,
   type Card,
@@ -22,7 +21,7 @@ import {
 } from "../engine/schema";
 import { searchBody, type SearchScope } from "../engine/search";
 import { useAction, useData } from "../engine/useData";
-import { CardNumberAssignment } from "./NumberBook";
+import { useRegistrationNumber } from "../engine/useRegistrationNumber";
 import { DocumentContent } from "./DocumentContent";
 import { DocumentLayoutSwitch, DocumentWorkspace, useDocumentLayout } from "../components/DocumentWorkspace";
 import { DocumentResults } from "../components/DocumentResults";
@@ -34,6 +33,7 @@ import { useDocumentSelection } from "../engine/useDocumentSelection";
 import { useDocumentCollaboration } from "../engine/useDocumentCollaboration";
 import { useDocumentSchemas } from "../engine/documentPresentation";
 import { useDocumentFeed } from "../engine/useDocumentFeed";
+import { useDocumentFilterCatalog } from "../engine/documentFilterCatalog";
 import { DocumentFeedEnd } from "../components/DocumentFeedEnd";
 import { DocumentCardState, DocumentPublication, mainInformationSection, publicationSection } from "../components/DocumentPublication";
 import type { ContentTarget } from "../engine/content";
@@ -153,11 +153,14 @@ function DocumentCard({
   const canUpload = !readOnly && card.permissions.includes("upload");
   const csrfToken = auth.user?.csrf_token || "";
   const participantCreation = useParticipantCreation(card.registry_id, card.schema_version_id, csrfToken, card.id);
+  const registrationNumber = useRegistrationNumber({schema:card.schema,values,roles:auth.user?.roles||[],mode:"edit",
+    registryId:card.registry_id,documentTypeId:card.document_type_id,schemaVersionId:card.schema_version_id,
+    documentId:card.id,revision,csrfToken,locked:card.number_locked,disabled:action.busy,onValues:changeValues});
   const hasUnsavedChanges =
     editing &&
     (JSON.stringify(values) !== JSON.stringify(card.values) ||
       cardState !== (card.card_state || "draft") || JSON.stringify(targets) !== JSON.stringify(card.publication_targets || ["internal"]) ||
-      Object.keys(pendingFiles).length > 0);
+      Object.keys(pendingFiles).length > 0 || registrationNumber.busy);
   const collaboration = useDocumentCollaboration(card.id, revision, readOnly ? "viewer" : "editor", csrfToken, editing, hasUnsavedChanges, onSaved);
   const remoteChange = hasUnsavedChanges ? collaboration.remote : null;
   const blocked = conflict || !!remoteChange || collaboration.unavailable;
@@ -194,12 +197,8 @@ function DocumentCard({
           revision,
           card_state: cardState,
           publication_targets: targets,
-          values: editableValues(
-            card.schema,
-            values,
-            "edit",
-            auth.user?.roles || [],
-          ),
+          values: registrationNumber.serialize(),
+          ...(registrationNumber.numberEntryId ? {number_entry_id:registrationNumber.numberEntryId} : {}),
           ...(files.length ? { files } : {}),
         },
         60000,
@@ -209,7 +208,7 @@ function DocumentCard({
       setEditing(false);
       onSaved();
     } catch (failure) {
-      if (failure instanceof ApiError && failure.status === 409)
+      if (failure instanceof ApiError && failure.code === "revision_conflict")
         setConflict(true);
       throw failure;
     }
@@ -273,7 +272,6 @@ function DocumentCard({
         {collaboration.state.participants.length > 0 && <p>Сейчас в карточке: {collaboration.state.participants.map(person => `${person.display_name}${person.editing ? " (редактирует)" : " (просматривает)"}`).join(", ")}</p>}
       </div>}
       {collaboration.unavailable && <div className="error" role="alert">Документ удалён или доступ к нему изменён. Обновите список документов.</div>}
-      {!readOnly && card.schema.sections.some(section => section.fields.some(field => field.number_series_id && !card.values[field.key])) && <CardNumberAssignment card={card} onSaved={onSaved}/>}
       {(conflict || remoteChange) && (
         <div className="error" role="alert">
           <p>
@@ -299,13 +297,14 @@ function DocumentCard({
           onSubmit={(event) => {
             event.preventDefault();
             if (participantCreation.pending.current > 0) return;
-            if (!blocked) void action.run(save);
+            if (!blocked && !registrationNumber.pending.current) void action.run(save);
           }}
         >
           <DynamicForm
             sectionContent={{...(mainKey ? {[mainKey]: lifecycle} : {}), ...(publicationKey ? {[publicationKey]: publication} : {})}}
             navigationPlacement="side"
             schema={card.schema}
+            fieldContent={editing && canEdit ? registrationNumber.fieldContent : undefined}
             values={values}
             onChange={changeValues}
             mode={editing ? "edit" : "view"}
@@ -336,7 +335,7 @@ function DocumentCard({
                     key="save-card"
                     type="submit"
                     className="primary"
-                    disabled={action.busy || blocked || participantCreation.busy}
+                    disabled={action.busy || blocked || participantCreation.busy || registrationNumber.busy}
                   >
                     Сохранить карточку
                   </button>
@@ -345,6 +344,7 @@ function DocumentCard({
                     type="button"
                     onClick={() => {
                       setValues(card.values);
+                      registrationNumber.reset();
                       setCardState(card.card_state || "draft");
                       setTargets(card.publication_targets || ["internal"]);
                       setPendingFiles({});
@@ -587,11 +587,14 @@ function NewDocumentForm({
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
   const [cardState, setCardState] = useState<CardState>("draft");
   const [targets, setTargets] = useState<PublicationTarget[]>(["internal"]);
+  const registrationNumber=useRegistrationNumber({schema:version.schema,values,roles,mode:"create",
+    registryId:registry.id,documentTypeId:version.document_type_id,schemaVersionId:version.id,csrfToken,
+    disabled:action.busy,onValues:changeValues});
   const publicationKey = publicationSection(version.schema);
   const mainKey = mainInformationSection(version.schema);
   const lifecycle = <DocumentCardState state={cardState} onChange={setCardState}/>;
   const publication = <DocumentPublication targets={targets} onTargets={setTargets}/>;
-  const dirty = JSON.stringify(values) !== JSON.stringify(initialValues(version.schema)) || cardState !== "draft" || JSON.stringify(targets) !== '["internal"]' || Object.keys(pendingFiles).length > 0;
+  const dirty = JSON.stringify(values) !== JSON.stringify(initialValues(version.schema)) || cardState !== "draft" || JSON.stringify(targets) !== '["internal"]' || Object.keys(pendingFiles).length > 0 || registrationNumber.busy;
   useEffect(() => {onDirtyChange(dirty);}, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
   function changeValues(next: Values) {
@@ -618,7 +621,8 @@ function NewDocumentForm({
         registry_id: registry.id,
         document_type_id: version.document_type_id,
         schema_version_id: version.id,
-        values: editableValues(version.schema, values, "create", roles),
+        values: registrationNumber.serialize(),
+        ...(registrationNumber.numberEntryId ? {number_entry_id:registrationNumber.numberEntryId} : {}),
         ...(files.length ? { files } : {}),
       },
       60000,
@@ -630,7 +634,7 @@ function NewDocumentForm({
       className="panel document-card-form"
       onSubmit={(event) => {
         event.preventDefault();
-        if (participantCreation.pending.current > 0) return;
+        if (participantCreation.pending.current > 0 || registrationNumber.pending.current) return;
         if (onBeforeCreate()) void action.run(create, "Документ создан");
       }}
     >
@@ -638,6 +642,7 @@ function NewDocumentForm({
         navigationPlacement="side"
         sectionContent={{...(mainKey ? {[mainKey]: lifecycle} : {}), ...(publicationKey ? {[publicationKey]: publication} : {})}}
         schema={version.schema}
+        fieldContent={registrationNumber.fieldContent}
         values={values}
         onChange={changeValues}
         mode="create"
@@ -673,7 +678,7 @@ function NewDocumentForm({
         </div>
       ))}
       <Feedback {...action} />
-      <button className="primary" disabled={action.busy || participantCreation.busy}>
+      <button className="primary" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>
         {action.busy ? "Сохранение…" : "Создать документ"}
       </button>
     </form>
@@ -725,6 +730,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   const [number, setNumber] = useState(() => initial.get("reg_number") || "");
   const [registrationDate, setRegistrationDate] = useState(() => initial.get("reg_date") || "");
   const [status, setStatus] = useState(() => initial.get("card_state") || "");
+  const [publicationTarget, setPublicationTarget] = useState(() => initial.get("publication_target") || "");
   const [from, setFrom] = useState(() => initial.has("reg_date") ? "" : initial.get("date_from") || "");
   const [to, setTo] = useState(() => initial.has("reg_date") ? "" : initial.get("date_to") || "");
   const [typeId, setTypeId] = useState(() => initial.get("document_type_id") || "");
@@ -779,11 +785,9 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   const publishedSchema = versions.data?.find(item => item.state === "published")?.schema;
   const configuredColumns = new URLSearchParams(search).get("document_type_id") === typeId ? publishedSchema?.list_view?.columns || [] : [];
   const exportColumns = configuredColumns.filter(column => publishedSchema?.sections.some(section => section.fields.some(field => field.key === column.key && field.exportable)));
-  const filterFields =
-    publishedSchema?.sections.flatMap((section) => section.fields)
-      .filter(
-        (field) => field.filterable && !field.visible_when && !["file", "group"].includes(field.type),
-      ) || [];
+  const permittedTypeIds = [...new Set((registries.data || []).filter(item => item.permissions.includes("read") && (!registryId || item.id === registryId)).flatMap(item => item.document_type_ids || []))];
+  const filterCatalog = useDocumentFilterCatalog(typeId ? permittedTypeIds.filter(id => id === typeId) : permittedTypeIds, types.data || [], auth.user?.id || "anonymous", auth.user?.roles || [], readOnly);
+  const filterFields = filterCatalog.fields;
   const applied = searchBody(search, registryId, readOnly ? "viewer" : "editor");
   const list = useDocumentFeed(applied, auth.user?.csrf_token || "");
   const resultDocuments = (list.data?.items || []).map(result => "document" in result ? result.document : result as unknown as Card);
@@ -840,6 +844,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   function changeRegistry(id: string) {
     setRegistryId(id); setSearch(""); setQ(""); setScope("all"); setFuzzy(true); setContentTarget(undefined);
     setNumber(""); setRegistrationDate(""); setStatus(""); setFrom(""); setTo(""); setSort("auto"); setDirection("desc");
+    setPublicationTarget("");
     setTypeId(""); setFieldFilters([]);
   }
   function openFullResult(id: string) {if (openSearchResult(id)) chooseLayout("card");}
@@ -873,6 +878,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     if (number) params.set("reg_number", number);
     if (registrationDate) params.set("reg_date", registrationDate);
     if (status) params.set("card_state", status);
+    if (publicationTarget) params.set("publication_target", publicationTarget);
     if (from) params.set("date_from", from);
     if (to) params.set("date_to", to);
     if (typeId) params.set("document_type_id", typeId);
@@ -885,7 +891,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     if (legalStatus) params.set("status", legalStatus);
 
     const nextSearch = "&" + params.toString();
-    if (nextSearch === search) list.reload();
+    if (nextSearch === search) list.retry();
     setSearch(nextSearch);
     startSearchTiming();
   }
@@ -899,6 +905,8 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     setQ(params.get("q") || params.get("text") || ""); setNumber(params.get("reg_number") || ""); setRegistrationDate(params.get("reg_date") || ""); setStatus(params.get("card_state") || ""); setFrom(params.has("reg_date") ? "" : params.get("date_from") || ""); setTo(params.has("reg_date") ? "" : params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "auto"); setDirection(params.get("direction") || "desc");
     setScope((params.get("scope") as SearchScope) || "all"); setVersionScope(params.get("version_scope") || "current"); setFuzzy(params.get("fuzzy") !== "false");
     setFieldFilters(parseFieldFilters(params.get("filters")));
+    setPublicationTarget(params.get("publication_target") || "");
+    if ("&" + params.toString() === search) list.retry();
     setSearch("&" + params.toString());
     startSearchTiming();
   }
@@ -1014,7 +1022,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
             </label>
             <label>Где искать<select value={scope} onChange={event => setScope(event.target.value as SearchScope)}><option value="all">Везде</option><option value="metadata">Реквизиты</option><option value="content">Содержание документов</option></select></label>
             <div className="button-row"><button className="primary">Найти</button><button type="button" onClick={() => {setQ(""); const next = new URLSearchParams(search); next.delete("q"); next.delete("text"); setSearch("&" + next.toString()); }}>Очистить запрос</button><button type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>Фильтры</button></div>
-            <SearchStatus loading={list.loading} startedAt={list.startedAt} durationMs={list.durationMs} error={list.error}/>
+            <SearchStatus loading={list.searching} startedAt={list.startedAt} durationMs={list.durationMs} error={list.searchError}/>
             <div className="search-quick-filters">
             <label>
               Регистрационный номер
@@ -1076,8 +1084,10 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
             <details open={advanced} onToggle={event => setAdvanced(event.currentTarget.open)}><summary>Расширенные фильтры</summary><div className="filters">
             <label className="checkbox-label"><input type="checkbox" checked={fuzzy} onChange={event => setFuzzy(event.target.checked)}/>Учитывать опечатки</label>
             <label>Версии файлов<select value={versionScope} onChange={event => setVersionScope(event.target.value)}><option value="current">Актуальные</option><option value="all">Все доступные</option></select></label>
+            <label>База публикации карточки<select value={publicationTarget} onChange={event => setPublicationTarget(event.target.value)}><option value="">Все доступные</option><option value="internal">Внутренняя база</option><option value="shared">Общая база</option></select></label>
+            <Feedback loading={filterCatalog.loading} error={filterCatalog.error}/>
             {(filterFields.length > 0 || fieldFilters.length > 0) && <DocumentFieldFilters filters={fieldFilters} fields={filterFields} onChange={setFieldFilters}
-              roles={auth.user?.roles || []} registryId={registryId} references={references.data || []} readOnly={readOnly}/>}
+              roles={auth.user?.roles || []} registryId={registryId} registryNames={Object.fromEntries((registries.data||[]).map(registry=>[registry.id,registry.name]))} references={references.data || []} readOnly={readOnly}/>}
             </div></details>
           </form>
           {!!applied.query && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
@@ -1092,7 +1102,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
           </details>
             </div>
           </details>
-          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "card_state", "date_from", "date_to", "document_type_id"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус правового акта", card_state: "Состояние карточки", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : key === "card_state" ? value === "draft" ? "Черновик" : "Опубликован" : value} ×</button>)}</div>
+          <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "card_state", "publication_target", "date_from", "date_to", "document_type_id"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус правового акта", card_state: "Состояние карточки", publication_target: "База публикации", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : key === "publication_target" ? value === "shared" ? "Общая база" : "Внутренняя база" : key === "card_state" ? value === "draft" ? "Черновик" : "Опубликован" : value} ×</button>)}</div>
           <div className="active-search-filters" aria-label="Активные условия полей">{parseFieldFilters(new URLSearchParams(search).get("filters")).map((filter, index) => <button type="button" key={filter.key} onClick={() => {
             const params = new URLSearchParams(search); const remaining = parseFieldFilters(params.get("filters")).filter(item => item.key !== filter.key);
             if (remaining.length) params.set("filters", JSON.stringify(serializeFieldFilters(remaining))); else params.delete("filters"); loadView(params.toString());
@@ -1143,7 +1153,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
                 <option value="reg_date">Дата регистрации</option>
                 <option value="reg_number">Номер</option>
                 <option value="title">Название</option>
-                {filterFields.filter(field => !field.system && field.type !== "multi_reference").map(field => <option key={field.key} value={`custom:${field.key}`}>{field.label}</option>)}
+                {filterFields.filter(field => !field.system && field.type !== "multi_reference" && !field.key.startsWith("schema:")).map(field => <option key={field.key} value={`custom:${field.key}`}>{field.label}</option>)}
               </select>
             </label>
             <label>Направление сортировки<select value={direction}  onChange={event => {setDirection(event.target.value); const next = new URLSearchParams(search); next.set("direction", event.target.value); setSearch("&" + next.toString()); }}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
@@ -1166,7 +1176,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
               Документов по выбранным условиям пока нет.
             </div>
           )}
-          {list.error && <button onClick={list.reload}>Повторить поиск</button>}
+          {list.error && <button onClick={list.retry}>Повторить поиск</button>}
           {(list.data || list.loading) && <DocumentFeedEnd enabled={layout.mode !== "card"} hasMore={!!list.data?.next_cursor} loading={list.loading} error={list.appendError} onLoad={list.loadMore}/>}
             </>}/>
         </>

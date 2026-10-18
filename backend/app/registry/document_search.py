@@ -27,6 +27,7 @@ class SearchParameters(BaseModel):
     date_to: date | None = None
     status: str | None = Field(None, max_length=100)
     card_state: Literal["draft", "published"] | None = None
+    publication_target: Literal["internal", "shared"] | None = None
     filters: str | None = Field(None, max_length=8000)
     sort: str = Field("updated_at", max_length=110)
     direction: Literal["asc", "desc"] = "desc"
@@ -174,6 +175,8 @@ def search_query(session, actor, params):
     query = select(Document).where(accessible_document_clause(session, actor, params.mode))
     if params.card_state:
         query = query.where(Document.card_state == params.card_state)
+    if params.publication_target:
+        query = query.where(Document.publication_targets.contains([params.publication_target]))
     if params.registry_id:
         query = query.where(Document.registry_id == params.registry_id)
     if params.document_type_id:
@@ -204,7 +207,15 @@ def search_query(session, actor, params):
         if not isinstance(extra, dict) or len(extra) > 20:
             fail(422, "invalid_filter", "Неверный фильтр")
         for key, value in extra.items():
+            schema_id = None
+            if key.startswith("schema:"):
+                try:
+                    _, raw_schema_id, key = key.split(":", 2)
+                    schema_id = UUID(raw_schema_id)
+                except (ValueError, AttributeError):
+                    fail(422, "invalid_filter", "Неверная версия схемы фильтра")
             options = [(sid, f) for sid, f in fields if f["key"] == key
+                       and (schema_id is None or sid == schema_id)
                        and f.get("filterable") and not f.get("visible_when")]
             if not options:
                 fail(422, "invalid_filter", "Поле недоступно для фильтрации")

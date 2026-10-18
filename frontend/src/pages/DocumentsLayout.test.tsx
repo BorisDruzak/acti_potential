@@ -49,6 +49,54 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
 const mode = (name: string) => screen.getByRole("radio", {name});
 const firstRow = () => screen.findByRole("row", {name: /Выбрать документ «Альфа»/});
 
+it("allows correcting a duplicate manual registration number without treating it as a stale document revision", async () => {
+ const fetch=setup(),base=fetch.getMockImplementation()!;let writes=0;
+ const schema: FormSchema={sections:[{key:"main",title:"Основное",fields:[
+  {key:"caption",label:"Наименование",type:"text",system:"title",editable:true},
+  {key:"reg_number",label:"Регистрационный номер",type:"text",system:"reg_number",editable:true},
+ ]}]};
+ fetch.mockImplementation(async(url,init)=>{
+  if(/\/documents\/a(?:\?|$)/.test(url)){
+   if(init?.method==="PUT"&&++writes===1)return new Response(JSON.stringify({error:{code:"number_conflict",message:"Регистрационный номер уже занят"}}),{status:409});
+   return new Response(JSON.stringify({id:"a",registry_id:"r",document_type_id:"type",schema_version_id:"schema",revision:1,current_version:0,values:{caption:"Альфа",reg_number:"FREE-1"},schema,permissions:["read","update"],files:[]}));
+  }
+  return base(url,init);
+ });
+ fireEvent.click(await firstRow());fireEvent.click(await screen.findByRole("button",{name:"Редактировать карточку"}));
+ const form=document.querySelector(".document-card-form")as HTMLFormElement;
+ fireEvent.change(within(form).getByLabelText("Регистрационный номер"),{target:{value:"TAKEN"}});
+ fireEvent.submit(form);await screen.findByText("Регистрационный номер уже занят");
+ fireEvent.change(within(form).getByLabelText("Регистрационный номер"),{target:{value:"FREE-2"}});
+ fireEvent.submit(form);await waitFor(()=>expect(writes).toBe(2));
+ const requests=fetch.mock.calls.filter(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT");
+ expect(JSON.parse(String(requests[1][1]?.body)).values.reg_number).toBe("FREE-2");
+});
+
+it("reserves a registration number inside the unsaved form and attaches its journal entry on creation", async () => {
+ const fetch=setup(false,false,"editor",true),base=fetch.getMockImplementation()!;
+ const schema: FormSchema={sections:[{key:"main",title:"Основное",fields:[
+  {key:"caption",label:"Наименование",type:"text",system:"title",editable:true},
+  {key:"reg_number",label:"Регистрационный номер",type:"text",system:"reg_number",editable:true},
+ ]}]};
+ fetch.mockImplementation(async(url,init)=>{
+  if(url.includes("/document-types/type/versions"))return new Response(JSON.stringify([{id:"schema",document_type_id:"type",version:1,state:"published",schema}]));
+  if(url.endsWith("/registries/r/next-number"))return new Response(JSON.stringify({number:"42",number_entry_id:"entry42",series_id:"series"}));
+  return base(url,init);
+ });
+ const toolbar=await screen.findByRole("group",{name:"Вид и сортировка документов"});
+ fireEvent.click(await within(toolbar).findByRole("button",{name:"Создать документ"}));
+ const creation=document.querySelector(".document-create")as HTMLElement;
+ fireEvent.change(within(creation).getByLabelText("Тип документа"),{target:{value:"type"}});
+ await within(creation).findByLabelText("Наименование");
+ fireEvent.change(within(creation).getByLabelText("Наименование"),{target:{value:"Сохранить черновик"}});
+ fireEvent.click(within(creation).getByRole("button",{name:"Присвоить номер"}));
+ await waitFor(()=>expect((within(creation).getByLabelText("Регистрационный номер")as HTMLInputElement).value).toBe("42"));
+ fireEvent.submit(creation.querySelector("form")!);
+ await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>url.endsWith("/documents")&&init?.method==="POST")).toBe(true));
+ const body=JSON.parse(String(fetch.mock.calls.find(([url,init])=>url.endsWith("/documents")&&init?.method==="POST")![1]?.body));
+ expect(body).toMatchObject({number_entry_id:"entry42",values:{reg_number:"42",caption:"Сохранить черновик"},card_state:"draft"});
+});
+
 it.each([["edit", false], ["create", false], ["edit", true], ["create", true]] as const)("waits for every inline participant before submitting the %s document and includes the new selections (simultaneous=%s)", async (operation, simultaneous) => {
   const fetch = setup(false, false, "editor", true);
   const base = fetch.getMockImplementation()!;
@@ -83,11 +131,13 @@ it.each([["edit", false], ["create", false], ["edit", true], ["create", true]] a
     form = creation.querySelector(".document-card-form") as HTMLFormElement;
   }
   fireEvent.change(within(form).getByLabelText("Наименование"), {target: {value: "Несохранённое название"}});
-  await waitFor(() => expect(within(form).getAllByRole("checkbox", {name: "Уже в справочнике"})).toHaveLength(2));
   for (const [fieldLabel, name] of [["Исполнители", "Новый исполнитель"], ["Подписанты", "Новый подписант"]]) {
-    fireEvent.change(within(form).getByRole("searchbox", {name: `Поиск: ${fieldLabel}`}), {target: {value: name}});
+    const input = within(form).getByRole("combobox", {name: fieldLabel});
+    fireEvent.focus(input);
+    await screen.findByRole("option", {name: "Уже в справочнике"});
+    fireEvent.change(input, {target: {value: name}});
     act(() => {
-      within(form).getByRole<HTMLButtonElement>("button", {name: `Создать «${name}»`}).click();
+      screen.getByRole<HTMLButtonElement>("button", {name: `Создать «${name}»`}).click();
       form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
     });
   }
@@ -101,14 +151,14 @@ it.each([["edit", false], ["create", false], ["edit", true], ["create", true]] a
     await act(async () => { resolveExecutor(); resolveSigner(); });
   } else {
     await act(async () => resolveExecutor());
-    expect(within(form).getByRole<HTMLInputElement>("checkbox", {name: "Новый исполнитель"}).checked).toBe(true);
+    expect(within(form).getByRole("button", {name: "Убрать Новый исполнитель"})).toBeTruthy();
     expect(submit.disabled).toBe(true);
     fireEvent.submit(form);
     expect(saveCalls()).toHaveLength(0);
     await act(async () => resolveSigner());
   }
-  expect(within(form).getByRole<HTMLInputElement>("checkbox", {name: "Новый исполнитель"}).checked).toBe(true);
-  expect(within(form).getByRole<HTMLInputElement>("checkbox", {name: "Новый подписант"}).checked).toBe(true);
+  expect(within(form).getByRole("button", {name: "Убрать Новый исполнитель"})).toBeTruthy();
+  expect(within(form).getByRole("button", {name: "Убрать Новый подписант"})).toBeTruthy();
   expect(submit.disabled).toBe(false);
   fireEvent.click(submit);
   await waitFor(() => expect(saveCalls()).toHaveLength(1));
@@ -132,11 +182,13 @@ it("creates a participant in the actual card registry with CSRF while all regist
   fireEvent.click(await firstRow());
   fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
   fireEvent.change(screen.getByLabelText("Наименование"), {target: {value: "Несохранённая карточка"}});
-  await screen.findByRole("checkbox", {name: "Уже выбранный"});
-  fireEvent.change(screen.getByRole("searchbox", {name: "Поиск: Исполнители"}), {target: {value: "Новый участник"}});
+  await screen.findByRole("button", {name: "Убрать Уже выбранный"});
+  const participantInput = screen.getByRole("combobox", {name: "Исполнители"});
+  fireEvent.focus(participantInput);
+  fireEvent.change(participantInput, {target: {value: "Новый участник"}});
   fireEvent.click(screen.getByRole("button", {name: "Создать «Новый участник»"}));
-  expect((await screen.findByRole<HTMLInputElement>("checkbox", {name: "Новый участник"})).checked).toBe(true);
-  expect(screen.getByRole<HTMLInputElement>("checkbox", {name: "Уже выбранный"}).checked).toBe(true);
+  expect(await screen.findByRole("button", {name: "Убрать Новый участник"})).toBeTruthy();
+  expect(screen.getByRole("button", {name: "Убрать Уже выбранный"})).toBeTruthy();
   expect(screen.getByLabelText<HTMLInputElement>("Наименование").value).toBe("Несохранённая карточка");
   expect(screen.getByRole<HTMLSelectElement>("combobox", {name: "Реестр"}).value).toBe("");
   const [, request] = fetch.mock.calls.find(([url]) => url.endsWith("/registries/r/people"))!;
@@ -167,8 +219,9 @@ it("uses each selected card's registry references while the result filter stays 
     fireEvent.click(await screen.findByRole("row", {name: new RegExp(`Выбрать документ «${title}»`)}));
     await screen.findByRole("heading", {name: title, level: 1});
     fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
-    expect(await screen.findByRole("checkbox", {name: expected})).toBeTruthy();
-    expect(screen.queryByRole("checkbox", {name: other})).toBeNull();
+    fireEvent.focus(screen.getByRole("combobox", {name: "Исполнитель"}));
+    expect(await screen.findByRole("option", {name: expected})).toBeTruthy();
+    expect(screen.queryByRole("option", {name: other})).toBeNull();
     expect((screen.getByRole("combobox", {name: "Реестр"}) as HTMLSelectElement).value).toBe("");
     fireEvent.click(screen.getByRole("button", {name: "Отмена изменений"}));
   }

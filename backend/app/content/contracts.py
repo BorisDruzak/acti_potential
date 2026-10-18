@@ -21,8 +21,9 @@ class SearchInput(BaseModel):
     date_to: date | None = None
     status: str | None = Field(None, max_length=100)
     card_state: Literal["draft", "published"] | None = None
+    publication_target: Literal["internal", "shared"] | None = None
     reg_number: str | None = Field(None, max_length=255)
-    filters: dict = Field(default_factory=dict, max_length=20)
+    filters: dict = Field(default_factory=dict, max_length=20, description="AND predicates by field key; schema:<published-schema-UUID>:<field-key> restricts a predicate to its original schema version.")
     fuzzy: bool = True
     sort: str = Field("auto", max_length=110)
     direction: Literal["asc", "desc"] = "desc"
@@ -49,6 +50,7 @@ class SearchInput(BaseModel):
             date_to=self.date_to,
             status=self.status,
             card_state=self.card_state,
+            publication_target=self.publication_target,
             reg_number=self.reg_number,
             filters=json.dumps(self.filters),
             mode=self.mode,

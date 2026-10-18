@@ -6087,6 +6087,21 @@
             ],
             "title": "Card State"
           },
+          "publication_target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "internal",
+                  "shared"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Target"
+          },
           "reg_number": {
             "anyOf": [
               {
@@ -6103,7 +6118,8 @@
             "additionalProperties": true,
             "type": "object",
             "maxProperties": 20,
-            "title": "Filters"
+            "title": "Filters",
+            "description": "AND predicates by field key; schema:<published-schema-UUID>:<field-key> restricts a predicate to its original schema version."
           },
           "fuzzy": {
             "type": "boolean",

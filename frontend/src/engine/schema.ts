@@ -98,6 +98,8 @@ export type Card = {
   publication_targets?: PublicationTarget[];
   revision: number;
   current_version: number;
+  number_entry_id?: string | null;
+  number_locked?: boolean;
   values: Values;
   display_values?: Values;
   schema: FormSchema;
