@@ -175,6 +175,15 @@ it("viewer cannot open administration by typing its route", async () => {
   await screen.findByRole("heading", { name: "Документы" });
   await waitFor(() => expect(window.location.pathname).toBe("/view"));
   expect(screen.queryByRole("button", { name: "Типы документов" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Справочники" })).toBeNull();
+});
+it("opens references from the editor workspace without exposing administration", async () => {
+  window.history.replaceState(null, "", "/work");
+  const fetch=setup(["editor"]);
+  fireEvent.click(await screen.findByRole("button", {name:"Справочники"}));
+  await screen.findByRole("heading", {name:"Справочники"});
+  expect(screen.queryByRole("button", {name:"Пользователи"})).toBeNull();
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url==="/api/v1/references?manage=true")).toBe(true));
 });
 it("opens an editable card without submitting and retains direct controls after cancellation", async () => {
   window.history.replaceState(null, "", "/work");

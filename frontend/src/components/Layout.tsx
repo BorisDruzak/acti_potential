@@ -96,7 +96,7 @@ export function Layout({
           "Обработка содержания",
           "Мой пароль",
         ]
-      : ["Документы", "Моя работа", "Реестр номеров", "Мой пароль"];
+      : ["Документы", "Моя работа", "Реестр номеров", ...(space === "work" ? ["Справочники"] : []), "Мой пароль"];
   async function logout() {
     if (!window.dispatchEvent(new Event("acti:before-workspace-navigation", {cancelable: true}))) return;
     setBusy(true);

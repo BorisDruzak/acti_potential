@@ -8,7 +8,7 @@ import {
   type SchemaVersion,
 } from "../engine/schema";
 import { useAction, useData } from "../engine/useData";
-import { ReferenceItems } from "./ReferenceItems";
+export { ReferencesWorkspace as ReferencesAdmin } from "./ReferencesWorkspace";
 
 function TypeSettings({
   type,
@@ -482,117 +482,6 @@ export function RegistriesAdmin() {
           </button>
         ))}
       </div>
-    </>
-  );
-}
-
-export function ReferencesAdmin() {
-  const references = useData<ReferenceSet[]>("/references");
-  const registries = useData<Registry[]>("/registries");
-  const [selected, setSelected] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [registryId, setRegistryId] = useState("");
-  const action = useAction();
-  return (
-    <>
-      <div className="toolbar">
-        <h1>Справочники</h1>
-        <button className="primary" onClick={() => setCreating(true)}>
-          Создать справочник
-        </button>
-      </div>
-      <p>Общие и отдельные для каждого реестра наборы значений.</p>
-      <Feedback
-        error={references.error || registries.error || action.error}
-        loading={references.loading}
-      />
-      {creating && (
-        <form
-          className="panel compact-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!registryId) return;
-            void action.run(async () => {
-              const created = await action.request<ReferenceSet>(
-                "/references",
-                "POST",
-                { name, code, registry_id: registryId === "global" ? null : registryId },
-              );
-              setSelected(created.id);
-              setCreating(false);
-              references.reload();
-            });
-          }}
-        >
-          <label>
-            Название справочника
-            <input
-              required
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <label>
-            Код справочника
-            <input
-              required
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-            />
-          </label>
-          <label>
-            Область справочника
-            <select
-              required
-              value={registryId}
-              onChange={(event) => setRegistryId(event.target.value)}
-            >
-              <option value="" disabled>Выберите область</option>
-              <option value="global">Общий для всех реестров</option>
-              {registries.data?.map((registry) => (
-                <option key={registry.id} value={registry.id}>
-                  {registry.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="button-row">
-            <button className="primary" disabled={action.busy}>
-              Создать справочник
-            </button>
-            <button type="button" onClick={() => setCreating(false)}>
-              Отмена
-            </button>
-          </div>
-        </form>
-      )}
-      <label className="picker">
-        Справочник
-        <select
-          value={selected}
-          onChange={(event) => setSelected(event.target.value)}
-        >
-          <option value="">Выберите справочник</option>
-          {references.data?.map((reference) => (
-            <option key={reference.id} value={reference.id}>
-              {reference.name} ·{" "}
-              {registries.data?.find(
-                (registry) => registry.id === reference.registry_id,
-              )?.name || "общий"}
-            </option>
-          ))}
-        </select>
-      </label>
-      {references.data?.find((reference) => reference.id === selected) && (
-        <ReferenceItems
-          key={selected}
-          reference={references.data.find(
-            (reference) => reference.id === selected,
-          )!}
-        />
-      )}
     </>
   );
 }

@@ -71,6 +71,7 @@ export function Workspace() {
     content = <Processes admin={space === "admin"} readOnly={space === "view"}/>;
   else if (section === "Серии номеров" || section === "Реестр номеров")
     content = <NumberBook admin={space === "admin"} readOnly={space === "view"} />;
+  else if (section === "Справочники" && space === "work") content = <ReferencesAdmin />;
   else if (space !== "admin")
     content = <Documents key={space} readOnly={space === "view"} />;
   else if (section === "Реестры") content = <RegistriesAdmin />;

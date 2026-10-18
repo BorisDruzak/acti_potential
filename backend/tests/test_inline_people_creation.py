@@ -222,11 +222,11 @@ def test_document_acl_update_is_required(client, factory, people_card):
     assert request_person(client, people_card, existing=True).status_code == 403
 
 
-def test_admin_reference_endpoint_remains_admin_only(client, factory, people_card):
+def test_editor_can_maintain_the_registry_reference_directly(client, factory, people_card):
     set_role(factory, people_card, "editor")
     result = client.post(f"/api/v1/references/{people_card['books']['executors']}/items",
                          json={"label": "Synthetic Person"}, headers=people_card["headers"])
-    assert result.status_code == 403
+    assert result.status_code == 201
 
 
 def test_scoped_service_actor_cannot_inherit_human_people_creation(client, people_card):

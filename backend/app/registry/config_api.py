@@ -26,6 +26,11 @@ from app.registry.models import (
 )
 from app.registry.policy import accessible_document_clause, permissions_for, redact_schema
 from app.registry.presentation import configuration_schema, configuration_text
+from app.registry.reference_management import (
+    can_manage_reference,
+    editor_item_values,
+    require_reference_manager,
+)
 from app.registry.validation import field_map, validate_schema
 
 router = APIRouter()
@@ -105,6 +110,7 @@ class ReferenceOutput(BaseModel):
     name: str
     description: str
     registry_id: UUID | None
+    editable: bool = False
 
 
 class ItemInput(Input):
@@ -129,6 +135,11 @@ class ItemPatch(Input):
     parent_id: UUID | None = None
     valid_from: date | None = None
     valid_until: date | None = None
+
+
+class ReferenceCreate(ReferenceInput):
+    code: Code | None = None
+    initial_items: list[ItemInput] = Field(default_factory=list, max_length=500)
 
 
 class ItemOutput(BaseModel):
@@ -256,13 +267,14 @@ def _type_output(row):
     return {"id": row.id, "code": row.code, "name": configuration_text(row.name), "description": configuration_text(row.description)}
 
 
-def _reference_output(row):
+def _reference_output(row, session=None, actor=None):
     return {
         "id": row.id,
         "code": row.code,
         "name": configuration_text(row.name),
         "registry_id": row.registry_id,
         "description": configuration_text(row.description),
+        "editable": bool(actor and can_manage_reference(session, actor, row.registry_id)),
     }
 
 
@@ -316,6 +328,9 @@ def _require_reference_read(session, actor, reference_id, mode=None):
     if is_archived(session, "reference_set", reference_id):
         fail(404, "not_found", "Объект не найден")
     allowed = _readable_reference_ids(session, actor, mode)
+    book = session.get(ReferenceSet, reference_id)
+    if mode != "viewer" and book and can_manage_reference(session, actor, book.registry_id):
+        return
     if allowed is not None and reference_id not in allowed:
         fail(404, "not_found", "Объект не найден")
 
@@ -668,30 +683,49 @@ def publish_schema(
 @router.get("/references", response_model=list[ReferenceOutput])
 def list_references(
     mode: Mode | None = None,
+    manage: bool = False,
     session=Depends(db_session, scope="function"),
     actor=Depends(current_actor),
 ):
+    if manage and not set(actor.roles) & {"admin", "editor"}:
+        fail(403, "forbidden", "Недостаточно прав")
     allowed = _readable_reference_ids(session, actor, mode)
     return [
-        _reference_output(row)
+        _reference_output(row, session, actor)
         for row in session.scalars(select(ReferenceSet).where(configuration_active_clause(ReferenceSet, "reference_set")).order_by(ReferenceSet.name))
-        if allowed is None or row.id in allowed
+        if allowed is None or row.id in allowed or (manage and can_manage_reference(session, actor, row.registry_id))
     ]
 
 
 @router.post("/references", response_model=ReferenceOutput, status_code=201)
 def create_reference(
-    data: ReferenceInput,
+    data: ReferenceCreate,
     request: Request,
     session=Depends(db_session, scope="function"),
-    actor=Depends(current_admin),
+    actor=Depends(current_actor),
 ):
+    require_reference_manager(session, actor, data.registry_id)
+    if not _is_admin(actor) and data.code is not None:
+        fail(403, "forbidden", "Технический код справочника назначается автоматически")
     if data.registry_id is not None:
         _get(session, Registry, data.registry_id)
-    row = ReferenceSet(**data.model_dump())
+    row = ReferenceSet(**{**data.model_dump(exclude={"initial_items", "code"}), "code": data.code or "ref_" + uuid4().hex})
     session.add(row)
+    _flush(session)
+    from app.registry.references import validate_item
+
+    for entry in data.initial_items:
+        values = editor_item_values(actor, row, entry)
+        item = ReferenceItem(reference_set_id=row.id, **{
+            "item_metadata" if key == "metadata" else key: value for key, value in values.items()
+        })
+        validate_item(session, item)
+        session.add(item)
+        _flush(session)
+        emit(session, request, actor, "reference.item.created", "reference_item", item.id,
+             {"reference_set_id": str(row.id)})
     _emit(session, request, actor, "reference.created", "reference", row)
-    return _reference_output(row)
+    return _reference_output(row, session, actor)
 
 
 @router.patch("/references/{reference_id}", response_model=ReferenceOutput)
@@ -700,9 +734,12 @@ def update_reference(
     data: ReferencePatch,
     request: Request,
     session=Depends(db_session, scope="function"),
-    actor=Depends(current_admin),
+    actor=Depends(current_actor),
 ):
     row = _get(session, ReferenceSet, reference_id, lock=True)
+    require_reference_manager(session, actor, row.registry_id)
+    if not _is_admin(actor) and "code" in data.model_fields_set:
+        fail(403, "forbidden", "Технические свойства изменяет администратор")
     for key, value in data.model_dump(exclude_unset=True).items():
         if value is None:
             fail(422, "invalid_configuration", "Значение не может быть пустым")
@@ -716,7 +753,7 @@ def update_reference(
                     fail(409, "reference_code_in_use", "Код используется опубликованной формой")
         setattr(row, key, value)
     _emit(session, request, actor, "reference.updated", "reference", row)
-    return _reference_output(row)
+    return _reference_output(row, session, actor)
 
 
 def _item_output(row, actor, mode=None, reference_code=None):
@@ -788,14 +825,15 @@ def create_item(
     data: ItemInput,
     request: Request,
     session=Depends(db_session, scope="function"),
-    actor=Depends(current_admin),
+    actor=Depends(current_actor),
 ):
-    _get(session, ReferenceSet, reference_id, lock=True)
+    book = _get(session, ReferenceSet, reference_id, lock=True)
+    require_reference_manager(session, actor, book.registry_id)
     row = ReferenceItem(
         reference_set_id=reference_id,
         **{
             ("item_metadata" if key == "metadata" else key): value
-            for key, value in data.model_dump().items()
+            for key, value in editor_item_values(actor, book, data).items()
         },
     )
     from app.registry.references import validate_item
@@ -812,7 +850,7 @@ def create_item(
         row.id,
         {"reference_set_id": str(reference_id)},
     )
-    return _item_output(row, actor)
+    return _item_output(row, actor, reference_code=book.code)
 
 
 @router.patch("/references/{reference_id}/items/{item_id}", response_model=ItemOutput)
@@ -822,13 +860,14 @@ def update_item(
     data: ItemPatch,
     request: Request,
     session=Depends(db_session, scope="function"),
-    actor=Depends(current_admin),
+    actor=Depends(current_actor),
 ):
-    _get(session, ReferenceSet, reference_id, lock=True)
+    book = _get(session, ReferenceSet, reference_id, lock=True)
+    require_reference_manager(session, actor, book.registry_id)
     row = _get(session, ReferenceItem, item_id, lock=True)
     if row.reference_set_id != reference_id:
         fail(404, "not_found", "Объект не найден")
-    for key, value in data.model_dump(exclude_unset=True).items():
+    for key, value in editor_item_values(actor, book, data, previous=row).items():
         if value is None and key not in {"parent_id", "valid_from", "valid_until"}:
             fail(422, "invalid_configuration", "Значение не может быть пустым")
         setattr(row, "item_metadata" if key == "metadata" else key, value)
@@ -845,7 +884,7 @@ def update_item(
         row.id,
         {"reference_set_id": str(reference_id)},
     )
-    return _item_output(row, actor)
+    return _item_output(row, actor, reference_code=book.code)
 
 
 class ReferenceImport(Input):
@@ -996,13 +1035,14 @@ def reference_history(
     reference_id: UUID,
     limit: int = 100,
     session=Depends(db_session, scope="function"),
-    actor=Depends(current_admin),
+    actor=Depends(current_actor),
 ):
     from sqlalchemy import or_
 
     from app.platform.models import AuditEvent
 
-    _get(session, ReferenceSet, reference_id)
+    book = _get(session, ReferenceSet, reference_id)
+    require_reference_manager(session, actor, book.registry_id)
     if not 1 <= limit <= 200:
         fail(422, "invalid_limit", "Размер страницы от 1 до 200")
     rows = session.scalars(

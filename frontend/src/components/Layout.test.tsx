@@ -19,7 +19,7 @@ it("opens the account from the sidebar and keeps it available with navigation hi
 it("keeps the working menu focused on documents, personal history and numbers", () => {
   setup();
   const nav = within(screen.getByRole("navigation", {name: "Основная навигация"}));
-  expect(nav.getAllByRole("button").map(button => button.textContent)).toEqual(["⌂Документы", "◇Моя работа", "◇Реестр номеров", "◇Мой пароль"]);
+  expect(nav.getAllByRole("button").map(button => button.textContent)).toEqual(["⌂Документы", "◇Моя работа", "◇Реестр номеров", "◇Справочники", "◇Мой пароль"]);
 });
 it("reveals at the edge, closes after leaving, and pinning survives remount", () => {
   vi.useFakeTimers();
