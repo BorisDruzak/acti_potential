@@ -875,10 +875,12 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     setSearch("&" + next.toString());
   }
   function changeRegistry(id: string) {
-    setRegistryId(id); setSearch(""); setQ(""); setScope("all"); setFuzzy(true); setContentTarget(undefined);
+    const appliedQuery = new URLSearchParams(search).get("q") || new URLSearchParams(search).get("text");
+    const next = new URLSearchParams();
+    if (appliedQuery) next.set("q", appliedQuery);
+    setRegistryId(id); setDraftRegistryId(id); setSearch(next.size ? "&" + next.toString() : ""); setScope("all"); setFuzzy(true); setContentTarget(undefined);
     setNumber(""); setRegistrationDate(""); setStatus(""); setFrom(""); setTo(""); setSort("auto"); setDirection("desc");
-    setLegalStatus("");
-    setPublicationTarget("");
+    setLegalStatus(""); setPublicationTarget("");
     setTypeId(""); setFieldFilters([]);
   }
   function openFullResult(id: string) {if (openSearchResult(id)) chooseLayout("card");}
@@ -1046,6 +1048,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
         <>
           <form className="document-quick-search" role="search" aria-label="Поиск документов" onSubmit={event => {event.preventDefault(); applySearch();}}>
             <label className="quick-query"><span className="sr-only">Поиск</span><input type="search" value={q} maxLength={255} placeholder="Номер, название, реквизиты или текст документа…" onChange={event => setQ(event.target.value)}/></label>
+            <label className="quick-registry">Реестр<select value={registryId} onChange={event => changeRegistry(event.target.value)}><option value="">Все реестры</option>{registries.data?.filter(item => item.permissions.includes("read")).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label><span className="sr-only">Где искать</span><select value={scope} onChange={event => setScope(event.target.value as SearchScope)}><option value="all">Везде</option><option value="metadata">Реквизиты</option><option value="content">Содержание документов</option></select></label>
             <button className="primary" type="submit">Найти</button>
             <button type="button" aria-haspopup="dialog" onClick={openAdvancedSearch}>Расширенный поиск</button>
@@ -1179,7 +1182,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
             <Feedback error={selectionAction.error}/><button autoFocus onClick={() => setOriginalCard(null)}>Закрыть</button>
           </DocumentDialog>}
           <div className="document-results-toolbar" role="group" aria-label="Вид и сортировка документов">
-          <div className="search-sort"><label>Реестр<select value={registryId} onChange={event => changeRegistry(event.target.value)}><option value="">Все реестры</option>{registries.data?.filter(item => item.permissions.includes("read")).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>
+          <div className="search-sort"><label>
               Сортировка
               <select
                 value={sort}

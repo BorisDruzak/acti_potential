@@ -33,6 +33,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .document-quick-search { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .document-quick-search label { margin: 0; }
 .document-quick-search .quick-query { flex: 1 1 280px; }
+.document-quick-search .quick-registry { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
 .document-quick-search input { width: 100%; }
 .document-quick-search select { max-width: 190px; }
 .document-quick-search button { white-space: nowrap; }
@@ -136,6 +137,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .navigation-shell .topbar { padding-inline: 12px; }
   .document-quick-search { gap: 6px; }
   .document-quick-search .quick-query { flex-basis: 100%; }
+  .document-quick-search .quick-registry { width: 100%; }
+  .document-quick-search .quick-registry select { flex: 1; max-width: none; min-width: 0; }
   .document-quick-search select { max-width: 160px; }
   .document-quick-search button { padding-inline: 10px; }
   .document-quick-search .text-button { padding-inline: 0; }

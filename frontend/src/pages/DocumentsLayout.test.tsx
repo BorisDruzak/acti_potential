@@ -422,6 +422,7 @@ it("does not offer a page-dependent custom sort when another published version u
 it("keeps quick search compact and export independent of the advanced drawer", async () => {
   setup(); await firstRow();
   const search = screen.getByRole("search", {name: "Поиск документов"});
+  expect(within(search).getByRole("combobox", {name: "Реестр"})).toHaveProperty("value", "");
   expect(within(search).queryByLabelText("Регистрационный номер")).toBeNull();
   expect(screen.queryByRole("dialog")).toBeNull();
   fireEvent.click(screen.getByText("Экспорт", {exact: true}));
@@ -448,6 +449,28 @@ it("searches all permitted registries without asking the user to pick just one",
   expect(row.getByRole("gridcell", {name: "Дата регистрации: 2026-10-16"})).toBeTruthy();
 });
 
+it.each(["editor", "viewer"])("keeps registry scope in quick search and preserves the query in card mode for %s", async role => {
+  const fetch = setup(false, false, role);
+  fireEvent.click(await firstRow());
+  fireEvent.click(mode("Карточка"));
+  const search = screen.getByRole("search", {name: "Поиск документов"});
+  const registry = within(search).getByRole("combobox", {name: "Реестр"});
+  fireEvent.change(within(search).getByRole("searchbox", {name: "Поиск"}), {target: {value: "Общий запрос"}});
+  fireEvent.change(registry, {target: {value: "r"}});
+  expect(within(search).getByRole("searchbox", {name: "Поиск"})).toHaveProperty("value", "Общий запрос");
+  fireEvent.click(within(search).getByRole("button", {name: "Найти"}));
+  await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).some(([, init]) => {
+    const body = JSON.parse(String(init?.body)); return body.query === "Общий запрос" && body.registry_ids.join() === "r";
+  })).toBe(true));
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
+  const drawer = screen.getByRole("dialog");
+  expect(within(drawer).getByLabelText("Реестр документов")).toHaveProperty("value", "r");
+  fireEvent.change(within(drawer).getByLabelText("Реестр документов"), {target: {value: ""}});
+  fireEvent.click(within(drawer).getByRole("button", {name: "Отмена"}));
+  expect(registry).toHaveProperty("value", "r");
+  expect(within(search).getByRole("searchbox", {name: "Поиск"})).toHaveProperty("value", "Общий запрос");
+});
+
 it("places saved filters below search and creation beside the view switch with All registries selected", async () => {
   const fetch = setup(false, false, "editor", true);
   await firstRow();
@@ -457,7 +480,7 @@ it("places saved filters below search and creation beside the view switch with A
   expect(search.compareDocumentPosition(views) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", {name: "Отмена"}));
   const toolbar = screen.getByRole("group", {name: "Вид и сортировка документов"});
-  expect(within(toolbar).getByLabelText("Реестр")).toHaveProperty("value", "");
+  expect(within(screen.getByRole("search", {name: "Поиск документов"})).getByLabelText("Реестр", {exact: true})).toHaveProperty("value", "");
   fireEvent.click(mode("Таблица"));
   fireEvent.click(within(toolbar).getByRole("button", {name: "Создать документ"}));
   expect(screen.getByLabelText("Реестр документа")).toHaveProperty("value", "r");
