@@ -186,24 +186,24 @@ export async function runLegacyParity(config) {
     await route(editor, ids[0]); await dismissNav(editor); await editor.getByRole('radio', {name: 'Вместе', exact: true}).click();
     await route(second, ids[0]); await dismissNav(second); await second.getByRole('radio', {name: 'Вместе', exact: true}).click();
     const remoteTitle = marker + ' clean remote';
-    await cardPane(second).getByRole('button', {name: 'Редактировать карточку', exact: true}).click();
+    await cardPane(second).getByRole('button', {name: 'Сохранить карточку', exact: true}).waitFor();
     await textField(cardPane(second), titleField.label).fill(remoteTitle);
     await cardPane(second).getByRole('button', {name: 'Сохранить карточку', exact: true}).click();
-    await cardPane(second).getByRole('button', {name: 'Редактировать карточку', exact: true}).waitFor();
+    await cardPane(second).getByText('Все изменения сохранены', {exact: true}).waitFor();
     await editor.bringToFront();
     await cardPane(editor).getByRole('heading', {name: remoteTitle, exact: true}).waitFor({timeout: 20000});
     await cardPane(editor).locator('.document-collaboration').filter({hasText: users.second.display_name}).waitFor();
     pass('Second real editor saves through UI and a clean first card refreshes with named latest editor');
 
     stage = 'dirty remote change';
-    await cardPane(editor).getByRole('button', {name: 'Редактировать карточку', exact: true}).click();
+    await cardPane(editor).getByRole('button', {name: 'Сохранить карточку', exact: true}).waitFor();
     const localTitle = marker + ' local unsaved', finalRemote = marker + ' changed remotely';
     await textField(cardPane(editor), titleField.label).fill(localTitle);
     const staleRevision = (await current(editor, ids[0])).revision;
-    await cardPane(second).getByRole('button', {name: 'Редактировать карточку', exact: true}).click();
+    await cardPane(second).getByRole('button', {name: 'Сохранить карточку', exact: true}).waitFor();
     await textField(cardPane(second), titleField.label).fill(finalRemote);
     await cardPane(second).getByRole('button', {name: 'Сохранить карточку', exact: true}).click();
-    await cardPane(second).getByRole('button', {name: 'Редактировать карточку', exact: true}).waitFor(); await editor.bringToFront();
+    await cardPane(second).getByText('Все изменения сохранены', {exact: true}).waitFor(); await editor.bringToFront();
     await cardPane(editor).getByRole('button', {name: 'Загрузить актуальную редакцию', exact: true}).waitFor({timeout: 20000});
     assert.equal(await textField(cardPane(editor), titleField.label).inputValue(), localTitle);
     assert.equal(await cardPane(editor).getByRole('button', {name: 'Сохранить карточку', exact: true}).isDisabled(), true);
@@ -246,6 +246,7 @@ export async function runLegacyParity(config) {
     await route(viewer, ids[0], null, true); await dismissNav(viewer); await viewer.getByRole('radio', {name: 'Вместе', exact: true}).click();
     await cardPane(viewer).getByRole('button', {name: 'История изменений', exact: true}).waitFor();
     assert.equal(await cardPane(viewer).getByRole('button', {name: 'Редактировать карточку', exact: true}).count(), 0);
+    assert.equal(await cardPane(viewer).getByRole('button', {name: 'Сохранить карточку', exact: true}).count(), 0);
     await api(viewer, `/documents/${ids[0]}`, 'PUT', {revision: beforeDelete.revision, values: {}}, [403, 404]);
     await api(viewer, `/documents/${ids[0]}`, 'DELETE', {revision: beforeDelete.revision, reason: 'Forbidden synthetic deletion'}, [403, 404]);
     await editor.bringToFront(); await editor.getByRole('radio', {name: 'Таблица', exact: true}).click();

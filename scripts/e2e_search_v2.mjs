@@ -148,6 +148,7 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     const cursorBefore=new URL(vp.url()).searchParams.get('cursor');assert.ok(scrollBefore>0&&cursorBefore);
     await resultList.getByRole('row',{name:/Выбрать документ/}).nth(6).click();
     await vp.getByRole('button',{name:'Содержание',exact:true}).waitFor();
+    assert.equal(await vp.getByRole('button',{name:'Сохранить карточку',exact:true}).count(),0);
     assert.equal(new URL(vp.url()).searchParams.get('cursor'),cursorBefore);
     assert.ok(Math.abs(await resultList.evaluate(element=>element.scrollTop)-scrollBefore)<2);
     pass('result selection retains actual second-page cursor and scrolled list');
@@ -180,7 +181,7 @@ export async function runSearch({browser, origin, admin, outputDir, fixturesDir}
     await vp.setViewportSize({width:1440,height:1000});
     pass('source fragment opens selected immutable block and narrow viewport fits');
     await ep.goto(`${origin}/work?registry_id=${registry.id}&document=${source.id}&q=благоустройство`);
-    await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+    await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     await ep.getByLabel('Название SEARCH',{exact:false}).fill('Благоустройство обновлено SEARCH');
     await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).click();
     await ep.getByRole('row',{name:/Выбрать документ «Благоустройство обновлено SEARCH/}).waitFor();

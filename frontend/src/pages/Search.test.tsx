@@ -149,7 +149,7 @@ it("offers all published filter fields with no selected type or search results a
 
 it("refreshes retained search results after a saved revision is indexed", async () => {
   let saved = false, indexed = false;
-  const card = () => ({id: "document", registry_id: "registry", document_type_id: "type", schema_version_id: "schema", revision: saved ? 2 : 1, current_version: 1, title: saved ? "Обновлено" : "Исходное", values: {}, display_values: {}, schema: {sections: []}, permissions: ["read", "update"], files: []});
+  const card = () => ({id: "document", registry_id: "registry", document_type_id: "type", schema_version_id: "schema", revision: saved ? 2 : 1, current_version: 1, title: saved ? "Обновлено" : "Исходное", values: {title: saved ? "Обновлено" : "Исходное"}, display_values: {}, schema: {sections: [{key: "main", title: "Реквизиты", fields: [{key: "title", label: "Название", type: "text"}]}]}, permissions: ["read", "update"], files: []});
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     let data: unknown = [];
     if (url.endsWith("/users/me")) data = {id: "user", roles: ["editor"], csrf_token: "csrf"};
@@ -162,7 +162,7 @@ it("refreshes retained search results after a saved revision is indexed", async 
   function Ready() {return useAuth().user ? <Documents /> : null;}
   render(<AuthProvider><Ready /></AuthProvider>);
   fireEvent.click(await screen.findByRole("row", {name: /Выбрать документ/}));
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  fireEvent.change(await screen.findByRole("textbox", {name: "Название"}), {target: {value: "Обновлено"}});
   fireEvent.click(screen.getByRole("button", {name: "Сохранить карточку"}));
   await waitFor(() => expect(indexed).toBe(true));
   await waitFor(() => expect(screen.getAllByText("Обновлено").length).toBeGreaterThan(0));

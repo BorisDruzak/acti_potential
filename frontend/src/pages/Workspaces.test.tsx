@@ -155,6 +155,8 @@ it("reader route exposes no mutation controls even when returned permissions inc
   expect(
     screen.queryByRole("button", { name: "Редактировать карточку" }),
   ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Сохранить карточку" })).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "Название" })).toBeNull();
   expect(
     screen.queryByLabelText("Добавить файл или следующую версию"),
   ).toBeNull();
@@ -174,37 +176,31 @@ it("viewer cannot open administration by typing its route", async () => {
   await waitFor(() => expect(window.location.pathname).toBe("/view"));
   expect(screen.queryByRole("button", { name: "Типы документов" })).toBeNull();
 });
-it("entering card edit mode never turns the clicked button into a submit button", async () => {
+it("opens an editable card without submitting and retains direct controls after cancellation", async () => {
   window.history.replaceState(null, "", "/work");
   const fetch = setup(["editor"]);
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.click(
     await screen.findByRole("row", {name: /Выбрать документ/}),
   );
-  const editButton = (await screen.findByRole("button", {
-    name: "Редактировать карточку",
-  })) as HTMLButtonElement;
-  expect(editButton.type).toBe("button");
-  fireEvent.click(editButton);
-  const saveButton = screen.getByRole("button", {
+  const saveButton = (await screen.findByRole("button", {
     name: "Сохранить карточку",
-  }) as HTMLButtonElement;
-  // Reusing the click target here lets the browser's pending native default
-  // action submit the form after React commits the new state.
-  expect(editButton.type).toBe("button");
-  expect(editButton.isConnected).toBe(false);
-  expect(saveButton).not.toBe(editButton);
+  })) as HTMLButtonElement;
+  expect(screen.queryByRole("button", { name: "Редактировать карточку" })).toBeNull();
   expect(saveButton.type).toBe("submit");
-  expect((screen.getByLabelText("Название") as HTMLInputElement).value).toBe(
+  const title = screen.getByRole("textbox", { name: "Название" }) as HTMLInputElement;
+  expect(title.disabled).toBe(false);
+  expect(title.value).toBe(
     "Тестовый документ",
   );
   expect(
     fetch.mock.calls.filter(([, init]) => init?.method === "PUT"),
   ).toHaveLength(0);
+  fireEvent.change(title, { target: { value: "Несохранённое название" } });
   fireEvent.click(screen.getByRole("button", { name: "Отмена изменений" }));
-  expect(
-    screen.getByRole("button", { name: "Редактировать карточку" }),
-  ).toBeTruthy();
+  expect((screen.getByRole("textbox", { name: "Название" }) as HTMLInputElement).value).toBe("Тестовый документ");
+  expect(screen.getByRole("button", { name: "Сохранить карточку" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Редактировать карточку" })).toBeNull();
   expect(
     fetch.mock.calls.filter(([, init]) => init?.method === "PUT"),
   ).toHaveLength(0);
@@ -216,9 +212,7 @@ it("atomically saves a file selected during editing with the updated card values
   fireEvent.click(
     await screen.findByRole("row", {name: /Выбрать документ/}),
   );
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Редактировать карточку" }),
-  );
+  await screen.findByRole("button", { name: "Сохранить карточку" });
   const file = new File(["example"], "example.txt", { type: "text/plain" });
   Object.defineProperty(file, "arrayBuffer", {
     value: async () => new TextEncoder().encode("example").buffer,

@@ -120,7 +120,7 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     const mode=name=>ep.getByRole('radio',{name,exact:true}),row=id=>ep.locator(`tr[data-document-id="${id}"]`);
     const list=ep.getByRole('region',{name:'Список документов',exact:true}),detail=ep.getByRole('region',{name:'Содержимое карточки',exact:true});
     await row(docs[0].id).waitFor();assert.equal(await mode('Вместе').getAttribute('aria-checked'),'true');
-    await row(docs[0].id).click();await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
+    await row(docs[0].id).click();await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     assert.equal(await ep.getByRole('button',{name:'Открыть карточку',exact:true}).count(),0);
     pass('Default split, click selection and removal of per-row open buttons');
     stage='collapsible search and compact toolbar';
@@ -196,7 +196,7 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     const before=await ep.evaluate(()=>[document.querySelector('[aria-label="Список документов"]').scrollTop,document.querySelector('[aria-label="Содержимое карточки"]').scrollTop]);assert(before.every(x=>x>0));
     for(const name of ['Таблица','Карточка','Вместе'])await mode(name).click();
     assert.deepEqual(await ep.evaluate(()=>[document.querySelector('[aria-label="Список документов"]').scrollTop,document.querySelector('[aria-label="Содержимое карточки"]').scrollTop]),before);
-    await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+    await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).fill('Компоновка 01. Сохранённый документ');
     await detail.getByRole('textbox',{name:/^Наименование LAYOUT/}).evaluate(el=>window.layoutInput=el);
     await navigation.getByRole('link',{name:'Контроль исполнения',exact:true}).focus();await ep.keyboard.press('Enter');
@@ -212,7 +212,7 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await mode('Карточка').click();
     const save=ep.waitForResponse(r=>new URL(r.url()).pathname===`/api/v1/documents/${docs[0].id}`&&r.request().method()==='PUT');
     await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).click();assert.equal((await save).status(),200);
-    await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
+    await ep.getByText('Все изменения сохранены',{exact:true}).waitFor();
     assert.equal((await json(ep,`/documents/${docs[0].id}`)).revision,2);
     pass('Independent scroll, mounted draft, tabs, cancelled navigation and real save');
     stage='history and files';
@@ -258,7 +258,7 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     stage='viewer ACL';await vp.goto(`${origin}/view?registry_id=${registry.id}&document_type_id=${type.id}&sort=title&direction=asc`);await dismissNav(vp);
     await vp.getByRole('radio',{name:'Таблица',exact:true}).click();const viewerRow=vp.locator(`tr[data-document-id="${docs[0].id}"]`);
     await viewerRow.getByText('Организация работы',{exact:true}).waitFor();assert.equal((await viewerRow.getByRole('gridcell').nth(5).innerText()).trim(),'—');assert(!(await viewerRow.innerText()).includes('Закрытая классификация'));
-    await vp.getByRole('radio',{name:'Вместе',exact:true}).click();await viewerRow.click();await vp.getByRole('button',{name:'История изменений',exact:true}).waitFor();assert.equal(await vp.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);
+    await vp.getByRole('radio',{name:'Вместе',exact:true}).click();await viewerRow.click();await vp.getByRole('button',{name:'История изменений',exact:true}).waitFor();assert.equal(await vp.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);assert.equal(await vp.getByRole('button',{name:'Сохранить карточку',exact:true}).count(),0);
     await vp.getByRole('button',{name:'Файлы и версии',exact:true}).click();assert.equal(await vp.getByRole('button',{name:/Скачать/}).count(),0);
     assert.deepEqual(errors,[]);pass('Viewer ACL redacts field values and preserves read-only card and file restrictions; no runtime errors');
     stage='publication fixtures and All-registry creation';
@@ -275,20 +275,21 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     assert.equal(await ep.getByRole('region',{name:'Список документов',exact:true}).isVisible(),true);assert.equal(await publicationToolbar.isVisible(),true);
     assert.equal(await createPane.getByRole('combobox',{name:'Реестр документа',exact:true}).inputValue(),registry.id);
     await createPane.getByRole('combobox',{name:'Тип документа',exact:true}).selectOption(type.id);
-    const createState=createPane.getByRole('combobox',{name:'Состояние карточки',exact:true});await createState.waitFor();
-    assert.equal(await createState.inputValue(),'draft');assert.equal(await createPane.getByLabel('Внутренняя база',{exact:true}).isChecked(),true);assert.equal(await createPane.getByLabel('Общая база',{exact:true}).isChecked(),false);
+    await createPane.getByText('Черновик',{exact:true}).waitFor();
+    assert.equal(await createPane.getByRole('combobox',{name:'Состояние карточки',exact:true}).count(),0);assert.equal(await createPane.getByLabel('Внутренняя база',{exact:true}).isChecked(),true);assert.equal(await createPane.getByLabel('Общая база',{exact:true}).isChecked(),false);
     const publicationNumber='LIFECYCLE-'+code;
     await createPane.getByRole('textbox',{name:/^Наименование LAYOUT/}).fill('Публикация из всех реестров '+code);
     await createPane.getByRole('textbox',{name:'Номер LAYOUT',exact:true}).fill(publicationNumber);
     await createPane.getByRole('textbox',{name:'Статус правового акта LAYOUT',exact:true}).fill('Действует');
     await createPane.getByLabel('Оригинал LAYOUT',{exact:true}).setInputFiles({name:'publication.pdf',mimeType:'application/pdf',buffer:syntheticPdf()});
-    assert.equal(await createPane.getByRole('heading',{name:'Основные сведения',exact:true}).locator('..').getByRole('combobox',{name:'Состояние карточки',exact:true}).count(),1);
+    await createPane.getByRole('heading',{name:'Основные сведения',exact:true}).locator('..').getByText('Черновик',{exact:true}).waitFor();
+    assert.equal(await createPane.getByRole('button',{name:'Опубликовать',exact:true}).count(),1);
     await detail.evaluate(el=>el.scrollTop=0);await ep.screenshot({path:path.join(outputDir,'publication-inline-creation-main.png'),fullPage:true,mask:[ep.locator('.account')]});
     await createPane.getByRole('heading',{name:'Публикация',exact:true}).scrollIntoViewIfNeeded();await ep.screenshot({path:path.join(outputDir,'publication-inline-creation-targets.png'),fullPage:true,mask:[ep.locator('.account')]});
     const creation=ep.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/documents'&&response.request().method()==='POST');
     await createPane.getByRole('button',{name:'Создать документ',exact:true}).click();const createdResponse=await creation;assert.equal(createdResponse.status(),201);
     let privateCard=await createdResponse.json();assert.equal(privateCard.card_state,'draft');assert.equal(privateCard.status,'Действует');assert.deepEqual(privateCard.publication_targets,['internal']);assert.equal(privateCard.files.length,1);
-    await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();await indexed(ep,privateCard.id);
+    await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();await indexed(ep,privateCard.id);
     pass('All-registry creation sits beside layout; saved filters follow search; new card defaults to draft/internal with shared unchecked');
 
     stage='reader and user publication boundary';
@@ -341,20 +342,21 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
         await json(page,`/documents/${card.id}`,'PUT',{revision:card.revision,values:{},card_state:'draft'},403);
       }
     }
-    async function editPublication(card,change) {
+    async function editPublication(card,change,publish=false) {
       await ep.goto(`${origin}/work?registry_id=${registry.id}&document=${card.id}`);await dismissNav(ep);
-      await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+      await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
       const publication=detail.getByRole('heading',{name:'Публикация',exact:true}).locator('..');
       const main=detail.getByRole('heading',{name:'Основные сведения',exact:true}).locator('..');
       assert.equal(await publication.count(),1);assert.equal(await publication.getByRole('combobox',{name:'Состояние карточки',exact:true}).count(),0);await change(publication,main);
       const saving=ep.waitForResponse(response=>new URL(response.url()).pathname===`/api/v1/documents/${card.id}`&&response.request().method()==='PUT');
-      await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).click();const response=await saving;assert.equal(response.status(),200);
-      await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();return response.json();
+      await ep.getByRole('button',{name:publish?'Опубликовать':'Сохранить карточку',exact:true}).click();const response=await saving;assert.equal(response.status(),200);
+      await detail.getByText('Все изменения сохранены',{exact:true}).waitFor();return response.json();
     }
     await hidden(privateCard,privateExtraction);
     privateCard=await editPublication(privateCard,async publication=>{await publication.getByLabel('Общая база',{exact:true}).check();});
     assert.equal(privateCard.card_state,'draft');assert(privateCard.publication_targets.includes('shared'));await hidden(privateCard,privateExtraction);
-    privateCard=await editPublication(privateCard,async (_publication,main)=>{await main.getByRole('combobox',{name:'Состояние карточки',exact:true}).selectOption('published');});
+    privateCard=await editPublication(privateCard,async (_publication,main)=>{await main.getByText('Черновик',{exact:true}).waitFor();assert.equal(await main.getByRole('combobox',{name:'Состояние карточки',exact:true}).count(),0);},true);
+    assert.equal(privateCard.card_state,'published');
     assert.equal(privateCard.status,'Действует');
     await indexed(ep,privateCard.id);await assertReadable(privateCard,privateExtraction);
     await ep.getByRole('radio',{name:'Вместе',exact:true}).click();await detail.evaluate(el=>el.scrollTop=0);
@@ -389,7 +391,7 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     stage='non-editor user browser workspace';
     await up.goto(`${origin}/work?registry_id=${registry.id}&document=${privateCard.id}`);await dismissNav(up);
     await up.waitForURL(url=>url.pathname==='/view');await up.getByRole('button',{name:'История изменений',exact:true}).waitFor();
-    assert.equal(await up.getByRole('button',{name:'Создать документ',exact:true}).count(),0);assert.equal(await up.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);
+    assert.equal(await up.getByRole('button',{name:'Создать документ',exact:true}).count(),0);assert.equal(await up.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);assert.equal(await up.getByRole('button',{name:'Сохранить карточку',exact:true}).count(),0);
     assert.equal(await up.getByRole('combobox',{name:'Состояние карточки',exact:true}).getByRole('option',{name:'Черновик',exact:true}).count(),0);
     await up.getByRole('button',{name:'Открыть навигацию',exact:true}).click();
     const spacePicker=up.getByRole('combobox',{name:'Рабочее пространство',exact:true});await spacePicker.waitFor();

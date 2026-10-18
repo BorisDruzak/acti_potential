@@ -161,21 +161,26 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     await create.getByRole('button',{name:'Создать документ',exact:true}).click();
     const response=await creating;assert.equal(response.status(),201);let card=await response.json();
     for(const [,key] of people)assert.deepEqual(card.values[key],choices[key].items.slice(0,2).map(item=>item.id));
-    await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
+    await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     await ep.reload();await dismissNav(ep);
     const detail=ep.getByRole('region',{name:'Содержимое карточки',exact:true});
-    await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
+    await detail.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     for(const [,key] of people)assert.deepEqual((await json(ep,`/documents/${card.id}`)).values[key],choices[key].items.slice(0,2).map(item=>item.id));
-    assert.equal(await detail.locator('.lookup-control').count(),0,'Saved people fields are read-only until edit');
-    assert.equal(await detail.getByRole('searchbox').count(),0);
-    await detail.locator('.field-value').filter({hasText:'Иван Петров, Мария Соколова'}).first().waitFor();
-    assert.equal(await detail.locator('.field-value').filter({hasText:'Иван Петров, Мария Соколова'}).count(),4);
-    pass('Real create/save and reload preserve arrays and human labels; card view has no mutable people controls');
+    assert.equal(await detail.locator('.lookup-control').count(),4,'Saved people fields are immediately editable');
+    assert.equal(await detail.getByRole('searchbox').count(),4);
+    for(const [,,label] of people) {
+      const group=detail.getByRole('group',{name:label,exact:true});
+      await group.getByRole('checkbox',{name:'Иван Петров',exact:true}).waitFor();
+      assert.equal(await group.getByRole('checkbox',{name:'Иван Петров',exact:true}).isChecked(),true);
+      assert.equal(await group.getByRole('checkbox',{name:'Мария Соколова',exact:true}).isChecked(),true);
+    }
+    pass('Real create/save and reload preserve selected arrays and human labels in immediately editable people controls');
 
     stage='inactive selection';
     const executor=choices.executor_id;
     await json(ap,`/references/${executor.set.id}/items/${executor.items[0].id}`,'PATCH',{active:false});
-    await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+    await ep.reload();await dismissNav(ep);
+    await detail.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     const executorGroup=detail.getByRole('group',{name:'Исполнитель',exact:true});
     const inactive=executorGroup.getByRole('checkbox',{name:'Иван Петров (неактивно)',exact:true});
     await inactive.waitFor();assert.equal(await inactive.isChecked(),true);assert.equal(await inactive.isEnabled(),true);
@@ -183,7 +188,7 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     const saving=ep.waitForResponse(response=>new URL(response.url()).pathname===`/api/v1/documents/${card.id}`&&response.request().method()==='PUT');
     await detail.getByRole('button',{name:'Сохранить карточку',exact:true}).click();
     const saved=await saving;assert.equal(saved.status(),200);card=await saved.json();assert.deepEqual(card.values.executor_id,[executor.items[1].id]);
-    await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
+    await detail.getByText('Все изменения сохранены',{exact:true}).waitFor();
     await detail.getByRole('button',{name:'История изменений',exact:true}).click();
     const first=detail.getByText(/^Редакция 1 ·/).locator('..');await first.locator('summary').click();
     await first.locator('.field-value').filter({hasText:'Иван Петров, Мария Соколова'}).first().waitFor();
@@ -192,7 +197,7 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
 
     stage='inline creation in existing card';
     await detail.getByRole('button',{name:'Карточка',exact:true}).click();
-    await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+    await detail.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     const originalValues=card.values, createdPeople={};
     for(const [,key,label] of people) {
       const search=detail.getByRole('searchbox',{name:'Поиск: '+label,exact:true});
@@ -213,7 +218,7 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     const updating=ep.waitForResponse(response=>new URL(response.url()).pathname===`/api/v1/documents/${card.id}`&&response.request().method()==='PUT');
     await detail.getByRole('button',{name:'Сохранить карточку',exact:true}).click();const updated=await updating;assert.equal(updated.status(),200);card=await updated.json();
     for(const [,key] of people)assert.deepEqual(card.values[key],[...originalValues[key],createdPeople[key].id]);
-    await ep.reload();await dismissNav(ep);await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();
+    await ep.reload();await dismissNav(ep);await detail.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     for(const [,key] of people)assert((await json(ep,`/documents/${card.id}`)).values[key].includes(createdPeople[key].id));
     pass('Editor creates all four participant kinds inside the current card, auto-selects and saves them in its registry, preserves prior selections and reuses normalized duplicates');
 
@@ -240,7 +245,7 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     for(const [selected,books] of [[foreignCard,otherChoices],[card,choices]]) {
       await ep.locator(`tr[data-document-id="${selected.id}"]`).click();
       await detail.getByRole('heading',{name:selected.title,exact:true,level:1}).waitFor();
-      await detail.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+      await detail.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
       for(const [,key,label] of people) {
         const group=detail.getByRole('group',{name:label,exact:true});
         await group.getByRole('checkbox',{name:books[key].items[1].label,exact:true}).waitFor();
@@ -275,11 +280,12 @@ export async function runPeopleSelection({browser, origin, admin, outputDir, exp
     await reader.locator('.field-value').filter({hasText:'Мария Соколова'}).first().waitFor();
     assert.equal(await reader.locator('.lookup-control').count(),0);assert.equal(await reader.getByRole('searchbox').count(),0);
     assert.equal(await vp.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);
+    assert.equal(await vp.getByRole('button',{name:'Сохранить карточку',exact:true}).count(),0);
     assert.equal(await reader.getByRole('button',{name:/^Создать «/}).count(),0);
     await json(vp,`/registries/${registry.id}/people`,'POST',{schema_version_id:version.id,document_id:card.id,field_key:'executor_id',label:'Запрещённое создание '+code},403);
     await json(vp,`/documents/${card.id}`,'PUT',{revision:card.revision,values:{executor_id:[]}},403);
     await ep.getByRole('button',{name:'Карточка',exact:true}).click();
-    await ep.getByRole('button',{name:'Редактировать карточку',exact:true}).click();
+    await ep.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();
     await ep.setViewportSize({width:540,height:900});
     await ep.getByRole('radio',{name:'Карточка',exact:true}).click();
     const mobile=detail.getByRole('searchbox',{name:'Поиск: Ответственный исполнитель',exact:true});await mobile.scrollIntoViewIfNeeded();

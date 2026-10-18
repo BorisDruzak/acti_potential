@@ -49,6 +49,30 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
 const mode = (name: string) => screen.getByRole("radio", {name});
 const firstRow = () => screen.findByRole("row", {name: /Выбрать документ «Альфа»/});
 
+it("opens permitted cards for direct editing and marks only unsaved fields until cancel or save", async () => {
+  const fetch = setup();
+  fireEvent.click(await firstRow());
+  const title = await screen.findByRole("textbox", {name: "Наименование"});
+  expect(screen.queryByRole("button", {name: "Редактировать карточку"})).toBeNull();
+  const save = screen.getByRole("button", {name: "Сохранить карточку"});
+  expect(save).toHaveProperty("disabled", true);
+  fireEvent.change(title, {target: {value: "Несохранённое название"}});
+  expect(title.closest(".form-field")?.getAttribute("data-dirty")).toBe("true");
+  expect(screen.getByText("Не сохранено", {exact: true})).toBeTruthy();
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(0);
+  fireEvent.change(title, {target: {value: "Альфа"}});
+  expect(title.closest(".form-field")?.getAttribute("data-dirty")).toBeNull();
+  expect(save).toHaveProperty("disabled", true);
+  fireEvent.change(title, {target: {value: "Ещё один черновик"}});
+  fireEvent.click(screen.getByRole("button", {name: "Отмена изменений"}));
+  expect(title).toHaveProperty("value", "Альфа");
+  expect(screen.getByRole("textbox", {name: "Наименование"})).toBe(title);
+  fireEvent.change(title, {target: {value: "Сохранить явно"}});
+  fireEvent.click(save);
+  await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1));
+  await waitFor(() => expect(screen.getByRole("textbox", {name: "Наименование"}).closest(".form-field")?.getAttribute("data-dirty")).toBeNull());
+});
+
 it("loads the legacy legal-act status from an existing saved search", async () => {
   window.history.replaceState(null, "", "/work?status=other");
   localStorage.setItem("acti.views.v1.layout-user.editor", JSON.stringify([{name: "Действующие", registry: "", query: "status=active"}]));
@@ -63,7 +87,7 @@ it("loads the legacy legal-act status from an existing saved search", async () =
 it("keeps applied results and the edited card when advanced search is cancelled", async () => {
   const requests = setup();
   fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   fireEvent.change(screen.getByLabelText("Наименование"), {target: {value: "Черновик карточки"}});
   fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   const drawer = within(screen.getByRole("dialog", {name: "Расширенный поиск"}));
@@ -101,7 +125,7 @@ function registrationFixture(state: "draft" | "published", rejectPublication = f
 
 it("locks both published registration fields even without a journal entry while other fields remain editable",async()=>{
  const fetch=registrationFixture("published");
- fireEvent.click(await firstRow());fireEvent.click(await screen.findByRole("button",{name:"Редактировать карточку"}));
+ fireEvent.click(await firstRow());await screen.findByRole("button",{name:"Сохранить карточку"});
  const form=document.querySelector(".document-card-form")as HTMLFormElement;
  const number=within(form).getByLabelText("Регистрационный номер")as HTMLInputElement;
  expect(number.readOnly).toBe(true);
@@ -117,7 +141,7 @@ it("locks both published registration fields even without a journal entry while 
 
 it.each([false,true])("keeps save separate from publication and retains unsaved fields (publish=%s)",async publish=>{
  const fetch=registrationFixture("draft");
- fireEvent.click(await firstRow());fireEvent.click(await screen.findByRole("button",{name:"Редактировать карточку"}));
+ fireEvent.click(await firstRow());await screen.findByRole("button",{name:"Сохранить карточку"});
  const form=document.querySelector(".document-card-form")as HTMLFormElement;
  fireEvent.change(within(form).getByLabelText("Регистрационный номер"),{target:{value:"Edited/42"}});
  fireEvent.change(within(form).getByLabelText("Дата регистрации"),{target:{value:"2026-10-19"}});
@@ -131,7 +155,7 @@ it.each([false,true])("keeps save separate from publication and retains unsaved 
 
 it("does not make a later ordinary save publish a draft after a failed publication",async()=>{
  const fetch=registrationFixture("draft",true);
- fireEvent.click(await firstRow());fireEvent.click(await screen.findByRole("button",{name:"Редактировать карточку"}));
+ fireEvent.click(await firstRow());await screen.findByRole("button",{name:"Сохранить карточку"});
  fireEvent.change(screen.getByLabelText("Наименование"),{target:{value:"Несохранённое"}});
  fireEvent.click(screen.getByRole("button",{name:"Опубликовать"}));
  await screen.findByText("Публикация не прошла проверку");
@@ -168,7 +192,7 @@ it("allows correcting a duplicate manual registration number without treating it
   }
   return base(url,init);
  });
- fireEvent.click(await firstRow());fireEvent.click(await screen.findByRole("button",{name:"Редактировать карточку"}));
+ fireEvent.click(await firstRow());await screen.findByRole("button",{name:"Сохранить карточку"});
  const form=document.querySelector(".document-card-form")as HTMLFormElement;
  fireEvent.change(within(form).getByLabelText("Регистрационный номер"),{target:{value:"TAKEN"}});
  fireEvent.submit(form);await screen.findByText("Регистрационный номер уже занят");
@@ -226,7 +250,7 @@ it.each([["edit", false], ["create", false], ["edit", true], ["create", true]] a
     : url.endsWith("/documents") && init?.method === "POST");
   if (operation === "edit") {
     fireEvent.click(await firstRow());
-    fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+    await screen.findByRole("button", {name: "Сохранить карточку"});
     form = document.querySelector(".document-card-form") as HTMLFormElement;
   } else {
     const toolbar = await screen.findByRole("group", {name: "Вид и сортировка документов"});
@@ -286,7 +310,7 @@ it("creates a participant in the actual card registry with CSRF while all regist
     return base(url, init);
   });
   fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   fireEvent.change(screen.getByLabelText("Наименование"), {target: {value: "Несохранённая карточка"}});
   await screen.findByRole("button", {name: "Убрать Уже выбранный"});
   const participantInput = screen.getByRole("combobox", {name: "Исполнители"});
@@ -324,7 +348,7 @@ it("uses each selected card's registry references while the result filter stays 
   for (const [title, expected, other] of [["Альфа", "Сотрудник первого реестра", "Сотрудник второго реестра"], ["Бета", "Сотрудник второго реестра", "Сотрудник первого реестра"]]) {
     fireEvent.click(await screen.findByRole("row", {name: new RegExp(`Выбрать документ «${title}»`)}));
     await screen.findByRole("heading", {name: title, level: 1});
-    fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+    await screen.findByRole("button", {name: "Сохранить карточку"});
     fireEvent.focus(screen.getByRole("combobox", {name: "Исполнитель"}));
     expect(await screen.findByRole("option", {name: expected})).toBeTruthy();
     expect(screen.queryByRole("option", {name: other})).toBeNull();
@@ -336,7 +360,7 @@ it("uses each selected card's registry references while the result filter stays 
 it("keeps the four working tabs and permission-aware section navigation without duplicate header metadata", async () => {
   setup(false, true);
   fireEvent.click(await firstRow());
-  await screen.findByRole("button", {name: "Редактировать карточку"});
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   const card = document.querySelector(".document-card") as HTMLElement;
   expect(Array.from(card.querySelectorAll(":scope > .tabs button"), item => item.textContent)).toEqual(["Карточка", "Файлы и версии", "История изменений", "Содержание"]);
   const header = card.querySelector(".document-card-top > .toolbar")!;
@@ -347,8 +371,7 @@ it("keeps the four working tabs and permission-aware section navigation without 
   expect(within(nav).getAllByRole("link").map(link => link.textContent)).toEqual(["Основное", "Публикация", "Контроль исполнения"]);
   for (const link of within(nav).getAllByRole("link")) expect(document.getElementById(link.getAttribute("href")!.slice(1))).toBeTruthy();
   expect(within(card).queryByText("Скрытое поле")).toBeNull();
-  expect(within(card).getByText("Альфа", {selector: ".field-value"})).toBeTruthy();
-  fireEvent.click(within(card).getByRole("button", {name: "Редактировать карточку"}));
+  expect(within(card).getByRole("textbox", {name: "Наименование"})).toHaveProperty("value", "Альфа");
   const input = screen.getByLabelText("Наименование");
   fireEvent.change(input, {target: {value: "Черновик раздела"}});
   window.history.pushState(null, "", window.location.pathname + window.location.search + nav.querySelector("a")!.getAttribute("href"));
@@ -362,7 +385,7 @@ it("uses one three-position control, selects on click and opens full card on dou
   expect(await screen.findByRole("radio", {name: "Вместе"})).toHaveProperty("ariaChecked", "true");
   expect(screen.queryByRole("button", {name: "Открыть карточку"})).toBeNull();
   fireEvent.click(await firstRow());
-  await screen.findByRole("button", {name: "Редактировать карточку"});
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   expect(mode("Вместе").getAttribute("aria-checked")).toBe("true");
   fireEvent.click(mode("Таблица"));
   fireEvent.doubleClick(await firstRow());
@@ -377,7 +400,7 @@ it("uses one three-position control, selects on click and opens full card on dou
 it("keeps one mounted card and its draft, active tab, selection, query and loaded results across modes", async () => {
   const fetch = setup();
   fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   fireEvent.change(screen.getByLabelText("Наименование"), {target: {value: "Черновик"}});
   fireEvent.change(screen.getByRole("searchbox", {name: "Поиск"}), {target: {value: "Запрос"}});
   fireEvent.scroll(screen.getByRole("region", {name: "Список документов"}));
@@ -503,7 +526,7 @@ it("places saved filters below search and creation beside the view switch with A
 it("keeps lifecycle in Main information and targets in the existing Publication section", async () => {
   const fetch = setup(false, true);
   fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   const card = document.querySelector(".document-card") as HTMLElement;
   const publication = within(card).getByRole("heading", {name: "Публикация"}).closest("section")!;
   expect(within(publication).getByLabelText("Место публикации")).toBeTruthy();
@@ -520,6 +543,8 @@ it("treats user as a reader even when document grants include update and create"
   fireEvent.click(await firstRow());
   await screen.findByRole("button", {name: "Содержание"});
   expect(screen.queryByRole("button", {name: "Редактировать карточку"})).toBeNull();
+  expect(screen.queryByRole("button", {name: "Сохранить карточку"})).toBeNull();
+  expect(screen.queryByRole("textbox", {name: "Наименование"})).toBeNull();
   expect(screen.queryByRole("button", {name: "Создать документ"})).toBeNull();
   expect(screen.queryByRole("option", {name: "Черновик"})).toBeNull();
   expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).mode === "viewer" && JSON.parse(String(init?.body)).card_state === "published")).toBe(true);
@@ -528,7 +553,7 @@ it("treats user as a reader even when document grants include update and create"
 it("creates inside the card pane, guards dirty navigation and restores the mounted selected draft on cancel", async () => {
   const fetch = setup(false, true, "editor", true);
   fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   const previousInput = screen.getByLabelText("Наименование") as HTMLInputElement;
   fireEvent.change(previousInput, {target: {value: "Черновик выбранной карточки"}});
   const query = screen.getByRole("searchbox", {name: "Поиск"});
@@ -575,7 +600,7 @@ it("creates inside the card pane, guards dirty navigation and restores the mount
 it.each(["row", "create"])("guards the retained selected draft before replacing it through %s from pristine creation", async operation => {
   const fetch = setup(false, true, "editor", true);
   fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   const previousInput = screen.getByLabelText("Наименование") as HTMLInputElement;
   fireEvent.change(previousInput, {target: {value: "Несохранённая выбранная карточка"}});
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -600,7 +625,7 @@ it.each(["row", "create"])("guards the retained selected draft before replacing 
 it.each([false, true])("restores URL and mounted draft when history replacement is cancelled (creation=%s)", async creating => {
   setup(false, true, "editor", true);
   fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   let form = document.querySelector(".document-card") as HTMLElement;
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   if (creating) {
@@ -630,7 +655,7 @@ it.each([false, true])("restores URL and mounted draft when history replacement 
 it("restores the content tab on same-document history even without a file or block target", async () => {
   setup();
   fireEvent.click(await firstRow());
-  await screen.findByRole("button", {name: "Редактировать карточку"});
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   window.history.pushState(null, "", "/work?document=a&tab=content");
   fireEvent(window, new PopStateEvent("popstate"));
   await waitFor(() => expect(screen.getByRole("button", {name: "Содержание"}).className).toContain("active"));
@@ -645,7 +670,7 @@ it("exports exactly the checkbox selection while retaining the dirty open card o
   vi.stubGlobal("URL", class extends URL {static createObjectURL() {return "blob:selection";} static revokeObjectURL() {}});
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   const input = screen.getByLabelText("Наименование") as HTMLInputElement;
   fireEvent.change(input, {target: {value: "Мой черновик"}});
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -697,10 +722,9 @@ it("preserves a dirty form and shows the named remote revision before an explici
     ? new Response(JSON.stringify({revision: remoteRevision, updated_at: "2026-10-17T12:00:00Z", updated_by: {id: "other", display_name: "Другой редактор"}, participants: [{id: "other", display_name: "Другой редактор", editing: true}]}))
     : base(url, init));
   fireEvent.click(await firstRow());
-  await screen.findByRole("button", {name: "Редактировать карточку"});
+  await screen.findByRole("button", {name: "Сохранить карточку"});
   vi.useFakeTimers();
   try {
-    fireEvent.click(screen.getByRole("button", {name: "Редактировать карточку"}));
     await act(async () => {});
     const input = screen.getByLabelText("Наименование") as HTMLInputElement;
     fireEvent.change(input, {target: {value: "Не терять мои изменения"}});

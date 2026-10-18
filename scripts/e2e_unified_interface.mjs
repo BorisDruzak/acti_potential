@@ -86,14 +86,25 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     const route = `?registry_id=${registry.id}&document_type_id=${type.id}&sort=reg_number&direction=asc`;
+    let cardWrites = 0;
+    page.on('request', request => {if (request.method() === 'PUT' && new URL(request.url()).pathname === `/api/v1/documents/${docs[0].id}`) cardWrites++;});
     await page.goto(origin + '/work' + route); await hideNav(page);
     await page.locator(`tr[data-document-id="${docs[0].id}"]`).click();
-    await detail().getByRole('button', {name: 'Редактировать карточку', exact: true}).waitFor();
+    await detail().getByRole('button', {name: 'Сохранить карточку', exact: true}).waitFor();
     pass('Real HTTPS login, published schema, indexed synthetic documents');
     stage = 'layout and drafts';
-    await detail().getByRole('button', {name: 'Редактировать карточку', exact: true}).click();
     const title = page.locator('.document-card').getByRole('textbox', {name: 'Наименование документа *', exact: true, includeHidden: true});
+    await title.waitFor({state: 'visible'});
+    assert(await title.isEditable(), 'Permitted fields must be editable immediately after opening');
+    assert.equal(await detail().getByRole('button', {name: 'Редактировать карточку', exact: true}).count(), 0);
+    const save = detail().getByRole('button', {name: 'Сохранить карточку', exact: true});
+    assert(await save.isDisabled());
+    assert.equal(cardWrites, 0, 'Opening the card must not submit it');
     await title.fill('Несохранённый заголовок');
+    assert.equal(await title.evaluate(input => input.closest('.form-field')?.getAttribute('data-dirty')), 'true');
+    assert(await title.evaluate(input => input.closest('.form-field')?.classList.contains('field-dirty')));
+    assert.deepEqual(await title.evaluate(input => ({border: getComputedStyle(input).borderTopColor, label: getComputedStyle(input.closest('.form-field').querySelector('label')).color})), {border: 'rgb(194, 81, 81)', label: 'rgb(166, 48, 48)'});
+    assert.equal(await detail().getByText('Не сохранено', {exact: true}).count(), 1);
     for (const name of ['Таблица', 'Карточка', 'Вместе']) {await mode(name).click(); assert.equal(await title.inputValue(), 'Несохранённый заголовок');}
     let d = await drawer();
     await d.getByLabel('Регистрационный номер', {exact: true}).fill('999');
@@ -108,21 +119,38 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
     await page.getByRole('button', {name: 'Удалить фильтр reg_number', exact: true}).click();
     await page.getByText('Найдено: 15', {exact: true}).waitFor();
     await detail().getByRole('button', {name: 'Отмена изменений', exact: true}).click();
+    assert.equal(await title.inputValue(), titles[0]);
+    assert(await title.isEditable(), 'Cancel must retain editable card controls');
+    assert.equal(await title.evaluate(input => input.closest('.form-field')?.getAttribute('data-dirty')), null);
+    assert(await save.isDisabled());
+    assert.equal(cardWrites, 0, 'Draft changes and cancellation must not submit the card');
     await capture('split');
     await mode('Таблица').click(); await capture('table');
     await mode('Карточка').click(); await capture('card');
     pass('Three layouts, draft retention, advanced search apply/cancel and removable filters');
     stage = 'edit and originals';
-    await detail().getByRole('button', {name: 'Редактировать карточку', exact: true}).click();
     await title.fill('');
     await detail().getByRole('button', {name: 'История изменений', exact: true}).click();
     await detail().getByRole('button', {name: 'Сохранить карточку', exact: true}).click();
     assert(await title.isVisible());
     assert(await title.evaluate(input => !input.checkValidity()));
+    assert.equal(await title.evaluate(input => input.closest('.form-field')?.getAttribute('data-dirty')), 'true');
+    assert.equal(cardWrites, 0, 'Failed validation must retain the unsaved draft without a write');
     await title.fill('О внесении изменений в положение об отделе архитектуры — редакция');
     await detail().getByRole('button', {name: 'История изменений', exact: true}).click();
-    await detail().getByRole('button', {name: 'Сохранить карточку', exact: true}).click();
-    await detail().getByRole('button', {name: 'Редактировать карточку', exact: true}).waitFor();
+    const [saved] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === `/api/v1/documents/${docs[0].id}` && response.request().method() === 'PUT'),
+      save.click(),
+    ]);
+    assert.equal(saved.status(), 200);
+    await detail().getByText('Все изменения сохранены', {exact: true}).waitFor();
+    assert.equal(cardWrites, 1, 'Only explicit Save must update the card');
+    assert.equal(await title.evaluate(input => input.closest('.form-field')?.getAttribute('data-dirty')), null);
+    assert.equal(await detail().getByText('Не сохранено', {exact: true}).count(), 0);
+    assert(await title.isEditable(), 'Successful save must retain editable card controls');
+    assert(await save.isDisabled());
+    assert.equal((await api(page, `/documents/${docs[0].id}`)).card_state, 'published');
+    assert.equal(await detail().getByRole('button', {name: 'Опубликовать', exact: true}).count(), 0);
     const downloadDiagnostics = [];
     page.on('response', r => {if (r.url().includes('/download')) downloadDiagnostics.push({status: r.status(), path: new URL(r.url()).pathname});});
     const [download] = await Promise.all([page.waitForEvent('download'), detail().getByRole('button', {name: 'Скачать', exact: true}).click()]).catch(async error => {
@@ -155,7 +183,7 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
     await originals.getByRole('button', {name: 'Закрыть', exact: true}).click();
     await detail().getByRole('button', {name: 'История изменений', exact: true}).click();
     await detail().getByText('История реквизитов', {exact: true}).waitFor();
-    pass('Edit save, exact-file Word handoff, download filename, immutable upload and metadata history');
+    pass('Direct editing, red unsaved fields, explicit save/cancel, exact-file Word handoff, immutable upload and metadata history');
     stage = 'creation';
     await page.getByRole('button', {name: 'Создать документ', exact: true}).click();
     const creation = page.locator('.document-create');
@@ -186,7 +214,7 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
     await page.getByRole('navigation').getByRole('button', {name: 'Документы', exact: true}).click();
     await mode('Вместе').click();
     await page.locator(`tr[data-document-id="${docs[0].id}"]`).click();
-    await detail().getByRole('button', {name: 'Редактировать карточку', exact: true}).waitFor();
+    await detail().getByRole('button', {name: 'Сохранить карточку', exact: true}).waitFor();
     const separator = page.getByRole('separator', {name: 'Размер списка документов и карточки', exact: true});
     const ratio = Number(await separator.getAttribute('aria-valuenow'));
     await separator.focus(); await separator.press('ArrowRight');
@@ -204,7 +232,7 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
     await d.getByLabel('Название представления', {exact: true}).fill('Рабочие документы');
     await d.getByRole('button', {name: 'Сохранить текущий поиск', exact: true}).click();
     await d.getByRole('button', {name: 'Отмена', exact: true}).click();
-    await detail().getByRole('button', {name: 'Редактировать карточку', exact: true}).click();
+    await detail().getByRole('button', {name: 'Сохранить карточку', exact: true}).waitFor();
     await title.fill('Черновик на узком экране');
     await page.setViewportSize({width: 390, height: 844}); await hideNav(page);
     d = await drawer(); await capture('mobile-editor-search');
@@ -215,7 +243,7 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
     const longTitle = 'О внесении изменений в положение об отделе архитектуры и организации работы с документами. '.repeat(3);
     await api(page, `/documents/${docs[0].id}`, 'PUT', {revision: beforeLongTitle.revision, card_state: beforeLongTitle.card_state, publication_targets: beforeLongTitle.publication_targets, values: {...beforeLongTitle.values, title: longTitle}});
     await page.reload(); await hideNav(page);
-    await detail().getByRole('button', {name: 'Редактировать карточку', exact: true}).click();
+    await detail().getByRole('button', {name: 'Сохранить карточку', exact: true}).waitFor();
     const header = page.locator('.document-card-top');
     const headerBox = await header.boundingBox(), paneBox = await detail().boundingBox();
     assert(headerBox.height < paneBox.height * .7, 'Sticky header must leave room for the mobile form');
@@ -238,6 +266,10 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
     await reader.goto(origin + '/view' + route + '&document=' + docs[0].id); await hideNav(reader);
     await reader.getByRole('heading', {name: /О внесении изменений/, level: 1}).waitFor();
     assert.equal(await reader.getByRole('button', {name: 'Редактировать карточку', exact: true}).count(), 0);
+    assert.equal(await reader.getByRole('button', {name: 'Сохранить карточку', exact: true}).count(), 0);
+    assert.equal(await reader.getByRole('button', {name: 'Загрузить новую версию', exact: true}).count(), 0);
+    assert.equal(await reader.locator('.document-card input[type="file"]').count(), 0);
+    assert.equal(await reader.locator('.document-card').getByRole('textbox', {name: /Наименование документа/}).count(), 0);
     assert.equal(await reader.getByRole('button', {name: 'Создать документ', exact: true}).count(), 0);
     assert.equal(await reader.getByText('Закрытые сведения', {exact: true}).count(), 0);
     await capture('reader', reader);

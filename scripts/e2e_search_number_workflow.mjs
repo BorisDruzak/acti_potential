@@ -97,7 +97,7 @@ export async function runSearchNumberWorkflow(config) {
     const response=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/documents'&&response.request().method()==='POST');
     await pane.getByRole('button',{name:'Создать документ',exact:true}).click();
     const result=await response;assert.equal(result.status(),expected,'Real UI create response');
-    const card=await result.json();if(expected===201){created.push(card.id);await page.getByRole('button',{name:'Редактировать карточку',exact:true}).waitFor();}
+    const card=await result.json();if(expected===201){created.push(card.id);await page.getByRole('button',{name:'Сохранить карточку',exact:true}).waitFor();}
     return {card,request:result.request().postDataJSON()};
   }
   try {
@@ -221,8 +221,10 @@ export async function runSearchNumberWorkflow(config) {
     stage='viewer write denial';
     const shared=await api(editor,`/documents/${saved.card.id}`,'PUT',{revision:saved.card.revision,values:{},card_state:'published',publication_targets:['internal','shared']});
     await api(viewer,`/documents/${shared.id}?mode=viewer`);
-    await route(viewer,registryId,'',true);
+    await route(viewer,registryId,'&document='+shared.id,true);
+    await viewer.getByRole('button',{name:'Содержание',exact:true}).waitFor();
     assert.equal(await viewer.getByRole('button',{name:'Создать документ',exact:true}).count(),0);
+    assert.equal(await viewer.getByRole('button',{name:'Сохранить карточку',exact:true}).count(),0);
     await api(viewer,`/registries/${registryId}/next-number`,'POST',{document_type_id:typeId,idempotency_key:randomUUID()},403);
     await createApi(viewer,marker+' denied',marker+'/viewer',registryId,403);
     await api(viewer,`/documents/${shared.id}`,'PUT',{revision:shared.revision,values:{[numberField.key]:marker+'/viewer-write'}},403);

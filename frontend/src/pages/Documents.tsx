@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
 import { SearchStatus } from "../components/SearchStatus";
 import { DynamicForm } from "../engine/DynamicForm";
+import { sameFormValue } from "../engine/formChanges";
 import {
   initialValues,
   prunePendingFiles,
@@ -121,7 +122,7 @@ function DocumentCard({
 }) {
   const auth = useAuth();
   const action = useAction();
-  const [editing, setEditing] = useState(false);
+  const canEdit = !readOnly && card.permissions.includes("update");
   const formId = useId();
   const header = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -135,12 +136,15 @@ function DocumentCard({
     return () => observer.disconnect();
   }, []);
   const [values, setValues] = useState<Values>(card.values);
-  const cardState = card.card_state || "draft";
+  const [savedValues, setSavedValues] = useState<Values>(card.values);
+  const [cardState, setCardState] = useState<CardState>(card.card_state || "draft");
   const [targets, setTargets] = useState<PublicationTarget[]>(card.publication_targets || ["internal"]);
+  const [savedTargets, setSavedTargets] = useState<PublicationTarget[]>(card.publication_targets || ["internal"]);
   const publicationKey = publicationSection(card.schema);
   const mainKey = mainInformationSection(card.schema);
   const lifecycle = <DocumentCardState state={cardState}/>;
-  const publication = <DocumentPublication targets={targets} onTargets={editing ? setTargets : undefined}/>;
+  const publicationDirty = !sameFormValue([...targets].sort(), [...savedTargets].sort());
+  const publication = <div className={canEdit && publicationDirty ? "field-dirty publication-dirty" : undefined} data-dirty={canEdit && publicationDirty || undefined}><DocumentPublication targets={targets} onTargets={canEdit && !action.busy ? setTargets : undefined}/>{canEdit && publicationDirty && <small className="field-unsaved">Не сохранено</small>}</div>;
   const [conflict, setConflict] = useState(false);
   const [tab, setTab] = useState(contentTarget ? "content" : "card");
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
@@ -164,7 +168,6 @@ function DocumentCard({
           (readOnly ? "viewer" : "editor")
       : null,
   );
-  const canEdit = !readOnly && card.permissions.includes("update");
   const canUpload = !readOnly && card.permissions.includes("upload");
   const csrfToken = auth.user?.csrf_token || "";
   const participantCreation = useParticipantCreation(card.registry_id, card.schema_version_id, csrfToken, card.id);
@@ -172,11 +175,10 @@ function DocumentCard({
     registryId:card.registry_id,documentTypeId:card.document_type_id,schemaVersionId:card.schema_version_id,
     documentId:card.id,revision,csrfToken,locked:cardState==="published",disabled:action.busy,onValues:changeValues});
   const hasUnsavedChanges =
-    editing &&
-    (JSON.stringify(values) !== JSON.stringify(card.values) ||
-      cardState !== (card.card_state || "draft") || JSON.stringify(targets) !== JSON.stringify(card.publication_targets || ["internal"]) ||
+    canEdit &&
+    (!sameFormValue(values, savedValues) || publicationDirty ||
       Object.keys(pendingFiles).length > 0 || registrationNumber.busy);
-  const collaboration = useDocumentCollaboration(card.id, revision, readOnly ? "viewer" : "editor", csrfToken, editing, hasUnsavedChanges, onSaved);
+  const collaboration = useDocumentCollaboration(card.id, revision, readOnly ? "viewer" : "editor", csrfToken, hasUnsavedChanges, hasUnsavedChanges, onSaved);
   const remoteChange = hasUnsavedChanges ? collaboration.remote : null;
   const blocked = conflict || !!remoteChange || collaboration.unavailable;
   useEffect(() => {onDirtyChange?.(hasUnsavedChanges);}, [hasUnsavedChanges, onDirtyChange]);
@@ -219,8 +221,10 @@ function DocumentCard({
         60000,
       );
       setRevision(current.revision);
+      setCardState(current.card_state || "draft");
+      setValues(current.values); setSavedValues(current.values);
+      setTargets(current.publication_targets || ["internal"]); setSavedTargets(current.publication_targets || ["internal"]);
       setPendingFiles({});
-      setEditing(false);
       onSaved();
     } catch (failure) {
       if (failure instanceof ApiError && failure.code === "revision_conflict")
@@ -264,14 +268,14 @@ function DocumentCard({
       </div>
           {canEdit && (
             <div className="button-row document-save-actions">
-              {editing ? (
+              {canEdit ? (
                 <>
                   <button
                     key="save-card"
                     type="submit" form={formId}
                     onClick={() => setTab("card")}
                     className="primary"
-                    disabled={action.busy || blocked || participantCreation.busy || registrationNumber.busy}
+                    disabled={!hasUnsavedChanges || action.busy || blocked || participantCreation.busy || registrationNumber.busy}
                   >
                     Сохранить карточку
                   </button>
@@ -280,16 +284,17 @@ function DocumentCard({
                   <button
                     key="cancel-card-edit"
                     type="button"
+                    disabled={action.busy || participantCreation.busy || registrationNumber.busy}
                     onClick={() => {
-                      setValues(card.values);
+                      setValues(savedValues);
                       registrationNumber.reset();
-                      setTargets(card.publication_targets || ["internal"]);
+                      setTargets(savedTargets);
                       setPendingFiles({});
-                      setEditing(false);
                     }}
                   >
                     Отмена изменений
                   </button>
+                  <span className={`document-save-status${hasUnsavedChanges ? " unsaved" : ""}`} aria-live="polite">{hasUnsavedChanges ? "Есть несохранённые изменения" : "Все изменения сохранены"}</span>
                 </>
               ) : null}
             </div>
@@ -297,7 +302,6 @@ function DocumentCard({
       </div>
       <div className="document-header-actions">
         <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>
-        {canEdit && !editing && <button type="button" className="primary" onClick={() => setEditing(true)}>Редактировать карточку</button>}
         {canUpload && <button type="button" onClick={() => setTab("files")}>Загрузить новую версию</button>}
       </div>
       <div className="tabs">
@@ -337,7 +341,6 @@ function DocumentCard({
           <button
             onClick={() => {
               if (hasUnsavedChanges && !window.confirm("Загрузить актуальную редакцию и отменить ваши несохранённые изменения?")) return;
-              setEditing(false);
               setConflict(false);
               onSaved();
             }}
@@ -353,26 +356,29 @@ function DocumentCard({
           className="panel document-card-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (participantCreation.pending.current > 0) return;
+            if (!canEdit || participantCreation.pending.current > 0) return;
             const publish=(event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-action")==="publish";
             if (!action.busy && !blocked && !registrationNumber.pending.current)
               void action.run(()=>save(publish?"published":cardState),publish?"Карточка опубликована":"Изменения сохранены");
           }}
         >
+          <fieldset className="document-fields" disabled={action.busy}>
           <DynamicForm
             sectionContent={{...(mainKey ? {[mainKey]: lifecycle} : {}), ...(publicationKey ? {[publicationKey]: publication} : {})}}
             navigationPlacement="side"
             compactRegistration
             schema={card.schema}
-            fieldContent={editing && canEdit ? registrationNumber.fieldContent : undefined}
+            fieldContent={canEdit ? registrationNumber.fieldContent : undefined}
             values={values}
+            savedValues={savedValues}
+            dirtyFileFields={new Set(Object.keys(pendingFiles))}
             onChange={changeValues}
-            mode={editing ? "edit" : "view"}
+            mode={canEdit ? "edit" : "view"}
             displayMode={readOnly ? "viewer" : "editor"}
             roles={auth.user?.roles || []}
             references={references}
             registryId={card.registry_id}
-            onCreateReference={editing && canEdit && !action.busy ? participantCreation.create : undefined}
+            onCreateReference={canEdit && !action.busy ? participantCreation.create : undefined}
             files={card.files}
             canDownload={card.permissions.includes("download")}
             onFile={
@@ -391,7 +397,7 @@ function DocumentCard({
             <div className="file-line" key={field}>
               <span>{file.name}</span>
               <small>
-                {editing ? "Будет загружен при сохранении карточки" : ""}
+                Будет загружен при сохранении карточки
               </small>
               <button
                 type="button"
@@ -408,6 +414,7 @@ function DocumentCard({
               </button>
             </div>
           ))}
+          </fieldset>
         </form>
       )}
       {tab === "files" && (

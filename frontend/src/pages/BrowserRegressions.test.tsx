@@ -48,13 +48,12 @@ function setup(content: "documents" | "audit" = "documents", download = true) {
 async function openCard() {
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "A"}});
   fireEvent.click(await screen.findByRole("row", {name: /Выбрать документ/}));
-  await screen.findByRole("button", {name: "Редактировать карточку"});
+  await screen.findByRole("button", {name: "Сохранить карточку"});
 }
 
 it("protects unsaved card edits from a separate file upload", async () => {
   setup();
   await openCard();
-  fireEvent.click(screen.getByRole("button", { name: "Редактировать карточку" }));
   fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Несохранённый текст" } });
   fireEvent.click(screen.getByRole("button", { name: "Файлы и версии" }));
   expect((screen.getByLabelText(/Добавить файл или следующую версию/) as HTMLInputElement).disabled).toBe(true);

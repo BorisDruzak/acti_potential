@@ -3,6 +3,7 @@ import { apiRequest, saveDownload } from "../api/client";
 import { displayConfigText } from "./presentation";
 import "./Lookup.css";
 import { LookupCombobox, type LookupChoice } from "./LookupCombobox";
+import { sameFormValue } from "./formChanges";
 import {
   canRead,
   canWrite,
@@ -19,6 +20,8 @@ import {
 type Props = {
   schema: FormSchema;
   values: Values;
+  savedValues?: Values;
+  dirtyFileFields?: ReadonlySet<string>;
   onChange?: (values: Values) => void;
   mode: "create" | "edit" | "view";
   roles: string[];
@@ -291,6 +294,8 @@ function FieldControl({
 }) {
   const id = useId();
   const writable = canWrite(field, props.mode, props.roles);
+  const customControl = !props.prefix && props.fieldContent?.[field.key] !== undefined;
+  const dirty = props.mode !== "view" && (writable || customControl) && (props.savedValues !== undefined && !sameFormValue(value, props.savedValues[field.key]) || !!props.dirtyFileFields?.has(`${props.prefix || ""}${field.key}`));
   const required =
     field.required ||
     (!!field.required_when &&
@@ -309,11 +314,12 @@ function FieldControl({
   if (field.type === "group") {
     const rows = Array.isArray(value) ? (value as Values[]) : [];
     return (
-      <fieldset className="repeat-group">
+      <fieldset className={`repeat-group${dirty ? " field-dirty" : ""}`} data-dirty={dirty || undefined}>
         <legend>
           {displayConfigText(field.label)}
           {required ? " *" : ""}
         </legend>
+        {dirty && <small className="field-unsaved">Не сохранено</small>}
         {field.description && <p>{displayConfigText(field.description)}</p>}
         {rows.map((row, index) => (
           <div className="repeat-row" key={index}>
@@ -326,6 +332,7 @@ function FieldControl({
                 ],
               }}
               values={row}
+              savedValues={props.savedValues === undefined ? undefined : (Array.isArray(props.savedValues[field.key]) ? (props.savedValues[field.key] as Values[])[index] : undefined) || {}}
               conditionValues={props.conditionValues || values}
               onChange={(next) =>
                 onChange(
@@ -530,13 +537,15 @@ function FieldControl({
     );
   return (
     <div
-      className={`form-field ${field.type === "textarea" || field.type === "file" ? "wide" : ""}`}
+      className={`form-field ${field.type === "textarea" || field.type === "file" ? "wide" : ""}${dirty ? " field-dirty" : ""}`}
+      data-dirty={dirty || undefined}
     >
       <label htmlFor={id}>
         {displayConfigText(field.label)}
         {required && writable ? " *" : ""}
       </label>
       {control}
+      {dirty && <small className="field-unsaved">Не сохранено</small>}
       {field.description && <small>{displayConfigText(field.description)}</small>}
     </div>
   );
