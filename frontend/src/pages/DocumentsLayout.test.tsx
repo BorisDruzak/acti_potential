@@ -271,7 +271,7 @@ it.each([["edit", false], ["create", false], ["edit", true], ["create", true]] a
       form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
     });
   }
-  const submit = (operation === "edit" ? within(document.querySelector(".document-card-top") as HTMLElement) : within(form)).getByRole<HTMLButtonElement>("button", {name: operation === "edit" ? "Сохранить карточку" : "Создать документ"});
+  const submit = (operation === "edit" ? within(screen.getByRole("group", {name: "Действия с документом"})) : within(form)).getByRole<HTMLButtonElement>("button", {name: operation === "edit" ? "Сохранить карточку" : "Создать документ"});
   expect(submit.disabled).toBe(true);
   fireEvent.submit(form);
   expect(saveCalls()).toHaveLength(0);

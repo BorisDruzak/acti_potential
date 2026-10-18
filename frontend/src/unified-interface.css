@@ -70,7 +70,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .compact-document-meta { display: none; }
 .document-detail-body { padding: 14px; }
 .document-card-top { position: static; background: white; padding: 0; margin-bottom: 8px; }
-.document-card-top .document-save-actions { display: contents; position: static; margin: 0; border: 0; padding: 0; }
+.document-actions-strip .document-save-actions { display: contents; position: static; margin: 0; border: 0; padding: 0; }
 .document-card-top .tabs { margin-bottom: 0; border-bottom: 0; }
 .document-card-top > .toolbar { margin: 0 0 8px; }
 .document-card-top .document-card-heading h1 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -81,7 +81,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .document-card-summary .document-state { font-size: 10px; padding: 1px 6px; }
 .document-card-heading .eyebrow { font-size: 10px; letter-spacing: .3px; }
 .document-card-heading > button { font-size: 12px; flex-shrink: 0; }
-.document-actions-strip { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; max-width: 100%; padding: 7px 8px; border: 1px solid var(--acti-border); border-radius: 6px; background: #f8fbfa; overflow-x: auto; }
+.document-actions-strip { position: sticky; top: 0; z-index: 6; display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; max-width: 100%; margin-bottom: 8px; padding: 7px 8px; border: 1px solid var(--acti-border); border-radius: 6px; background: #f8fbfa; box-shadow: 0 2px 4px #142d3510; overflow-x: auto; }
 .document-actions-strip button, .document-card-heading > button { flex: 0 0 auto; min-height: 30px; padding: 5px 8px; font-size: 12px; white-space: nowrap; }
 .document-actions-strip .document-save-status { flex: 0 0 auto; order: 2; margin-left: 6px; font-size: 11px; white-space: nowrap; }
 .document-original-panel { display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 0 0 0 8px; margin: 0; border: 0; border-left: 1px solid var(--acti-border); background: transparent; }
@@ -132,7 +132,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .document-card .dynamic-form-side-navigation > .form-navigation { grid-column: 1; grid-row: 1; position: static; display: flex; flex-direction: row; gap: 4px; padding: 4px; border: 1px solid var(--acti-border); border-radius: 5px; max-height: none; overflow: auto; }
 .document-card .dynamic-form-side-navigation > .form-navigation a { white-space: nowrap; padding: 3px 6px; font-size: 11px; }
 .document-card .dynamic-form-side-navigation > .form-sections { grid-column: 1; grid-row: 2; padding: 0; border: 0; }
-.document-card .dynamic-form-side-navigation .form-section { scroll-margin-top: 12px; }
+.document-card .dynamic-form-side-navigation .form-section { scroll-margin-top: 80px; }
 .document-card .document-collaboration { display: flex; flex-wrap: wrap; gap: 3px 16px; padding: 0 0 6px; font-size: 11px; }
 .document-card .document-collaboration p { margin: 0; }
 .password-panel { width: min(480px, 100%); margin: 28px auto; padding: 28px; }

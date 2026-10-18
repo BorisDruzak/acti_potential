@@ -255,6 +255,7 @@ function DocumentCard({
         </div>
         <button onClick={onClose}>К списку</button>
       </div>
+      </div>
       <div className="document-actions-strip" role="group" aria-label="Действия с документом">
           {canEdit && (
             <div className="button-row document-save-actions">
@@ -299,7 +300,6 @@ function DocumentCard({
           {canUpload && <button type="button" className="original-upload" onClick={() => setTab("files")}>Загрузить новую версию</button>}
         </div>
       </section>}
-      </div>
       </div>
       <div className="tabs">
         <button
