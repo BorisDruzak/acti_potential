@@ -46,11 +46,13 @@ export function RegistrationNumberControl(props: RegistrationNumberProps) {
    <input ref={input} id={props.id} aria-label={label} value={String(props.value??"")} required={props.required}
     maxLength={props.maxLength??255} pattern={props.pattern} readOnly={props.locked||!manual} disabled={busy||props.disabled}
     onChange={event=>{setError("");props.onChange(event.target.value);}}/>
-   <button type="button" disabled={busy||props.disabled||props.locked} onClick={()=>void reserve()}>Присвоить номер</button>
-   <button type="button" disabled={busy||props.disabled||props.locked} aria-pressed={manual&&!props.locked}
-    onClick={()=>{setManual(true);input.current?.focus();input.current?.select();}}>Ввести произвольный</button>
+   <div className="registration-number-actions">
+    <button type="button" aria-label="Присвоить номер" title="Присвоить номер" disabled={busy||props.disabled||props.locked} onClick={()=>void reserve()}>Присвоить</button>
+    <button type="button" aria-label="Ввести произвольный" title="Ввести произвольный номер" disabled={busy||props.disabled||props.locked} aria-pressed={manual&&!props.locked}
+     onClick={()=>{setManual(true);input.current?.focus();input.current?.select();}}>Ввести вручную</button>
+   </div>
   </div>
-  {busy?<small role="status">Присвоение номера…</small>:<small>{props.locked?"Номер закреплён в реестре номеров.":"Уникальность номера в этом реестре проверяется при сохранении."}</small>}
+  {busy?<small role="status">Присвоение номера…</small>:<small>{props.locked?"Номер закреплён в реестре номеров.":"Уникальность проверяется при сохранении."}</small>}
   {error&&<small className="error" role="alert">{error}</small>}
  </div>;
 }

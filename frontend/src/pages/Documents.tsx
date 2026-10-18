@@ -303,6 +303,7 @@ function DocumentCard({
           <DynamicForm
             sectionContent={{...(mainKey ? {[mainKey]: lifecycle} : {}), ...(publicationKey ? {[publicationKey]: publication} : {})}}
             navigationPlacement="side"
+            compactRegistration
             schema={card.schema}
             fieldContent={editing && canEdit ? registrationNumber.fieldContent : undefined}
             values={values}
@@ -640,6 +641,7 @@ function NewDocumentForm({
     >
       <DynamicForm
         navigationPlacement="side"
+        compactRegistration
         sectionContent={{...(mainKey ? {[mainKey]: lifecycle} : {}), ...(publicationKey ? {[publicationKey]: publication} : {})}}
         schema={version.schema}
         fieldContent={registrationNumber.fieldContent}

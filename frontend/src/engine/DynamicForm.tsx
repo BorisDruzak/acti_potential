@@ -33,6 +33,7 @@ type Props = {
   conditionFields?: Field[];
   displayMode?: "editor" | "viewer";
   navigationPlacement?: "side";
+  compactRegistration?: boolean;
   sectionContent?: Record<string, ReactNode>;
   fieldContent?: Record<string, ReactNode | ((id: string) => ReactNode)>;
   onCreateReference?: (field: Field, label: string) => Promise<{ item: ReferenceItem; created: boolean }>;
@@ -560,26 +561,36 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
       ),
     );
     const extra = props.sectionContent?.[section.key];
+    const registrationIndex = props.compactRegistration && !props.prefix
+      ? section.fields.findIndex((field, index) => field.system === "reg_number" && section.fields[index + 1]?.system === "reg_date")
+      : -1;
+    const registrationFields = registrationIndex < 0 ? [] : section.fields.slice(registrationIndex, registrationIndex + 2);
+    const firstRegistrationField = registrationFields.find(field => visible.includes(field));
+    const renderField = (field: Field) => (
+      <FieldControl
+        {...props}
+        conditionFields={conditionFields}
+        key={field.key}
+        field={field}
+        values={values}
+        value={values[field.key]}
+        onChange={(value) => {
+          const next = { ...currentValues.current, [field.key]: value };
+          currentValues.current = next;
+          onChange?.(next);
+        }}
+      />
+    );
     return visible.length || extra ? (
       <section className="form-section" key={section.key} id={`${navigationId}-${section.key}`}>
         {section.title && <h3>{displayConfigText(section.title)}</h3>}
         {extra}
         <div className="form-grid">
-          {visible.map((field) => (
-            <FieldControl
-              {...props}
-              conditionFields={conditionFields}
-              key={field.key}
-              field={field}
-              values={values}
-              value={values[field.key]}
-              onChange={(value) => {
-                const next = { ...currentValues.current, [field.key]: value };
-                currentValues.current = next;
-                onChange?.(next);
-              }}
-            />
-          ))}
+          {visible.map(field => registrationFields.includes(field)
+            ? field === firstRegistrationField && <div className="registration-field-group" role="group" aria-label="Регистрационные данные" key={`registration-${registrationFields[0].key}`}>
+                <div className="registration-field-grid">{registrationFields.map(renderField)}</div>
+              </div>
+            : renderField(field))}
         </div>
       </section>
     ) : null;
