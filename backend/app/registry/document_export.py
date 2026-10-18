@@ -1,6 +1,7 @@
 """Authorized display labels and bounded batch document export."""
 
 import json
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, Response
@@ -30,17 +31,17 @@ def display_values(session, schema, values, actor, mode=None, *, exporting=False
         if kind in {"reference", "multi_reference", "department"}:
             def label(identifier):
                 if cache is not None:
-                    return cache.get((kind, str(identifier)), str(identifier))
+                    return cache.get((kind, str(identifier)), "Не указано" if exporting else str(identifier))
                 item = session.get(ReferenceItem, UUID(str(identifier)))
-                return item.label if item else str(identifier)
+                return item.label if item else ("Не указано" if exporting else str(identifier))
             return [label(v) for v in value] if kind == "multi_reference" else label(value)
         if kind == "user":
             if cache is not None:
-                return cache.get((kind, str(value)), str(value))
+                return cache.get((kind, str(value)), "Не указано" if exporting else str(value))
             from app.identity.models import User
 
             user = session.get(User, UUID(str(value)))
-            return user.display_name if user else str(value)
+            return user.display_name if user else ("Не указано" if exporting else str(value))
         if kind == "document":
             if cache is not None:
                 return cache.get((kind, str(value)), "Недоступный документ")
@@ -106,7 +107,34 @@ def export_documents_response(request, session, actor, params, *, document_ids=N
         keys = list(ordered)
     if not keys:
         fail(422, "invalid_columns", "Нет разрешённых экспортируемых колонок")
-    headers = [f"{ordered[key]} [{key}]" for key in keys]
+    excel = params.format == "xlsx"
+    headers = [ordered[key] if excel else f"{ordered[key]} [{key}]" for key in keys]
+    field_types = {field["key"]: field for _, field in reversed(fields)}
+    widths = [68 if field_types[key].get("system") == "title" or field_types[key]["type"] == "textarea"
+              else 18 if field_types[key]["type"] in {"date", "datetime", "boolean", "integer", "decimal"}
+              else max(22, min(40, len(ordered[key]) + 6)) for key in keys]
+
+    def excel_value(field, value):
+        if value is None:
+            return None
+        if field["type"] in {"date", "datetime"}:
+            try:
+                parsed = (datetime.fromisoformat if field["type"] == "datetime" else date.fromisoformat)(str(value))
+                # Excel has no timezone support: retain the original offset in text.
+                return str(value) if isinstance(parsed, datetime) and parsed.tzinfo else parsed
+            except ValueError:
+                return str(value)
+        if field["type"] == "group":
+            children = {child["key"]: child for child in field.get("children", [])}
+            return "\n".join("; ".join(
+                f"{configuration_text(children[key]['label'])}: {excel_value(children[key], item)}"
+                for key, item in row.items() if key in children and item is not None
+            ) for row in value)
+        if isinstance(value, list):
+            return "\n".join(str(item) for item in value)
+        if isinstance(value, bool):
+            return "Да" if value else "Нет"
+        return value
 
     def rows():
         consumed = 0
@@ -117,10 +145,13 @@ def export_documents_response(request, session, actor, params, *, document_ids=N
                 schema = schemas.get(document.schema_version_id) or get_schema(session, document)
                 visible = redact_values(schema, raw_values(document, schema), actor, params.mode)
                 displayed = display_values(session, schema, visible, actor, params.mode, exporting=True)
+                row_fields = {f["key"]: f for section in schema.get("sections", []) for f in section.get("fields", [])}
                 row = []
                 for key in keys:
                     value = displayed.get(key)
-                    if isinstance(value, (dict, list)):
+                    if excel and key in row_fields:
+                        value = excel_value(row_fields[key], value)
+                    elif isinstance(value, (dict, list)):
                         value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
                     if isinstance(value, bool):
                         value = "Да" if value else "Нет"
@@ -131,7 +162,7 @@ def export_documents_response(request, session, actor, params, *, document_ids=N
                 yield row
 
     try:
-        content = export_file(params.format, headers, rows())
+        content = export_file(params.format, headers, rows(), presentation=excel, widths=widths)
     except ValueError:
         fail(422, "export_value", "Значение превышает ограничения формата экспорта")
     emit(session, request, actor, "document.exported", "document_export", uuid4(),

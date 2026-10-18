@@ -2,7 +2,8 @@
 
 import csv
 import io
-from datetime import datetime, time
+import math
+from datetime import date, datetime, time
 from itertools import chain
 from xml.etree.ElementTree import ParseError
 from zipfile import BadZipFile, ZipFile
@@ -21,7 +22,7 @@ def safe_text(value):
     return value
 
 
-def export_file(format, headers, rows):
+def export_file(format, headers, rows, *, presentation=False, widths=None):
     if format == "csv":
         output = io.StringIO(newline="")
         writer = csv.writer(output)
@@ -38,15 +39,62 @@ def export_file(format, headers, rows):
     from openpyxl.cell import WriteOnlyCell
 
     book = Workbook(write_only=True)
-    sheet = book.create_sheet("ACTI")
-    for row in chain([headers], rows):
+    sheet = book.create_sheet("Документы" if presentation else "ACTI")
+    if presentation:
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        widths = widths or [max(18, min(46, len(header) + 4)) for header in headers]
+        sheet.freeze_panes = "A2"
+        sheet.sheet_view.showGridLines = False
+        sheet.sheet_view.zoomScale = 90
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.sheet_properties.tabColor = "147D68"
+        sheet.page_setup.orientation = "landscape"
+        sheet.page_setup.paperSize = "8"  # OOXML A3
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 0
+        sheet.print_title_rows = "1:1"
+        for index, width in enumerate(widths, 1):
+            sheet.column_dimensions[get_column_letter(index)].width = width
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        body_font = Font(name="Calibri", size=11, color="203B46")
+        header_fill = PatternFill("solid", fgColor="147D68")
+        fills = [PatternFill("solid", fgColor="FFFFFF"), PatternFill("solid", fgColor="F0F7F5")]
+        alignment = Alignment(horizontal="left", vertical="top", wrap_text=True, indent=1)
+        header_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True, indent=1)
+        border = Border(bottom=Side(style="hair", color="D9E7E3"))
+    last_row = 1
+    for row_index, row in enumerate(chain([headers], rows), 1):
+        last_row = row_index
+        values = list(row)
+        if presentation:
+            lines = max((sum(max(1, math.ceil(len(line) / max(1, widths[i] - 3)))
+                             for line in safe_text(value).split("\n"))
+                         for i, value in enumerate(values)), default=1)
+            sheet.row_dimensions[row_index].height = min(409, max(36 if row_index == 1 else 30, lines * 15 + 12))
         cells = []
-        for value in row:
-            cell = WriteOnlyCell(sheet, value=safe_text(value))
-            cell.data_type = "s"
-            cell.number_format = "@"
+        for value in values:
+            # Validate text even when writing native dates. Identifiers stay text;
+            # formula-looking values are always inert string cells.
+            text = safe_text(value)
+            cell = WriteOnlyCell(sheet, value=value if presentation and isinstance(value, date) else text)
+            if presentation and isinstance(value, date):
+                cell.number_format = "DD.MM.YYYY HH:MM" if isinstance(value, datetime) else "DD.MM.YYYY"
+            else:
+                cell.data_type = "s"
+                cell.number_format = "@"
+            if presentation:
+                cell.font = header_font if row_index == 1 else body_font
+                cell.fill = header_fill if row_index == 1 else fills[row_index % 2]
+                cell.alignment = header_alignment if row_index == 1 else alignment
+                cell.border = border
             cells.append(cell)
         sheet.append(cells)
+    if presentation:
+        sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{last_row}"
+        sheet.print_options.horizontalCentered = True
+        sheet.oddFooter.center.text = "ACTI · Страница &P из &N"
     output = io.BytesIO()
     book.save(output)
     return output.getvalue()

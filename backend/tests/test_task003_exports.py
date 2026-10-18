@@ -180,3 +180,50 @@ def test_malformed_filter_operators_and_deep_json_return_validation_errors(clien
                   "[" * 1100 + "0" + "]" * 1100]:
         result = client.get("/api/v1/documents", params={"filters": value})
         assert result.status_code == 422
+
+
+def test_document_excel_formats_people_and_dates_without_internal_keys(client, factory):
+    from datetime import date
+    from uuid import UUID
+
+    from openpyxl import load_workbook
+
+    from app.registry.models import Document, ReferenceItem, ReferenceSet
+    from tests.test_documents import headers, setup_registry
+
+    registry = setup_registry(client, factory)
+    with factory.begin() as db:
+        book = db.query(ReferenceSet).filter_by(code='signers', registry_id=UUID(registry['id'])).one()
+        person = ReferenceItem(reference_set_id=book.id, code='internal-code', label='Иванов Иван Иванович')
+        db.add(person)
+        db.flush()
+        person_id = str(person.id)
+    card = client.post('/api/v1/documents', json={
+        'registry_id': registry['id'], 'document_type_id': registry['document_type_ids'][0],
+        'values': {'title': 'Постановление', 'reg_number': '0007',
+                   'reg_date': '2026-10-18', 'signers': [person_id], 'should_publish': False},
+    }, headers=headers(client))
+    assert card.status_code == 201, card.text
+    for title in ['Не входит в фильтр', 'Тоже не входит']:
+        assert client.post('/api/v1/documents', json={
+            'registry_id': registry['id'], 'document_type_id': registry['document_type_ids'][0],
+            'values': {'title': title},
+        }, headers=headers(client)).status_code == 201
+    result = client.get('/api/v1/documents/export', params={
+        'format': 'xlsx', 'title': 'Постановление', 'page_size': 1,
+        'columns': 'title,reg_number,reg_date,signers,should_publish',
+    })
+    assert result.status_code == 200, result.text
+    sheet = load_workbook(io.BytesIO(result.content)).active
+    assert sheet.max_row == 2
+    assert all('[' not in cell.value for cell in sheet[1])
+    assert sheet['A2'].value == 'Постановление'
+    assert sheet['B2'].value == '0007' and sheet['B2'].data_type == 's'
+    assert sheet['C2'].value.date() == date(2026, 10, 18)
+    assert sheet['C2'].number_format == 'DD.MM.YYYY'
+    assert sheet['D2'].value == 'Иванов Иван Иванович'
+    assert sheet['E2'].value == 'Нет'
+    assert person_id not in str(list(sheet.values))
+    with factory() as db:
+        document = db.get(Document, UUID(card.json()['id']))
+        assert document.custom_data['signers'] == [person_id]
