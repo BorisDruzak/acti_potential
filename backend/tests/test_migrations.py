@@ -38,7 +38,7 @@ def test_clean_repeat_and_concurrent_upgrade():
         "processed_events",
     } <= set(inspect(engine).get_table_names())
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0018_draft_registration_history"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0019_number_year_type"
         assert conn.scalar(text("SELECT count(*) FROM roles")) == 4
     engine.dispose()
 
@@ -54,7 +54,7 @@ def test_publication_upgrade_preserves_legacy_defaults_history_and_number_guards
     from sqlalchemy.orm import Session
 
     from app.identity.models import User
-    from app.numbering.models import NumberEntry, NumberSeries
+    from app.numbering.models import NumberSeries
     from app.registry.models import DocumentType, FormSchema, Registry
 
     engine = factory.kw["bind"]
@@ -90,14 +90,17 @@ def test_publication_upgrade_preserves_legacy_defaults_history_and_number_guards
                                   registry_id=registry.id)
             db.add(series)
             db.flush()
-            assigned = NumberEntry(series_id=series.id, period_key="2026", ordinal=1,
-                                   number_string="0001", owner_id=user.id, state="assigned",
-                                   document_id=identities[0])
-            reserved = NumberEntry(series_id=series.id, period_key="2026", ordinal=2,
-                                   number_string="0002", owner_id=user.id, state="reserved")
-            db.add_all([assigned, reserved])
-            db.flush()
-            assigned_id, reserved_id = assigned.id, reserved.id
+            # Reflect the old table: the current ORM also has post-0019 columns.
+            entries = Table("number_entries", MetaData(), autoload_with=conn)
+            assigned_id, reserved_id = uuid4(), uuid4()
+            conn.execute(entries.insert(), [
+                {"id": assigned_id, "series_id": series.id, "period_key": "2026", "ordinal": 1,
+                 "number_string": "0001", "owner_id": user.id, "state": "assigned",
+                 "document_id": identities[0]},
+                {"id": reserved_id, "series_id": series.id, "period_key": "2026", "ordinal": 2,
+                 "number_string": "0002", "owner_id": user.id, "state": "reserved",
+                 "document_id": None},
+            ])
         before = conn.execute(text("SELECT * FROM number_entries ORDER BY ordinal")).mappings().all()
         command.upgrade(config, "0013_card_publication")
         rows = conn.execute(text("SELECT id, card_state, publication_targets FROM documents")).all()

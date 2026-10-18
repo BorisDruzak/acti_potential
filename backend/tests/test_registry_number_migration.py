@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from alembic import command
@@ -8,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.identity.models import User
-from app.numbering.models import NumberEntry, NumberSeries
+from app.numbering.models import NumberSeries
 from app.registry.models import Document, DocumentType, FormSchema, Registry
 
 
@@ -45,8 +46,11 @@ def test_number_claim_upgrade_preserves_retained_duplicates_and_reports_active_c
             db.add(series)
             db.flush()
             for period in ["2025", "2026"]:
-                db.add(NumberEntry(series_id=series.id, period_key=period, ordinal=1,
-                                   number_string="Spent/1", state="cancelled", owner_id=user.id))
+                # Seed the historical schema independently of today's ORM columns.
+                db.execute(text("""INSERT INTO number_entries
+                    (id,series_id,period_key,ordinal,number_string,state,owner_id)
+                    VALUES(:id,:series,:period,1,'Spent/1','cancelled',:owner)"""),
+                    {"id":uuid4(),"series":series.id,"period":period,"owner":user.id})
         before = connection.execute(text("SELECT * FROM documents ORDER BY id")).mappings().all()
         entries = connection.execute(text("SELECT * FROM number_entries ORDER BY id")).mappings().all()
         if active_collision:

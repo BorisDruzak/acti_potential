@@ -66,7 +66,7 @@ def test_draft_replaces_reservation_and_publishes_final_values_without_reusing_o
     assert manual.status_code == 200, manual.text
     assert manual.json()["card_state"] == "draft" and manual.json()["number_entry_id"] is None
     for occupied in [first["number"], "2"]:
-        denied = create_card(client, registry, kind, headers, values={"number": occupied})
+        denied = create_card(client, registry, kind, headers, values={"number": occupied, "date": "2026-10-19"})
         assert denied.status_code == 409, denied.text
     replacement = client.post(next_url, headers=headers, json={
         "document_type_id": kind["id"], "document_id": card["id"], "revision": 2,
@@ -103,9 +103,9 @@ def test_draft_replaces_reservation_and_publishes_final_values_without_reusing_o
     with factory.kw["bind"].begin() as connection:
         config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
         config.attributes["connection"] = connection
-        with pytest.raises(RuntimeError, match="Draft registration history exists"), connection.begin_nested():
+        with pytest.raises(RuntimeError, match="Scoped registration claims exist"), connection.begin_nested():
             command.downgrade(config, "0017_registry_number_claims")
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0018_draft_registration_history"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0019_number_year_type"
 
 
 def test_draft_number_cannot_be_stolen_by_manual_creation_or_another_card_token(client, factory):
@@ -167,7 +167,6 @@ def test_registration_lock_migration_preserves_all_existing_rows(client, factory
     with factory.kw["bind"].begin() as connection:
         config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
         config.attributes["connection"] = connection
-        command.downgrade(config, "0017_registry_number_claims")
         tables = sorted(set(inspect(connection).get_table_names()) - {"alembic_version"})
 
         def snapshot():
@@ -177,9 +176,10 @@ def test_registration_lock_migration_preserves_all_existing_rows(client, factory
             )).one() for table in tables}
 
         before = snapshot()
-        command.upgrade(config, "head")
+        with pytest.raises(RuntimeError, match="Scoped registration claims exist"), connection.begin_nested():
+            command.downgrade(config, "0017_registry_number_claims")
         assert snapshot() == before
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0018_draft_registration_history"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0019_number_year_type"
 
 
 def test_bound_draft_can_replace_cleared_number_without_replaying_cancelled_reservation(client, factory):

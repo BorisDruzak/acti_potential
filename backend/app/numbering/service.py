@@ -126,9 +126,23 @@ def lock_series_scope(session, series_id):
         return get_series(session, series_id, lock=True)
 
 
-def number_occupied(session, registry_id, number):
+def registration_scope(document_type_id, reg_date=None, values=None):
+    """Calendar registration year and platform/business type; 0 means undated."""
+    key = str(document_type_id)
+    value = (values or {}).get("type_id")
+    if isinstance(value, str):
+        try:
+            key += "/ref:" + str(UUID(value))
+        except ValueError:
+            pass
+    return reg_date.year if reg_date is not None else 0, key
+
+
+def number_occupied(session, registry_id, number, scope):
     return session.scalar(select(RegistryNumberClaim.number_key).where(
         RegistryNumberClaim.registry_id == registry_id,
+        RegistryNumberClaim.registration_year == scope[0],
+        RegistryNumberClaim.registration_type_key == scope[1],
         RegistryNumberClaim.number_key == func.acti_number_key(number),
     )) is not None
 
@@ -201,9 +215,23 @@ def next_card_number(session, request, actor, registry_id, data):
                                     permissions=["view", "reserve", "assign"]))
             session.flush()
     key = "card-next:" + hashlib.sha256(data.idempotency_key.encode()).hexdigest()
+    scope_date = data.reg_date if "reg_date" in data.model_fields_set else document.reg_date if document else None
+    scope_values = dict(document.custom_data) if document else {}
+    if "type_id" in data.model_fields_set:
+        field_type = fields.get("type_id")
+        if field_type is None or field_type.get("type") != "reference":
+            fail(422, "number_document_scope", "Форма не содержит типа документа")
+        from app.registry.value_validation import validate_value
+
+        scope_values["type_id"] = validate_value(session, actor, field_type,
+            str(data.type_id) if data.type_id else None, registry_id,
+            previous=scope_values.get("type_id"))
+    scope = registration_scope(data.document_type_id, scope_date, scope_values)
     reserved = reserve(session, request, actor, series.id,
                        ReserveInput(idempotency_key=key), receipt_data=data.model_copy(
-                           update={"idempotency_key": key}), receipt_action="card-next")
+                           update={"idempotency_key": key}), receipt_action="card-next", registration_scope=scope,
+                       scope_bound=bool({"reg_date", "type_id"} & data.model_fields_set
+                                        or scope_date or scope_values.get("type_id")))
     item = reserved["items"][0]
     from app.registry.value_validation import validate_value
 
@@ -363,7 +391,7 @@ def operation(session, request, actor, entry, action, key, reason=""):
     )
 
 
-def reserve(session, request, actor, series_id, data, *, receipt_data=None, receipt_action="reserve"):
+def reserve(session, request, actor, series_id, data, *, receipt_data=None, receipt_action="reserve", registration_scope=None, scope_bound=None):
     series = lock_series_scope(session, series_id)
     require(session, actor, series, "reserve")
     receipt = receipt_data if receipt_data is not None else data
@@ -386,6 +414,7 @@ def reserve(session, request, actor, series_id, data, *, receipt_data=None, rece
     ):
         fail(422, "number_expiry_policy", "Срок резервирования не соответствует правилам серии")
     period = period_key(series)
+    scope = registration_scope or (0, str(series.document_type_ids[0]) if len(series.document_type_ids) == 1 else "")
     counter = session.get(NumberCounter, (series.id, period))
     if counter is None:
         counter = NumberCounter(series_id=series.id, period_key=period, next_ordinal=series.start)
@@ -400,7 +429,7 @@ def reserve(session, request, actor, series_id, data, *, receipt_data=None, rece
             if ordinal > 10**15:
                 fail(409, "number_exhausted", "Достигнут предел последовательности")
             number = render_number(series, period, ordinal).strip()
-            if not number_occupied(session, series.registry_id, number):
+            if not number_occupied(session, series.registry_id, number, scope):
                 break
             ordinal += series.step
         entry = NumberEntry(
@@ -409,6 +438,9 @@ def reserve(session, request, actor, series_id, data, *, receipt_data=None, rece
             period_key=period,
             ordinal=ordinal,
             number_string=number,
+            registration_year=scope[0],
+            registration_type_key=scope[1],
+            scope_bound=registration_scope is not None if scope_bound is None else scope_bound,
             state="reserved",
             owner_id=actor.id,
             reserved_at=now,
@@ -481,6 +513,9 @@ def assignment_field(session, actor, series, document, schema):
 
 def write_entry_number(session, actor, series, entry, document, schema, *, supplied=False):
     bound = assignment_field(session, actor, series, document, schema)
+    scope = registration_scope(document.document_type_id, document.reg_date, document.custom_data)
+    if entry.scope_bound and (entry.registration_year, entry.registration_type_key) != scope:
+        fail(409, "number_scope_mismatch", "Резерв относится к другому году или типу документа")
     if entry.document_id not in (None, document.id):
         fail(409, "number_already_linked", "Резерв уже связан с другим документом")
     if document.reg_number and not (
@@ -498,6 +533,18 @@ def write_entry_number(session, actor, series, entry, document, schema, *, suppl
         ).with_for_update())
         if claim is None or claim.document_id not in (None, document.id):
             fail(409, "number_conflict", "Регистрационный номер уже занят")
+        if not entry.scope_bound:
+            # A number-book reservation without a card has no asserted date/type.
+            # Explicit assignment binds it once, under the registry lock. Retain
+            # its old unknown-scope occupancy and immutable response receipt.
+            if (entry.registration_year, entry.registration_type_key) != scope:
+                if number_occupied(session, series.registry_id, entry.number_string, scope):
+                    fail(409, "number_conflict", "Регистрационный номер уже занят в этом году для этого типа")
+                claim.number_entry_id = None
+                session.flush([claim])
+            entry.registration_year, entry.registration_type_key = scope
+            entry.scope_bound = True
+            session.flush([entry])
         session.connection().execute(RegistryNumberClaim.__table__.update().where(
             RegistryNumberClaim.registry_id == series.registry_id,
             RegistryNumberClaim.number_entry_id == entry.id,
