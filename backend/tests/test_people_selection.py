@@ -195,7 +195,7 @@ def test_people_upgrade_clones_published_forms_preserving_current_values_and_his
         assert conn.scalar(text("SELECT count(*) FROM form_schemas")) == 7
         with pytest.raises(RuntimeError, match="pre-upgrade backup"), conn.begin_nested():
             command.downgrade(config, "0013_card_publication")
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0018_draft_registration_history"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0019_number_year_type"
 
 
 def test_people_arrays_round_trip_and_stale_scalars_or_foreign_registry_ids_do_not_persist(client, factory):

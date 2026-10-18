@@ -100,6 +100,10 @@ class NumberEntry(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     document_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), index=True)
 
+    registration_year: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    registration_type_key: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    scope_bound: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
 
 class NumberOperation(Base):
     __tablename__ = "number_operations"
@@ -114,11 +118,23 @@ class NumberOperation(Base):
     idempotency_key: Mapped[str] = mapped_column(String(120))
 
 
-class RegistryNumberClaim(Base):
-    """Occupied registry numbers, including retained cards and spent reservations."""
+class LegacyRegistryNumberClaim(Base):
+    """Preserved pre-scope ledger; allocation never writes or releases these rows."""
 
     __tablename__ = "registry_number_claims"
     registry_id: Mapped[UUID] = mapped_column(ForeignKey("registries.id"), primary_key=True)
+    number_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    document_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), index=True)
+    number_entry_id: Mapped[UUID | None] = mapped_column(ForeignKey("number_entries.id"), unique=True)
+
+
+class RegistryNumberClaim(Base):
+    """Occupied registry numbers, including retained cards and spent reservations."""
+
+    __tablename__ = "registration_number_claims"
+    registry_id: Mapped[UUID] = mapped_column(ForeignKey("registries.id"), primary_key=True)
+    registration_year: Mapped[int] = mapped_column(Integer, primary_key=True)
+    registration_type_key: Mapped[str] = mapped_column(String(128), primary_key=True)
     number_key: Mapped[str] = mapped_column(String(255), primary_key=True)
     document_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), index=True)
     number_entry_id: Mapped[UUID | None] = mapped_column(ForeignKey("number_entries.id"), unique=True)

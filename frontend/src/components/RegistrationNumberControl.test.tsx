@@ -4,6 +4,14 @@ import {RegistrationNumberControl} from "./RegistrationNumberControl";
 
 afterEach(() => {cleanup(); vi.unstubAllGlobals();});
 const base = {id: "reg-number", registryId: "registry", documentTypeId: "kind", schemaVersionId: "schema", csrfToken: "csrf", value: "", onChange: vi.fn(), onReserved: vi.fn()};
+it("reserves for the selected registration date and legal act type", async () => {
+ const fetch=vi.fn().mockResolvedValue(new Response(JSON.stringify({number:"1",number_entry_id:"entry",series_id:"series"})));vi.stubGlobal("fetch",fetch);
+ const reserved=vi.fn();
+ render(<RegistrationNumberControl {...base} registrationDate="2025-12-15" registrationTypeId="resolution" onReserved={reserved}/>);
+ fireEvent.click(screen.getByRole("button",{name:"Присвоить номер"}));
+ await waitFor(()=>expect(reserved).toHaveBeenCalled());
+ expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({reg_date:"2025-12-15",type_id:"resolution"});
+});
 it("reserves an explicit number next to the editable field and sends exact document revision", async () => {
  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({number: "42", number_entry_id: "entry", series_id: "series"}), {status: 200}));vi.stubGlobal("fetch",fetch);
  const reserved=vi.fn(),busy=vi.fn();

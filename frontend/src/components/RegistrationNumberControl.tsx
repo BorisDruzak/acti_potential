@@ -6,6 +6,7 @@ export type NumberReservation = {number: string; number_entry_id: string; series
 export type RegistrationNumberProps = {
  id: string; label?: string; registryId: string; documentTypeId: string; schemaVersionId: string;
  documentId?: string; revision?: number; csrfToken: string; value: unknown;
+ registrationDate?: unknown; registrationTypeId?: unknown;
  required?: boolean; maxLength?: number; pattern?: string; locked?: boolean; disabled?: boolean;
  onChange: (value: string) => void; onReserved: (result: NumberReservation) => void;
  onBusyChange?: (value: boolean) => void;
@@ -18,7 +19,7 @@ export function RegistrationNumberControl(props: RegistrationNumberProps) {
  const input=useRef<HTMLInputElement>(null),pending=useRef<AbortController|null>(null);
  const retry=useRef<string|null>(null);
  const callbacks=useRef(props);callbacks.current=props;
- const context=JSON.stringify([props.registryId,props.documentTypeId,props.schemaVersionId,props.documentId,props.revision]);
+ const context=JSON.stringify([props.registryId,props.documentTypeId,props.schemaVersionId,props.documentId,props.revision,props.registrationDate,props.registrationTypeId]);
  useEffect(()=>{
   retry.current=null;setBusy(false);setError("");setManual(true);
   return ()=>{if(pending.current){pending.current.abort();pending.current=null;callbacks.current.onBusyChange?.(false);}};
@@ -32,6 +33,8 @@ export function RegistrationNumberControl(props: RegistrationNumberProps) {
    const result=await apiRequest<NumberReservation>(`/registries/${props.registryId}/next-number`,{
     method:"POST",signal:controller.signal,headers:{"X-CSRF-Token":props.csrfToken},
     body:JSON.stringify({document_type_id:props.documentTypeId,schema_version_id:props.schemaVersionId,
+     ...(props.registrationDate!==undefined?{reg_date:props.registrationDate||null}:{}),
+     ...(props.registrationTypeId!==undefined?{type_id:props.registrationTypeId||null}:{}),
      ...(props.documentId?{document_id:props.documentId,revision:props.revision}:{}),idempotency_key:retry.current}),
    });
    if(controller.signal.aborted)return;

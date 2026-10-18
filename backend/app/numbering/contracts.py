@@ -117,6 +117,8 @@ class AssignInput(Input):
 
 class NextNumberInput(Input):
     document_type_id: UUID
+    reg_date: date | None = None
+    type_id: UUID | None = None
     schema_version_id: UUID | None = None
     document_id: UUID | None = None
     revision: int | None = Field(default=None, ge=1)

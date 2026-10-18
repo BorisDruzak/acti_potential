@@ -34,7 +34,9 @@ def _sync_card_number(session, request, actor, document, schema, number_entry_id
     )
     linked_entries = list(session.scalars(select(NumberEntry).where(
         NumberEntry.document_id == document.id).with_for_update()))
-    existing = next((entry for entry in linked_entries if entry.number_string == document.reg_number), None)
+    scope = service.registration_scope(document.document_type_id, document.reg_date, document.custom_data)
+    existing = next((entry for entry in linked_entries if entry.number_string == document.reg_number
+                     and (not entry.scope_bound or (entry.registration_year, entry.registration_type_key) == scope)), None)
     if document.card_state == "draft":
         superseded = [old for old in linked_entries if old is not existing and old.state == "reserved"]
         for old in superseded:
@@ -80,6 +82,7 @@ def _sync_card_number(session, request, actor, document, schema, number_entry_id
         reserved = service.reserve(
             session, request, actor, series.id,
             ReserveInput(idempotency_key=f"card:{document.id}:reserve:{document.revision}"),
+            registration_scope=service.registration_scope(document.document_type_id, document.reg_date, document.custom_data),
         )
         existing = session.get(NumberEntry, UUID(reserved["items"][0]["id"]))
     permission = "assign" if published else "reserve"

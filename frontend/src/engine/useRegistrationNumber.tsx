@@ -12,14 +12,19 @@ export function useRegistrationNumber(options: {
  const current=useRef(options);current.current=options;
  const fields=options.schema.sections.flatMap(section=>section.fields);
  const field=fields.find(field=>field.system==="reg_number");
+ const dateField=fields.find(field=>field.system==="reg_date");
+ const typeField=fields.find(field=>field.key==="type_id"&&field.type==="reference");
+ const registrationDate=dateField?options.values[dateField.key]??null:undefined;
+ const registrationTypeId=typeField?options.values[typeField.key]??null:undefined;
  const available=field&&canRead(field,options.mode,options.roles,options.values,undefined,fields)&&canWrite({...field,number_series_id:null},options.mode,options.roles);
- const context=JSON.stringify([options.registryId,options.documentTypeId,options.schemaVersionId,options.documentId,options.revision]);
+ const context=JSON.stringify([options.registryId,options.documentTypeId,options.schemaVersionId,options.documentId,options.revision,registrationDate,registrationTypeId]);
  useEffect(()=>{setReservation(null);},[context]);
  const selected=reservation&&field&&options.values[field.key]===reservation.number?reservation:null;
  const reset=()=>setReservation(null);
  const fieldContent:Record<string,(id:string)=>ReactNode>=available?{[field.key]:(id:string)=><RegistrationNumberControl id={id} label={field.label}
   registryId={options.registryId} documentTypeId={options.documentTypeId} schemaVersionId={options.schemaVersionId}
   documentId={options.documentId} revision={options.revision} csrfToken={options.csrfToken}
+  registrationDate={registrationDate} registrationTypeId={registrationTypeId}
   value={options.values[field.key]} required={field.required} locked={options.locked} disabled={options.disabled}
   maxLength={Number(field.constraints?.max_length)||255} pattern={typeof field.constraints?.pattern==="string"?field.constraints.pattern:undefined}
   onChange={value=>{setReservation(null);current.current.onValues({...current.current.values,[field.key]:value});}}
