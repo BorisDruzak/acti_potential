@@ -13,8 +13,11 @@ from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 MAX_INPUT_BYTES = 25 * 1024 * 1024
-MAX_ZIP_EXPANDED = 32 * 1024 * 1024
+MAX_ZIP_EXPANDED = 64 * 1024 * 1024
 MAX_XML_BYTES = 8 * 1024 * 1024
+MAX_DOCUMENT_XML_BYTES = 64 * 1024 * 1024
+MAX_STREAM_XML_ELEMENTS = 2_000_000
+MAX_STREAM_XML_DEPTH = 256
 MAX_TEXT_BYTES = 2 * 1024 * 1024
 MAX_BLOCKS = 5000
 MAX_PAGES = 1000
@@ -42,9 +45,9 @@ def parser_identity(name: str, mime: str = "") -> tuple[str, str]:
             dependency = "unavailable"
         return "pdf", "acti-1+pypdf-" + dependency
     if suffix == ".docx":
-        return "docx", "acti-ooxml-1"
+        return "docx", "acti-ooxml-2-stream"
     if suffix == ".doc":
-        return "doc", "acti-2+antiword-0.37-16"
+        return "doc", "acti-3+antiword-0.37-blocks"
     return "unsupported", "acti-1"
 
 
@@ -122,6 +125,106 @@ def _paragraph(element):
     return "".join(parts)
 
 
+class _BoundedDocumentXml:
+    def __init__(self, source):
+        self.source, self.consumed = source, 0
+
+    def read(self, size=-1):
+        remaining = MAX_DOCUMENT_XML_BYTES + 1 - self.consumed
+        data = self.source.read(min(size, remaining) if size >= 0 else remaining)
+        self.consumed += len(data)
+        if self.consumed > MAX_DOCUMENT_XML_BYTES:
+            raise ParseFailure("limit_exceeded")
+        return data
+
+
+def _large_docx_text(source):
+    """Stream large Word XML into bounded text blocks, without building its tree.
+
+    Large legal-act tables can contain tens of thousands of tiny paragraphs.
+    Keep their full text in reading order; omit the rich table representation
+    explicitly instead of allocating one database block per cell or line.
+    """
+    from defusedxml import ElementTree
+    from defusedxml.common import DefusedXmlException
+
+    blocks, stack, paragraph, pending = Blocks(), [], [], []
+    body_depth, bodies, elements, text_bytes, pending_chars = None, 0, 0, 0, 0
+
+    def flush_block():
+        nonlocal pending_chars
+        if pending:
+            blocks.add("paragraph", "\n\n".join(pending), f"docx:large:chunk:{len(blocks.items) + 1}")
+            pending.clear()
+            pending_chars = 0
+
+    def flush_paragraph():
+        nonlocal pending_chars
+        value = clean_text("".join(paragraph))
+        paragraph.clear()
+        if not value:
+            return
+        if pending and pending_chars + len(value) + 2 > 4096:
+            flush_block()
+        pending.append(value)
+        pending_chars += len(value) + 2
+
+    try:
+        events = ElementTree.iterparse(
+            _BoundedDocumentXml(source), events=("start", "end"),
+            forbid_dtd=True, forbid_entities=True, forbid_external=True,
+        )
+        for event, node in events:
+            if event == "start":
+                stack.append(node)
+                elements += 1
+                if len(stack) > MAX_STREAM_XML_DEPTH or elements > MAX_STREAM_XML_ELEMENTS:
+                    raise ParseFailure("limit_exceeded")
+                if len(stack) == 1 and node.tag != W + "document":
+                    raise ParseFailure("malformed_document")
+                if len(stack) == 2 and node.tag == W + "body":
+                    bodies += 1
+                    if bodies != 1:
+                        raise ParseFailure("malformed_document")
+                    body_depth = len(stack)
+                elif body_depth is not None and node.tag == W + "p":
+                    flush_paragraph()
+                continue
+            if body_depth is not None:
+                value = None
+                if node.tag == W + "t":
+                    value = node.text or ""
+                elif node.tag == W + "tab":
+                    value = "\t"
+                elif node.tag in {W + "br", W + "cr"}:
+                    value = "\n"
+                if value is not None:
+                    text_bytes += len(value.encode("utf-8", errors="replace"))
+                    if text_bytes > MAX_TEXT_BYTES:
+                        raise ParseFailure("limit_exceeded")
+                    paragraph.append(value)
+                if node.tag == W + "p":
+                    flush_paragraph()
+                if len(stack) == body_depth:
+                    flush_paragraph()
+                    body_depth = None
+            stack.pop()
+            node.clear()
+            if stack:
+                stack[-1].remove(node)
+        if bodies != 1:
+            raise ParseFailure("malformed_document")
+        flush_block()
+        text, items = blocks.result()
+        if len(text.encode("utf-8")) > MAX_TEXT_BYTES:
+            raise ParseFailure("limit_exceeded")
+        return text, items
+    except DefusedXmlException:
+        raise ParseFailure("unsafe_xml") from None
+    except ElementTree.ParseError:
+        raise ParseFailure("malformed_xml") from None
+
+
 def parse_docx(data):
     blocks = Blocks()
     warnings = []
@@ -159,6 +262,13 @@ def parse_docx(data):
             for value in node.attrib.values()
         ):
             raise ParseFailure("active_content", "unsupported")
+        document_info = archive.getinfo("word/document.xml")
+        if document_info.file_size > MAX_DOCUMENT_XML_BYTES:
+            raise ParseFailure("limit_exceeded")
+        if document_info.file_size > MAX_XML_BYTES:
+            with archive.open(document_info) as source:
+                text, items = _large_docx_text(source)
+            return text, items, sorted(set([*warnings, "large_docx_text_flattened"]))
         document = _xml(archive.read("word/document.xml"))
         body = document.find(W + "body")
         if body is None:
@@ -255,12 +365,19 @@ def parse_doc(data):
         if len(result.stdout) > MAX_TEXT_BYTES:
             raise ParseFailure("limit_exceeded")
         blocks = Blocks()
-        for index, paragraph in enumerate(
-            result.stdout.decode("utf-8", errors="replace").splitlines(), 1
-        ):
+        decoded = result.stdout.decode("utf-8", errors="replace")
+        paragraphs = decoded.splitlines()
+        warnings = ["legacy_doc_layout_flattened"]
+        if sum(bool(clean_text(line)) for line in paragraphs) > MAX_BLOCKS:
+            # Keep the converter's table spacing and every word. Coalesce
+            # physical wrapped lines only when the per-line representation
+            # would exceed the block budget; blank lines delimit paragraphs.
+            paragraphs = re.split(r"\n\s*\n", decoded)
+            warnings.append("large_doc_text_coalesced")
+        for index, paragraph in enumerate(paragraphs, 1):
             if clean_text(paragraph):
                 blocks.add("paragraph", paragraph, f"doc:paragraph:{index}")
-        return *blocks.result(), ["legacy_doc_layout_flattened"]
+        return *blocks.result(), warnings
 
 
 def parse_bytes(data: bytes, name: str, mime: str = "") -> dict:

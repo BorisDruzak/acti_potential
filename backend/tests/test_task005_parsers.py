@@ -267,4 +267,4 @@ def test_valid_short_old_doc_is_explicit_converter_limitation(monkeypatch):
     assert result["error_code"] == "legacy_doc_short_stream"
     assert result["warnings"] == ["legacy_doc_short_stream_unsupported"]
     assert result["full_text"] == "" and result["blocks"] == []
-    assert result["parser_version"] == "acti-2+antiword-0.37-16"
+    assert result["parser_version"] == "acti-3+antiword-0.37-blocks"

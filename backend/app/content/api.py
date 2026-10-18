@@ -3,7 +3,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import aliased
 
 from app.api.dependencies import current_actor, current_admin, db_session
 from app.api.errors import fail
@@ -169,6 +170,16 @@ def extraction_output(session, row, file, version, *, include_blocks=True):
     }
 
 
+def latest_extraction_clause():
+    """Show the newest run per immutable original; keep prior runs addressable."""
+    newer = aliased(ContentExtraction)
+    return ~select(newer.id).where(
+        newer.file_id == ContentExtraction.file_id,
+        or_(newer.created_at > ContentExtraction.created_at,
+            (newer.created_at == ContentExtraction.created_at) & (newer.id > ContentExtraction.id)),
+    ).correlate(ContentExtraction).exists()
+
+
 @router.get("/documents/{document_id}/content", response_model=Page[ExtractionWithBlocks])
 def document_content(
     document_id: UUID,
@@ -186,7 +197,7 @@ def document_content(
         select(ContentExtraction, DocumentFile, DocumentVersion.version)
         .join(DocumentFile, DocumentFile.id == ContentExtraction.file_id)
         .join(DocumentVersion, DocumentVersion.id == ContentExtraction.version_id)
-        .where(ContentExtraction.document_id == document_id)
+        .where(ContentExtraction.document_id == document_id, latest_extraction_clause())
     )
     if file_id:
         file = session.get(DocumentFile, file_id)
@@ -287,7 +298,8 @@ def errors(
         select(ContentExtraction, DocumentFile, DocumentVersion.version)
         .join(DocumentFile, DocumentFile.id == ContentExtraction.file_id)
         .join(DocumentVersion, DocumentVersion.id == ContentExtraction.version_id)
-        .where(ContentExtraction.state.in_(["failed", "encrypted", "unsupported", "no_text"]))
+        .where(ContentExtraction.state.in_(["failed", "encrypted", "unsupported", "no_text"]),
+               latest_extraction_clause())
         .order_by(ContentExtraction.created_at.desc(), ContentExtraction.id)
         .execution_options(yield_per=100)
     ):

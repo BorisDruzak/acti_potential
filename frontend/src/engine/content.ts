@@ -46,6 +46,8 @@ export const extractionWarnings: Record<string, string> = {
   external_relationships_ignored: "Внешние ссылки не загружались при обработке документа.",
   nested_table_omitted: "Вложенная таблица не включена в извлечённое содержание. Проверьте оригинал.",
   legacy_doc_layout_flattened: "Содержание DOC извлечено как текст; оформление доступно в оригинале.",
+  large_doc_text_coalesced: "Строки большого DOC объединены в текстовые блоки. Весь извлечённый текст сохранён; оформление доступно в оригинале.",
+  large_docx_text_flattened: "Большой DOCX извлечён как текст с упрощённым оформлением таблиц. Исходное оформление доступно в оригинале.",
 };
 export const blockKinds: Record<string, string> = {
   paragraph: "Абзац", heading: "Заголовок", table: "Таблица", table_row: "Строка таблицы",
