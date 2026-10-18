@@ -81,7 +81,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .document-card-summary .document-state { font-size: 10px; padding: 1px 6px; }
 .document-card-heading .eyebrow { font-size: 10px; letter-spacing: .3px; }
 .document-card-heading > button { font-size: 12px; flex-shrink: 0; }
-.document-actions-strip { position: sticky; top: 0; z-index: 6; display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; max-width: 100%; margin-bottom: 8px; padding: 7px 8px; border: 1px solid var(--acti-border); border-radius: 6px; background: #f8fbfa; box-shadow: 0 2px 4px #142d3510; overflow-x: auto; }
+.document-card-dock { position: sticky; top: 0; z-index: 6; padding-bottom: 4px; margin-bottom: 4px; background: white; box-shadow: 0 2px 4px #142d3510; }
+.document-actions-strip { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; max-width: 100%; margin-bottom: 3px; padding: 5px 8px; border: 1px solid var(--acti-border); border-radius: 6px; background: #f8fbfa; overflow-x: auto; }
 .document-actions-strip button, .document-card-heading > button { flex: 0 0 auto; min-height: 30px; padding: 5px 8px; font-size: 12px; white-space: nowrap; }
 .document-actions-strip .document-save-status { flex: 0 0 auto; order: 2; margin-left: 6px; font-size: 11px; white-space: nowrap; }
 .document-original-panel { display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 0 0 0 8px; margin: 0; border: 0; border-left: 1px solid var(--acti-border); background: transparent; }
@@ -101,8 +102,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .document-header-actions .office-open-actions button:first-child { color: #14664f; border-color: #bad6cb; background: #edf6f2; }
 .office-open-actions [role="alert"] { color: #a52a2a; }
 .document-actions-strip .document-header-actions button { flex: 0 0 auto; padding: 5px 8px; font-size: 12px; white-space: nowrap; }
-.document-card .tabs { flex-wrap: nowrap; overflow-x: auto; border-bottom: 1px solid var(--acti-border); margin: 0 0 8px; gap: 0; }
-.document-card .tabs button { flex: 0 0 auto; min-height: 30px; white-space: nowrap; background: transparent; border: 0; border-radius: 0; border-bottom: 2px solid transparent; padding: 6px 9px; font-size: 12px; }
+.document-card .tabs { flex-wrap: nowrap; overflow-x: auto; border-bottom: 1px solid var(--acti-border); margin: 0 0 3px; padding-bottom: 0; gap: 0; }
+.document-card .tabs button { flex: 0 0 auto; min-height: 27px; white-space: nowrap; background: transparent; border: 0; border-radius: 0; border-bottom: 2px solid transparent; padding: 4px 8px; font-size: 11px; }
 .document-card .tabs button.active { color: var(--acti-accent); border-bottom-color: var(--acti-accent); background: #f5faf8; }
 .document-save-actions:has(button) { position: sticky; bottom: -20px; z-index: 4; padding: 12px; border: 1px solid var(--acti-border); border-radius: 8px; background: white; margin-top: 16px; }
 .document-save-status { margin-left: auto; color: var(--acti-muted); font-size: 12px; }
@@ -128,12 +129,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .dynamic-form-side-navigation > .form-sections { gap: 24px; padding: 20px; }
 .document-card .dynamic-form-side-navigation > .form-sections { gap: 12px; padding: 0; }
 .dynamic-form-side-navigation .form-section h3 { font-size: 16px; }
-.document-card .dynamic-form-side-navigation { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-.document-card .dynamic-form-side-navigation > .form-navigation { grid-column: 1; grid-row: 1; position: static; display: flex; flex-direction: row; gap: 4px; padding: 4px; border: 1px solid var(--acti-border); border-radius: 5px; max-height: none; overflow: auto; }
+.document-card .dynamic-form-side-navigation { display: block; }
+.document-card .dynamic-form-side-navigation > .form-navigation { position: sticky; top: calc(var(--document-card-dock-height, 120px) + 4px); z-index: 5; display: flex; flex-direction: row; gap: 3px; padding: 3px; margin-bottom: 8px; border: 1px solid var(--acti-border); border-radius: 5px; max-height: none; overflow: auto; background: white; box-shadow: 0 2px 4px #142d3510; }
 .document-card .dynamic-form-side-navigation > .form-navigation a { white-space: nowrap; padding: 3px 6px; font-size: 11px; }
 .document-card .dynamic-form-side-navigation > .form-sections { grid-column: 1; grid-row: 2; padding: 0; border: 0; }
-.document-card .dynamic-form-side-navigation .form-section { scroll-margin-top: 80px; }
-.document-card .document-collaboration { display: flex; flex-wrap: wrap; gap: 3px 16px; padding: 0 0 6px; font-size: 11px; }
+.document-card .dynamic-form-side-navigation .form-section { scroll-margin-top: calc(var(--document-card-dock-height, 120px) + 60px); }
+.document-card .document-collaboration { display: flex; flex-wrap: nowrap; gap: 12px; padding: 2px 0; font-size: 10px; line-height: 1.4; white-space: nowrap; overflow-x: auto; }
 .document-card .document-collaboration p { margin: 0; }
 .password-panel { width: min(480px, 100%); margin: 28px auto; padding: 28px; }
 .password-panel h1 { font-size: 24px; }
@@ -184,7 +185,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .document-card .form-section { padding: 14px; }
   .document-card .form-section > h3 { margin: -14px -14px 12px; padding: 9px 14px; }
   .document-save-status { margin-left: 0; flex-basis: 100%; }
-  .document-card .tabs button { padding: 8px; font-size: 12px; }
+  .document-card .tabs button { padding: 4px 7px; font-size: 11px; }
   .document-header-actions button { font-size: 12px; }
   .password-panel { margin-top: 12px; padding: 20px; }
   .document-workspace { height: clamp(480px, 78dvh, 900px); }

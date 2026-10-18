@@ -362,7 +362,7 @@ it("keeps the four working tabs and permission-aware section navigation without 
   fireEvent.click(await firstRow());
   await screen.findByRole("button", {name: "Сохранить карточку"});
   const card = document.querySelector(".document-card") as HTMLElement;
-  expect(Array.from(card.querySelectorAll(":scope > .tabs button"), item => item.textContent)).toEqual(["Карточка", "Файлы и версии", "История изменений", "Содержание"]);
+  expect(Array.from(card.querySelectorAll(".document-card-dock > .tabs button"), item => item.textContent)).toEqual(["Карточка", "Файлы и версии", "История изменений", "Содержание"]);
   const header = card.querySelector(".document-card-top > .toolbar")!;
   expect(header.textContent).not.toContain("UUID:");
   expect(header.textContent).not.toContain("редакция");

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport, saveSelectedExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
@@ -124,6 +124,7 @@ function DocumentCard({
   const action = useAction();
   const canEdit = !readOnly && card.permissions.includes("update");
   const formId = useId();
+  const dock = useRef<HTMLDivElement>(null);
   const [values, setValues] = useState<Values>(card.values);
   const [savedValues, setSavedValues] = useState<Values>(card.values);
   const [cardState, setCardState] = useState<CardState>(card.card_state || "draft");
@@ -168,6 +169,17 @@ function DocumentCard({
     (!sameFormValue(values, savedValues) || publicationDirty ||
       Object.keys(pendingFiles).length > 0 || registrationNumber.busy);
   const collaboration = useDocumentCollaboration(card.id, revision, readOnly ? "viewer" : "editor", csrfToken, hasUnsavedChanges, hasUnsavedChanges, onSaved);
+  const hasCollaboration = !!collaboration.state;
+  useLayoutEffect(() => {
+    const node = dock.current;
+    if (!node) return;
+    const measure = () => node.parentElement?.style.setProperty("--document-card-dock-height", `${Math.ceil(node.getBoundingClientRect().height)}px`);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(node);
+    window.addEventListener("resize", measure);
+    return () => {observer?.disconnect(); window.removeEventListener("resize", measure);};
+  }, [hasCollaboration]);
   const remoteChange = hasUnsavedChanges ? collaboration.remote : null;
   const blocked = conflict || !!remoteChange || collaboration.unavailable;
   useEffect(() => {onDirtyChange?.(hasUnsavedChanges);}, [hasUnsavedChanges, onDirtyChange]);
@@ -256,6 +268,7 @@ function DocumentCard({
         <button onClick={onClose}>К списку</button>
       </div>
       </div>
+      <div className="document-card-dock" ref={dock}>
       <div className="document-actions-strip" role="group" aria-label="Действия с документом">
           {canEdit && (
             <div className="button-row document-save-actions">
@@ -322,11 +335,12 @@ function DocumentCard({
         </button>
         <button className={tab === "content" ? "active" : ""} onClick={() => setTab("content")}>Содержание</button>
       </div>
-      <Feedback {...action} />
       {collaboration.state && <div className="document-collaboration" aria-label="Совместная работа">
         <p>Последнее изменение: {collaboration.state.updated_by?.display_name || "Автор неизвестен"} · {new Date(collaboration.state.updated_at).toLocaleString("ru-RU")}</p>
         {collaboration.state.participants.length > 0 && <p>Сейчас в карточке: {collaboration.state.participants.map(person => `${person.display_name}${person.editing ? " (редактирует)" : " (просматривает)"}`).join(", ")}</p>}
       </div>}
+      </div>
+      <Feedback {...action} />
       {collaboration.unavailable && <div className="error" role="alert">Документ удалён или доступ к нему изменён. Обновите список документов.</div>}
       {(conflict || remoteChange) && (
         <div className="error" role="alert">
