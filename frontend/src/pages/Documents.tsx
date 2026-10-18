@@ -124,17 +124,6 @@ function DocumentCard({
   const action = useAction();
   const canEdit = !readOnly && card.permissions.includes("update");
   const formId = useId();
-  const header = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const node = header.current;
-    if (!node) return;
-    const measure = () => node.parentElement?.style.setProperty("--document-card-header-height", `${node.offsetHeight}px`);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
   const [values, setValues] = useState<Values>(card.values);
   const [savedValues, setSavedValues] = useState<Values>(card.values);
   const [cardState, setCardState] = useState<CardState>(card.card_state || "draft");
@@ -257,15 +246,16 @@ function DocumentCard({
   }
   return (
     <section className="document-card">
-      <div className="document-card-top" ref={header}>
+      <div className="document-card-top">
       <div className="toolbar document-card-heading">
         <div>
-          <span className="eyebrow">{registryName} · {card.reg_number ? `№ ${card.reg_number}` : "БЕЗ НОМЕРА"}</span>
+          <div className="document-card-summary"><span className="eyebrow">{registryName} · {card.reg_number ? `№ ${card.reg_number}` : "БЕЗ НОМЕРА"}</span>
+          <span className={`document-state ${cardState}`}>{cardState === "published" ? "Опубликован" : "Черновик"}</span></div>
           <h1 title={card.title}>{card.title || "Документ"}</h1>
-          <span className={`document-state ${cardState}`}>{cardState === "published" ? "Опубликован" : "Черновик"}</span>
         </div>
         <button onClick={onClose}>К списку</button>
       </div>
+      <div className="document-actions-strip" role="group" aria-label="Действия с документом">
           {canEdit && (
             <div className="button-row document-save-actions">
               {canEdit ? (
@@ -299,17 +289,18 @@ function DocumentCard({
               ) : null}
             </div>
           )}
-      </div>
       {(!!card.files?.length || canUpload) && <section className="document-original-panel" aria-label="Оригинал документа">
         <div className="document-original-heading">
           <svg className="document-original-icon" width="20" height="24" viewBox="0 0 20 24" fill="none" aria-hidden="true"><path d="M3 1h9l5 5v16H3V1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M12 1v6h5M6 12h8M6 16h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          <div><strong>Оригинал документа</strong><small>{card.files?.length === 1 ? `${card.files[0].name} · Версия ${card.files[0].version}` : card.files?.length ? `Всего файлов и версий: ${card.files.length}` : "Файлы пока не добавлены"}</small></div>
+          <div title={card.files?.length === 1 ? `${card.files[0].name} · Версия ${card.files[0].version}` : undefined}><strong>Оригинал документа</strong><small>{card.files?.length === 1 ? `${card.files[0].name} · Версия ${card.files[0].version}` : card.files?.length ? `Всего файлов и версий: ${card.files.length}` : "Файлы пока не добавлены"}</small></div>
         </div>
         <div className="document-header-actions">
           <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>
           {canUpload && <button type="button" className="original-upload" onClick={() => setTab("files")}>Загрузить новую версию</button>}
         </div>
       </section>}
+      </div>
+      </div>
       <div className="tabs">
         <button
           className={tab === "card" ? "active" : ""}

@@ -13,6 +13,8 @@ export function DocumentResults({results, schemas, sortSchemas, columnsSchema, t
 }) {
   const rows = results.map(result => "document" in result ? result.document : result as unknown as Card);
   const columns = resultColumns(columnsSchema ? [columnsSchema] : [...schemas.values()]);
+  const columnWidth = (key: string) => ({reg_number: 100, reg_date: 112, card_state: 130, status: 140, document_type: 220}[key] || 160);
+  const otherColumnsWidth = 42 + columns.filter(column => column.key !== "title").reduce((sum, column) => sum + columnWidth(column.key), 0);
   function value(item: Card, column: DocumentColumn) {
     if (column.key === "card_state") return item.card_state === "published" ? "Опубликован" : item.card_state === "draft" ? "Черновик" : "—";
     if (column.key === "status") return legalActStatus(item, schemas.get(item.schema_version_id), roles, readOnly);
@@ -43,13 +45,15 @@ export function DocumentResults({results, schemas, sortSchemas, columnsSchema, t
     event.currentTarget.parentElement?.querySelectorAll<HTMLTableRowElement>("tr")[next].focus({preventScroll: true});
     event.currentTarget.parentElement?.querySelectorAll<HTMLTableRowElement>("tr")[next].scrollIntoView?.({block: "nearest"});
   }
-  return <table className="document-results-table" aria-label="Документы" role="grid" aria-multiselectable="true">
+  return <table className="document-results-table" aria-label="Документы" role="grid" aria-multiselectable="true"
+    style={{minWidth: `calc(var(--document-title-width, 360px) + ${otherColumnsWidth}px)`}}>
+    <colgroup><col style={{width: 42}}/>{columns.map(column => <col key={column.key} style={{width: column.key === "title" ? "var(--document-title-width, 360px)" : columnWidth(column.key)}}/>)}</colgroup>
     <thead><tr role="row"><th scope="col" role="columnheader" className="column-selection"><span className="sr-only">Выделение</span></th>{columns.map(column => {
       const key = sortKey(column);
       return <th key={column.key} scope="col" role="columnheader" className={`column-${column.key}${column.configured ? " column-configured" : ""}`}
         aria-sort={key && sort === key ? direction === "asc" ? "ascending" : "descending" : "none"}>
-        {key ? <button type="button" onClick={() => onSort(key)} aria-label={`Сортировать: ${column.label}`}>
-          {column.label}<span aria-hidden="true">{sort === key ? direction === "asc" ? " ↑" : " ↓" : " ↕"}</span></button> : column.label}
+        {key ? <button type="button" onClick={() => onSort(key)} aria-label={`Сортировать: ${column.label}`} title={column.label}>
+          {column.key === "reg_number" ? "Рег. номер" : column.label}<span aria-hidden="true">{sort === key ? direction === "asc" ? " ↑" : " ↓" : " ↕"}</span></button> : column.label}
       </th>;
     })}</tr></thead>
     <tbody>{rows.map((item, index) => <tr key={item.id} role="row" data-document-id={item.id} data-open-card={selected === item.id || undefined}
@@ -62,7 +66,7 @@ export function DocumentResults({results, schemas, sortSchemas, columnsSchema, t
       {columns.map(column => <td key={column.key} role="gridcell" className={`column-${column.key}${column.configured ? " column-configured" : ""}`} aria-label={`${column.label}: ${value(item, column)}`}>
         {column.key === "reg_number" && <span className="document-compact-label" aria-hidden="true">№ </span>}
         {column.key === "reg_date" && <span className="document-compact-label" aria-hidden="true">Дата: </span>}
-        <span className={column.key === "card_state" ? `document-state ${item.card_state || "unknown"}` : undefined}>{value(item, column)}</span>
+        <span title={value(item, column)} className={column.key === "card_state" ? `document-state ${item.card_state || "unknown"}` : "document-cell-text"}>{value(item, column)}</span>
         {column.key === "title" && <div className="compact-document-meta"><span>{item.reg_number ? `№ ${item.reg_number}` : "Без номера"}</span><span>{item.reg_date ? new Date(item.reg_date + "T00:00:00").toLocaleDateString("ru-RU") : "Без даты"}</span><span className={`document-state ${item.card_state || "unknown"}`}>{item.card_state === "published" ? "Опубликован" : item.card_state === "draft" ? "Черновик" : "—"}</span></div>}
         {column.key === "title" && query && "document" in results[index] && <div className="document-result-snippets"
           onClick={event => {if ((event.target as HTMLElement).closest("button, a")) event.stopPropagation();}}
