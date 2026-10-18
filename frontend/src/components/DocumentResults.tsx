@@ -62,7 +62,8 @@ export function DocumentResults({results, schemas, sortSchemas, columnsSchema, t
       {columns.map(column => <td key={column.key} role="gridcell" className={`column-${column.key}${column.configured ? " column-configured" : ""}`} aria-label={`${column.label}: ${value(item, column)}`}>
         {column.key === "reg_number" && <span className="document-compact-label" aria-hidden="true">№ </span>}
         {column.key === "reg_date" && <span className="document-compact-label" aria-hidden="true">Дата: </span>}
-        <span>{value(item, column)}</span>
+        <span className={column.key === "card_state" ? `document-state ${item.card_state || "unknown"}` : undefined}>{value(item, column)}</span>
+        {column.key === "title" && <div className="compact-document-meta"><span>{item.reg_number ? `№ ${item.reg_number}` : "Без номера"}</span><span>{item.reg_date ? new Date(item.reg_date + "T00:00:00").toLocaleDateString("ru-RU") : "Без даты"}</span><span className={`document-state ${item.card_state || "unknown"}`}>{item.card_state === "published" ? "Опубликован" : item.card_state === "draft" ? "Черновик" : "—"}</span></div>}
         {column.key === "title" && query && "document" in results[index] && <div className="document-result-snippets"
           onClick={event => {if ((event.target as HTMLElement).closest("button, a")) event.stopPropagation();}}
           onDoubleClick={event => {if ((event.target as HTMLElement).closest("button, a")) event.stopPropagation();}}>

@@ -15,7 +15,7 @@ export function Password({
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   return (
-    <section className={required ? "state-screen" : "panel"}>
+    <section className={required ? "state-screen" : "panel password-panel"}>
       <div className="compact-form">
         <h1>{required ? "Установите свой пароль" : "Сменить пароль"}</h1>
         <p>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { DocumentDialog } from "./DocumentDialog";
 export type Space = "admin" | "work" | "view";
 const spaceNames: Record<Space, string> = {
   admin: "Администратор",
@@ -22,6 +23,8 @@ export function Layout({
   const auth = useAuth();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountInSidebar, setAccountInSidebar] = useState(false);
   const pinKey = `acti.navigation.v1:${auth.user?.id ?? "local"}`;
   const [pinned, setPinned] = useState(() => {
     try { return localStorage.getItem(pinKey) === "pinned"; } catch { return false; }
@@ -95,6 +98,7 @@ export function Layout({
         ]
       : ["Документы", "Моя работа", "Реестр номеров", "Мой пароль"];
   async function logout() {
+    if (!window.dispatchEvent(new Event("acti:before-workspace-navigation", {cancelable: true}))) return;
     setBusy(true);
     setError("");
     try {
@@ -168,10 +172,10 @@ export function Layout({
             </button>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <i />
-          Универсальный реестр<span>v3</span>
-        </div>
+        <button className="sidebar-user" type="button" aria-label="Учётная запись в панели" aria-haspopup="dialog" onClick={() => {setAccountInSidebar(true); setAccountOpen(true);}}>
+          <span className="avatar" aria-hidden="true">{auth.user?.display_name?.charAt(0).toUpperCase()}</span>
+          <span><strong>{auth.user?.display_name}</strong><small>{spaceNames[space]}</small></span>
+        </button>
       </aside>
       </div>
       <div className="main-column">
@@ -187,9 +191,11 @@ export function Layout({
             <strong>{section}</strong>
           </span>
           <div className="account">
+            <button type="button" className="account-trigger" aria-label="Учётная запись" aria-haspopup="dialog" onClick={() => {setAccountInSidebar(false); setAccountOpen(true);}}>
             <span className="avatar" aria-hidden="true">
               {auth.user?.display_name.charAt(0).toUpperCase()}
             </span>
+            </button>
             <span className="account-name">
               {auth.user?.display_name}
               <small>{spaceNames[space]}</small>
@@ -215,6 +221,13 @@ export function Layout({
           ACTI v3<span>Документы · Реестры · Совместная работа</span>
         </footer>
       </div>
+      {accountOpen && <DocumentDialog label="Учётная запись" className={accountInSidebar ? "account-menu-sidebar" : "account-menu-topbar"} onClose={() => setAccountOpen(false)}>
+        <div className="toolbar"><h2>Учётная запись</h2><button autoFocus onClick={() => setAccountOpen(false)}>Закрыть</button></div>
+        <strong>{auth.user?.display_name}</strong><p>Рабочее пространство: {spaceNames[space]}</p>
+        <div className="button-row"><button onClick={() => {setAccountOpen(false); setSection("Мой пароль");}}>Мой пароль</button>
+          <button disabled={busy} onClick={() => void logout()}>{busy ? "Выход…" : "Выйти"}</button></div>
+        {error && <p role="alert" className="error">{error}</p>}
+      </DocumentDialog>}
     </div>
   );
 }

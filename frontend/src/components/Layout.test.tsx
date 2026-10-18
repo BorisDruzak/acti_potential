@@ -7,6 +7,15 @@ afterEach(() => {cleanup(); localStorage.clear(); vi.useRealTimers();});
 function setup() {
   return render(<Layout section="Документы" setSection={vi.fn()} space="work" setSpace={vi.fn()}><h1>Документы</h1><input aria-label="Текст документа"/></Layout>);
 }
+it("opens the account from the sidebar and keeps it available with navigation hidden", () => {
+  setup();
+  fireEvent.click(screen.getByRole("button", {name: "Учётная запись в панели"}));
+  expect(screen.getByRole("dialog", {name: "Учётная запись"}).textContent).toContain("Редактор");
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", {name: "Закрыть"}));
+  fireEvent.pointerDown(screen.getByRole("main"));
+  fireEvent.click(screen.getByRole("button", {name: "Учётная запись"}));
+  expect(screen.getByRole("dialog", {name: "Учётная запись"})).toBeTruthy();
+});
 it("keeps the working menu focused on documents, personal history and numbers", () => {
   setup();
   const nav = within(screen.getByRole("navigation", {name: "Основная навигация"}));

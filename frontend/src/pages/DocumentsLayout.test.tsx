@@ -49,6 +49,33 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
 const mode = (name: string) => screen.getByRole("radio", {name});
 const firstRow = () => screen.findByRole("row", {name: /Выбрать документ «Альфа»/});
 
+it("loads the legacy legal-act status from an existing saved search", async () => {
+  window.history.replaceState(null, "", "/work?status=other");
+  localStorage.setItem("acti.views.v1.layout-user.editor", JSON.stringify([{name: "Действующие", registry: "", query: "status=active"}]));
+  const requests = setup(); await firstRow();
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
+  fireEvent.click(screen.getByText("Сохранённые поиски", {exact: true}));
+  fireEvent.click(screen.getByRole("button", {name: "Действующие"}));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", {name: "Найти"}));
+  await waitFor(() => expect(requests.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).status === "active")).toBe(true));
+});
+
+it("keeps applied results and the edited card when advanced search is cancelled", async () => {
+  const requests = setup();
+  fireEvent.click(await firstRow());
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
+  fireEvent.change(screen.getByLabelText("Наименование"), {target: {value: "Черновик карточки"}});
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
+  const drawer = within(screen.getByRole("dialog", {name: "Расширенный поиск"}));
+  const count = requests.mock.calls.filter(([url]) => url.endsWith("/search")).length;
+  fireEvent.change(drawer.getByLabelText("Регистрационный номер"), {target: {value: "999"}});
+  fireEvent.click(drawer.getByRole("button", {name: "Отмена"}));
+  expect(requests.mock.calls.filter(([url]) => url.endsWith("/search"))).toHaveLength(count);
+  expect((screen.getByLabelText("Наименование") as HTMLInputElement).value).toBe("Черновик карточки");
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
+  expect((within(screen.getByRole("dialog")).getByLabelText("Регистрационный номер") as HTMLInputElement).value).toBe("");
+});
+
 function registrationFixture(state: "draft" | "published", rejectPublication = false) {
  const fetch=setup(),base=fetch.getMockImplementation()!;
  const schema: FormSchema={sections:[{key:"main",title:"Основное",fields:[
@@ -95,7 +122,7 @@ it.each([false,true])("keeps save separate from publication and retains unsaved 
  fireEvent.change(within(form).getByLabelText("Регистрационный номер"),{target:{value:"Edited/42"}});
  fireEvent.change(within(form).getByLabelText("Дата регистрации"),{target:{value:"2026-10-19"}});
  expect(within(form).queryByRole("combobox",{name:"Состояние карточки"})).toBeNull();
- const button=within(form).getByRole("button",{name:publish?"Опубликовать":"Сохранить карточку"});
+ const button=screen.getByRole("button",{name:publish?"Опубликовать":"Сохранить карточку"});
  fireEvent.click(button);
  await waitFor(()=>expect(fetch.mock.calls.some(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT")).toBe(true));
  const body=JSON.parse(String(fetch.mock.calls.find(([url,init])=>url.endsWith("/documents/a")&&init?.method==="PUT")![1]?.body));
@@ -220,7 +247,7 @@ it.each([["edit", false], ["create", false], ["edit", true], ["create", true]] a
       form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
     });
   }
-  const submit = within(form).getByRole<HTMLButtonElement>("button", {name: operation === "edit" ? "Сохранить карточку" : "Создать документ"});
+  const submit = (operation === "edit" ? within(document.querySelector(".document-card-top") as HTMLElement) : within(form)).getByRole<HTMLButtonElement>("button", {name: operation === "edit" ? "Сохранить карточку" : "Создать документ"});
   expect(submit.disabled).toBe(true);
   fireEvent.submit(form);
   expect(saveCalls()).toHaveLength(0);
@@ -312,10 +339,10 @@ it("keeps the four working tabs and permission-aware section navigation without 
   await screen.findByRole("button", {name: "Редактировать карточку"});
   const card = document.querySelector(".document-card") as HTMLElement;
   expect(Array.from(card.querySelectorAll(":scope > .tabs button"), item => item.textContent)).toEqual(["Карточка", "Файлы и версии", "История изменений", "Содержание"]);
-  const header = card.querySelector(":scope > .toolbar")!;
+  const header = card.querySelector(".document-card-top > .toolbar")!;
   expect(header.textContent).not.toContain("UUID:");
   expect(header.textContent).not.toContain("редакция");
-  expect(header.textContent).not.toContain("Р-1");
+  expect(header.textContent).toContain("Р-1");
   const nav = within(card).getByRole("navigation", {name: "Разделы формы"});
   expect(within(nav).getAllByRole("link").map(link => link.textContent)).toEqual(["Основное", "Публикация", "Контроль исполнения"]);
   for (const link of within(nav).getAllByRole("link")) expect(document.getElementById(link.getAttribute("href")!.slice(1))).toBeTruthy();
@@ -392,32 +419,15 @@ it("does not offer a page-dependent custom sort when another published version u
   expect(screen.queryByRole("button", {name: "Сортировать: Тема"})).toBeNull();
 });
 
-it("groups export inside collapsible search and places compact view controls directly above the panes", async () => {
-  setup();
-  await firstRow();
-  const searchPanel = screen.getByRole("group", {name: "Поиск документов"});
-  const toolbar = screen.getByRole("group", {name: "Вид и сортировка документов"});
-  expect(within(toolbar).getByRole("radiogroup", {name: "Отображение рабочей области"})).toBeTruthy();
-  expect(within(toolbar).getByLabelText("Сортировка")).toBeTruthy();
-  expect(searchPanel.contains(toolbar)).toBe(false);
-  fireEvent.click(within(searchPanel).getByText("Экспорт и импорт", {exact: true}));
-  expect(within(searchPanel).getByRole("button", {name: "Экспорт CSV"})).toBeTruthy();
-  const query = screen.getByRole("searchbox", {name: "Поиск"});
-  fireEvent.change(query, {target: {value: "Черновик запроса"}});
-  fireEvent.click(await firstRow());
-  fireEvent.click(await screen.findByRole("button", {name: "Редактировать карточку"}));
-  const cardInput = screen.getByLabelText("Наименование");
-  fireEvent.change(cardInput, {target: {value: "Черновик карточки"}});
-  const toggle = within(searchPanel).getByText("Поиск", {exact: true, selector: "summary > span:first-child"});
-  fireEvent.click(toggle);
-  await waitFor(() => expect((searchPanel as HTMLDetailsElement).open).toBe(false));
-  await waitFor(() => expect(screen.queryByRole("searchbox", {name: "Поиск"})).toBeNull());
-  expect((screen.getByLabelText("Наименование") as HTMLInputElement).value).toBe("Черновик карточки");
-  fireEvent.click(toggle);
-  await waitFor(() => expect((searchPanel as HTMLDetailsElement).open).toBe(true));
-  expect(screen.getByRole("searchbox", {name: "Поиск"})).toBe(query);
-  expect((query as HTMLInputElement).value).toBe("Черновик запроса");
-  expect(screen.getByLabelText("Наименование")).toBe(cardInput);
+it("keeps quick search compact and export independent of the advanced drawer", async () => {
+  setup(); await firstRow();
+  const search = screen.getByRole("search", {name: "Поиск документов"});
+  expect(within(search).queryByLabelText("Регистрационный номер")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(screen.getByText("Экспорт", {exact: true}));
+  expect(screen.getByRole("button", {name: "Экспорт CSV"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
+  expect(within(screen.getByRole("dialog")).getByLabelText("Регистрационный номер")).toBeTruthy();
 });
 
 it("searches all permitted registries without asking the user to pick just one", async () => {
@@ -441,9 +451,11 @@ it("searches all permitted registries without asking the user to pick just one",
 it("places saved filters below search and creation beside the view switch with All registries selected", async () => {
   const fetch = setup(false, false, "editor", true);
   await firstRow();
-  const search = document.querySelector(".search-form")!;
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
+  const search = document.querySelector(".search-drawer-form")!;
   const views = document.querySelector(".search-saved-views")!;
   expect(search.compareDocumentPosition(views) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", {name: "Отмена"}));
   const toolbar = screen.getByRole("group", {name: "Вид и сортировка документов"});
   expect(within(toolbar).getByLabelText("Реестр")).toHaveProperty("value", "");
   fireEvent.click(mode("Таблица"));
@@ -643,10 +655,10 @@ it("restores all field predicates from the URL and removes only the requested co
   window.history.replaceState(null, "", "/work?document_type_id=type&reg_number=17&reg_date=2026-10-17&status=active&filters=" + encodeURIComponent(JSON.stringify(filters)));
   const fetch = setup();
   await firstRow();
-  fireEvent.click(screen.getByRole("button", {name: "Фильтры"}));
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   expect(await screen.findByLabelText("Поле фильтра 1")).toHaveProperty("value", "x_kind");
   expect(screen.getByLabelText("Поле фильтра 2")).toHaveProperty("value", "x_topic");
-  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && Object.keys(JSON.parse(String(init?.body)).filters).length === 2)).toBe(true));
   fireEvent.click(screen.getByRole("button", {name: "Удалить активное условие 1"}));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => {

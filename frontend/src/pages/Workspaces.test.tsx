@@ -248,8 +248,8 @@ it("boolean extra filter uses typed control and sends false rather than dropping
   window.history.replaceState(null, "", "/view");
   const fetch = setup(["viewer"]);
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   fireEvent.change(screen.getByLabelText("Тип"), { target: { value: "t" } });
-  fireEvent.click(screen.getByRole("button", {name: "Фильтры"}));
   fireEvent.click(await screen.findByRole("button", {name: "Добавить условие"}));
   fireEvent.change(screen.getByLabelText("Поле фильтра 1"), {
     target: { value: "publish" },
@@ -257,7 +257,7 @@ it("boolean extra filter uses typed control and sends false rather than dropping
   fireEvent.change(screen.getByLabelText("Значение фильтра 1"), {
     target: { value: "false" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Найти" }));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   await waitFor(() =>
     expect(
       fetch.mock.calls.some(

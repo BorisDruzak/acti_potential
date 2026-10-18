@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { within, act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "../auth/AuthProvider";
 import { Documents } from "./Documents";
@@ -76,10 +76,12 @@ it("submits the general query, registration number and registration dates togeth
   function Ready() {return useAuth().user ? <Documents readOnly /> : null;}
   render(<AuthProvider><Ready /></AuthProvider>);
   fireEvent.change(await screen.findByLabelText("Поиск"), {target: {value: "озеленение"}});
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
+  fireEvent.change(within(screen.getByRole("dialog")).getByRole("searchbox"), {target: {value: "озеленение"}});
   fireEvent.change(screen.getByLabelText("Регистрационный номер"), {target: {value: "42-П"}});
   fireEvent.change(screen.getByLabelText("Дата регистрации", {exact: true}), {target: {value: "2026-10-16"}});
   expect((screen.getByLabelText("Дата регистрации с") as HTMLInputElement).disabled).toBe(true);
-  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({query: "озеленение", reg_number: "42-П", date_from: "2026-10-16", date_to: "2026-10-16"})));
   expect(new URLSearchParams(window.location.search).get("reg_date")).toBe("2026-10-16");
 });
@@ -130,7 +132,7 @@ it("offers all published filter fields with no selected type or search results a
   function Ready() {return useAuth().user ? <Documents/> : null;}
   render(<AuthProvider><Ready/></AuthProvider>);
   await screen.findByText("Документов по выбранным условиям пока нет.");
-  fireEvent.click(screen.getByRole("button", {name: "Фильтры"}));
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   fireEvent.click(await screen.findByRole("button", {name: "Добавить условие"}));
   const field = screen.getByLabelText("Поле фильтра 1");
   expect(field.textContent).toContain("Дата опубликования");
@@ -139,7 +141,7 @@ it("offers all published filter fields with no selected type or search results a
   fireEvent.change(field, {target: {value: "should_publish"}});
   fireEvent.change(screen.getByLabelText("Значение фильтра 1"), {target: {value: "false"}});
   fireEvent.change(screen.getByLabelText("База публикации карточки"), {target: {value: "shared"}});
-  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({filters: {should_publish: false}, publication_target: "shared", document_type_ids: []})));
   expect(new URLSearchParams(window.location.search).get("publication_target")).toBe("shared");
   expect(screen.getByRole("button", {name: "Удалить фильтр publication_target"})).toBeTruthy();

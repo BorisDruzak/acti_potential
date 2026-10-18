@@ -98,17 +98,19 @@ it("renders the object type returned by the audit API", async () => {
 it("resets date and sort controls when switching registries to an unfiltered query", async () => {
   const fetch = setup();
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "A"}});
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   fireEvent.change(screen.getByLabelText("Дата регистрации с"), { target: { value: "2026-10-01" } });
   fireEvent.change(screen.getByLabelText("Дата регистрации по"), { target: { value: "2026-10-15" } });
   fireEvent.change(screen.getByLabelText("Сортировка"), { target: { value: "title" } });
-  fireEvent.click(screen.getByRole("button", { name: "Найти" }));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).date_from === "2026-10-01")).toBe(true));
   fireEvent.change(screen.getByLabelText("Реестр", {exact: true}), {target: {value: "B"}});
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).registry_ids[0] === "B")).toBe(true));
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   expect((screen.getByLabelText("Дата регистрации с") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Дата регистрации по") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Сортировка") as HTMLSelectElement).value).toBe("auto");
-  fireEvent.click(screen.getByRole("button", { name: "Найти" }));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(JSON.parse(String(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).at(-1)?.[1]?.body)).sort).toBe("auto"));
   expect(fetch.mock.calls.at(-1)?.[0]).not.toContain("date_from");
 });
@@ -116,14 +118,16 @@ it("resets date and sort controls when switching registries to an unfiltered que
 it("applies the status filter and clears it when changing registry", async () => {
   const fetch = setup();
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "A"}});
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   fireEvent.change(screen.getByLabelText("Состояние карточки"), { target: { value: "published" } });
-  fireEvent.click(screen.getByRole("button", { name: "Найти" }));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) =>
     url.endsWith("/search") && JSON.parse(String(init?.body)).card_state === "published",
   )).toBe(true));
   fireEvent.change(screen.getByLabelText("Реестр", {exact: true}), {target: {value: "B"}});
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   expect((screen.getByLabelText("Состояние карточки") as HTMLInputElement).value).toBe("");
-  fireEvent.click(screen.getByRole("button", { name: "Найти" }));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   await waitFor(() => expect(JSON.parse(String(fetch.mock.calls.filter(([url]) => url.endsWith("/search")).at(-1)?.[1]?.body)).registry_ids).toEqual(["B"]));
   expect(new URL(fetch.mock.calls.at(-1)![0], "https://example.test").searchParams.has("status")).toBe(false);
 });

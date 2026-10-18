@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { within, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "../auth/AuthProvider";
 import { Documents } from "./Documents";
@@ -34,8 +34,8 @@ function setup() {
 it("keeps decimal filters and configured export columns in the document workspace", async () => {
   const fetch = setup();
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
   fireEvent.change(screen.getByLabelText("Тип"), {target: {value: "t"}});
-  fireEvent.click(screen.getByRole("button", {name: "Фильтры"}));
   fireEvent.click(await screen.findByRole("button", {name: "Добавить условие"}));
   fireEvent.change(screen.getByLabelText("Поле фильтра 1"), {target: {value: "amount"}});
   expect(screen.queryByRole("option", {name: "Условное поле"})).toBeNull();
@@ -44,11 +44,11 @@ it("keeps decimal filters and configured export columns in the document workspac
   fireEvent.change(screen.getByLabelText("Верхняя граница 1"), {target: {value: "2.50"}});
   fireEvent.change(screen.getByLabelText("Сортировка"), {target: {value: "custom:amount"}});
   fireEvent.change(screen.getByLabelText("Направление сортировки"), {target: {value: "asc"}});
-  fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Расширенный поиск"})).getByRole("button", {name: "Найти"}));
   fireEvent.click(screen.getByRole("radio", {name: "Таблица"}));
   await screen.findByRole("columnheader", {name: /Наименование документа/});
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url.endsWith("/search") && JSON.parse(String(init?.body)).filters?.amount?.value[0] === "1.20")).toBe(true));
-  fireEvent.click(screen.getByText("Экспорт и импорт", {exact: true}));
+  fireEvent.click(screen.getByText("Экспорт", {exact: true}));
   fireEvent.click(screen.getByRole("button", {name: "Экспорт CSV"}));
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("/search/export?") && new URL(url, "https://test.invalid").searchParams.get("columns") === "amount")).toBe(true));
   const exported = fetch.mock.calls.find(([url]) => url.includes("/search/export?"))![0];
@@ -61,12 +61,14 @@ it("saves and restores filters per user and workspace without storing result dat
   fireEvent.change(await screen.findByLabelText("Реестр", {exact: true}), {target: {value: "r"}});
   fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Образец"}});
   fireEvent.click(screen.getByRole("button", {name: "Найти"}));
+  fireEvent.click(screen.getByRole("button", {name: "Расширенный поиск"}));
+  fireEvent.click(screen.getByText("Сохранённые поиски", {exact: true}));
   fireEvent.change(screen.getByLabelText("Название представления"), {target: {value: "Мой поиск"}});
   fireEvent.click(screen.getByRole("button", {name: "Сохранить текущий поиск"}));
   const saved = JSON.parse(localStorage.getItem("acti.views.v1.reader.viewer")!);
   expect(saved[0]).toEqual({name: "Мой поиск", registry: "r", query: "q=%D0%9E%D0%B1%D1%80%D0%B0%D0%B7%D0%B5%D1%86&scope=all&fuzzy=true&version_scope=current&sort=auto&direction=desc"});
-  fireEvent.change(screen.getByLabelText("Поиск"), {target: {value: "Другое"}});
+  fireEvent.change(screen.getByLabelText("Текстовый запрос"), {target: {value: "Другое"}});
   fireEvent.click(screen.getByRole("button", {name: "Мой поиск"}));
-  expect((screen.getByLabelText("Поиск") as HTMLInputElement).value).toBe("Образец");
+  expect((screen.getByLabelText("Текстовый запрос") as HTMLInputElement).value).toBe("Образец");
   expect(localStorage.getItem("acti.views.v1.reader.editor")).toBeNull();
 });

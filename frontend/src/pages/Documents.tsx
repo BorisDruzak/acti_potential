@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport, saveSelectedExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
@@ -29,6 +29,7 @@ import { DocumentDialog } from "../components/DocumentDialog";
 import { DocumentContextMenu } from "../components/DocumentContextMenu";
 import { DocumentFieldFilters, parseFieldFilters, serializeFieldFilters } from "../components/DocumentFieldFilters";
 import { OfficeOpen } from "../components/OfficeOpen";
+import { OriginalActions } from "../components/OriginalActions";
 import { useDocumentSelection } from "../engine/useDocumentSelection";
 import { useDocumentCollaboration } from "../engine/useDocumentCollaboration";
 import { useDocumentSchemas } from "../engine/documentPresentation";
@@ -106,6 +107,7 @@ function DocumentCard({
   onSaved,
   onClose,
   contentTarget,
+  registryName,
   onDirtyChange,
 }: {
   card: Card;
@@ -114,11 +116,24 @@ function DocumentCard({
   onSaved: () => void;
   onClose: () => void;
   contentTarget?: ContentTarget;
+  registryName?: string;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const auth = useAuth();
   const action = useAction();
   const [editing, setEditing] = useState(false);
+  const formId = useId();
+  const header = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = header.current;
+    if (!node) return;
+    const measure = () => node.parentElement?.style.setProperty("--document-card-header-height", `${node.offsetHeight}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   const [values, setValues] = useState<Values>(card.values);
   const cardState = card.card_state || "draft";
   const [targets, setTargets] = useState<PublicationTarget[]>(card.publication_targets || ["internal"]);
@@ -238,12 +253,52 @@ function DocumentCard({
   }
   return (
     <section className="document-card">
-      <div className="toolbar">
+      <div className="document-card-top" ref={header}>
+      <div className="toolbar document-card-heading">
         <div>
-          <span className="eyebrow">КАРТОЧКА ДОКУМЕНТА</span>
-          <h1>{card.title || "Документ"}</h1>
+          <span className="eyebrow">{registryName} · {card.reg_number ? `№ ${card.reg_number}` : "БЕЗ НОМЕРА"}</span>
+          <h1 title={card.title}>{card.title || "Документ"}</h1>
+          <span className={`document-state ${cardState}`}>{cardState === "published" ? "Опубликован" : "Черновик"}</span>
         </div>
         <button onClick={onClose}>К списку</button>
+      </div>
+          {canEdit && (
+            <div className="button-row document-save-actions">
+              {editing ? (
+                <>
+                  <button
+                    key="save-card"
+                    type="submit" form={formId}
+                    onClick={() => setTab("card")}
+                    className="primary"
+                    disabled={action.busy || blocked || participantCreation.busy || registrationNumber.busy}
+                  >
+                    Сохранить карточку
+                  </button>
+                  {cardState !== "published" && <button type="submit" form={formId} onClick={() => setTab("card")} className="primary" data-action="publish"
+                    disabled={action.busy || blocked || participantCreation.busy || registrationNumber.busy}>Опубликовать</button>}
+                  <button
+                    key="cancel-card-edit"
+                    type="button"
+                    onClick={() => {
+                      setValues(card.values);
+                      registrationNumber.reset();
+                      setTargets(card.publication_targets || ["internal"]);
+                      setPendingFiles({});
+                      setEditing(false);
+                    }}
+                  >
+                    Отмена изменений
+                  </button>
+                </>
+              ) : null}
+            </div>
+          )}
+      </div>
+      <div className="document-header-actions">
+        <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>
+        {canEdit && !editing && <button type="button" className="primary" onClick={() => setEditing(true)}>Редактировать карточку</button>}
+        {canUpload && <button type="button" onClick={() => setTab("files")}>Загрузить новую версию</button>}
       </div>
       <div className="tabs">
         <button
@@ -291,8 +346,10 @@ function DocumentCard({
           </button>
         </div>
       )}
-      {tab === "card" && (
+      {(
         <form
+          id={formId}
+          hidden={tab !== "card"}
           className="panel document-card-form"
           onSubmit={(event) => {
             event.preventDefault();
@@ -330,46 +387,6 @@ function DocumentCard({
           />
           {!mainKey && <section className="form-section"><h3>Основные сведения</h3>{lifecycle}</section>}
           {!publicationKey && <section className="form-section"><h3>Публикация</h3>{publication}</section>}
-          {canEdit && (
-            <div className="button-row">
-              {editing ? (
-                <>
-                  <button
-                    key="save-card"
-                    type="submit"
-                    className="primary"
-                    disabled={action.busy || blocked || participantCreation.busy || registrationNumber.busy}
-                  >
-                    Сохранить карточку
-                  </button>
-                  {cardState !== "published" && <button type="submit" className="primary" data-action="publish"
-                    disabled={action.busy || blocked || participantCreation.busy || registrationNumber.busy}>Опубликовать</button>}
-                  <button
-                    key="cancel-card-edit"
-                    type="button"
-                    onClick={() => {
-                      setValues(card.values);
-                      registrationNumber.reset();
-                      setTargets(card.publication_targets || ["internal"]);
-                      setPendingFiles({});
-                      setEditing(false);
-                    }}
-                  >
-                    Отмена изменений
-                  </button>
-                </>
-              ) : (
-                <button
-                  key="edit-card"
-                  type="button"
-                  className="primary"
-                  onClick={() => setEditing(true)}
-                >
-                  Редактировать карточку
-                </button>
-              )}
-            </div>
-          )}
           {Object.entries(pendingFiles).map(([field, file]) => (
             <div className="file-line" key={field}>
               <span>{file.name}</span>
@@ -684,7 +701,7 @@ function NewDocumentForm({
         </div>
       ))}
       <Feedback {...action} />
-      <div className="button-row"><button type="submit" className="primary" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>
+      <div className="button-row document-save-actions"><button type="submit" className="primary" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>
         {action.busy ? "Сохранение…" : "Создать документ"}
       </button>
       <button type="submit" className="primary" data-action="publish" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>Опубликовать</button></div>
@@ -727,8 +744,16 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   const [q, setQ] = useState(() => initial.get("q") || initial.get("text") || "");
   const [scope, setScope] = useState<SearchScope>(() => (initial.get("scope") as SearchScope) || "all");
   const [versionScope, setVersionScope] = useState(() => initial.get("version_scope") || "current");
-  const [advanced, setAdvanced] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(true);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [draftRegistryId, setDraftRegistryId] = useState(registryId);
+  const priorSearchDraft = useRef("");
+  function openAdvancedSearch() {
+    priorSearchDraft.current = searchDraft();
+    setDraftRegistryId(registryId); setSearchOpen(true);
+  }
+  function closeAdvancedSearch() {
+    restoreSearchDraft(priorSearchDraft.current); setSearchOpen(false);
+  }
   const [fuzzy, setFuzzy] = useState(() => initial.get("fuzzy") !== "false");
   const [contentTarget, setContentTarget] = useState<ContentTarget | undefined>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -737,6 +762,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   const [number, setNumber] = useState(() => initial.get("reg_number") || "");
   const [registrationDate, setRegistrationDate] = useState(() => initial.get("reg_date") || "");
   const [status, setStatus] = useState(() => initial.get("card_state") || "");
+  const [legalStatus, setLegalStatus] = useState(() => initial.get("status") || "");
   const [publicationTarget, setPublicationTarget] = useState(() => initial.get("publication_target") || "");
   const [from, setFrom] = useState(() => initial.has("reg_date") ? "" : initial.get("date_from") || "");
   const [to, setTo] = useState(() => initial.has("reg_date") ? "" : initial.get("date_to") || "");
@@ -792,7 +818,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   const publishedSchema = versions.data?.find(item => item.state === "published")?.schema;
   const configuredColumns = new URLSearchParams(search).get("document_type_id") === typeId ? publishedSchema?.list_view?.columns || [] : [];
   const exportColumns = configuredColumns.filter(column => publishedSchema?.sections.some(section => section.fields.some(field => field.key === column.key && field.exportable)));
-  const permittedTypeIds = [...new Set((registries.data || []).filter(item => item.permissions.includes("read") && (!registryId || item.id === registryId)).flatMap(item => item.document_type_ids || []))];
+  const permittedTypeIds = [...new Set((registries.data || []).filter(item => item.permissions.includes("read") && (!(searchOpen ? draftRegistryId : registryId) || item.id === (searchOpen ? draftRegistryId : registryId))).flatMap(item => item.document_type_ids || []))];
   const filterCatalog = useDocumentFilterCatalog(typeId ? permittedTypeIds.filter(id => id === typeId) : permittedTypeIds, types.data || [], auth.user?.id || "anonymous", auth.user?.roles || [], readOnly);
   const filterFields = filterCatalog.fields;
   const applied = searchBody(search, registryId, readOnly ? "viewer" : "editor");
@@ -851,6 +877,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   function changeRegistry(id: string) {
     setRegistryId(id); setSearch(""); setQ(""); setScope("all"); setFuzzy(true); setContentTarget(undefined);
     setNumber(""); setRegistrationDate(""); setStatus(""); setFrom(""); setTo(""); setSort("auto"); setDirection("desc");
+    setLegalStatus("");
     setPublicationTarget("");
     setTypeId(""); setFieldFilters([]);
   }
@@ -877,8 +904,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     void refresh();
     return () => {controller.abort(); clearTimeout(timer);};
   }, [savedDocument, list.reload]);
-  function applySearch() {
-    window.history.pushState(null, "", window.location.href);
+  function searchDraft() {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     params.set("scope", scope); params.set("fuzzy", String(fuzzy)); params.set("version_scope", versionScope);
@@ -894,10 +920,14 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     const predicates = serializeFieldFilters(fieldFilters);
     if (Object.keys(predicates).length) params.set("filters", JSON.stringify(predicates));
     // The legacy legal-act status is distinct from the card publication state.
-    const legalStatus = new URLSearchParams(search).get("status");
     if (legalStatus) params.set("status", legalStatus);
 
-    const nextSearch = "&" + params.toString();
+    return params.toString();
+  }
+  function applySearch(nextRegistry = registryId) {
+    setRegistryId(nextRegistry);
+    window.history.pushState(null, "", window.location.href);
+    const nextSearch = "&" + searchDraft();
     if (nextSearch === search) list.retry();
     setSearch(nextSearch);
     startSearchTiming();
@@ -906,13 +936,19 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     setSavedViews(next);
     try { localStorage.setItem(`acti.views.v1.${auth.user?.id}.${readOnly ? "viewer" : "editor"}`, JSON.stringify(next)); } catch { /* Browser storage can be disabled; current filters still work. */ }
   }
-  function loadView(query: string) {
+  function restoreSearchDraft(query: string) {
     const params = new URLSearchParams(query);
     params.delete("page"); params.delete("cursor");
     setQ(params.get("q") || params.get("text") || ""); setNumber(params.get("reg_number") || ""); setRegistrationDate(params.get("reg_date") || ""); setStatus(params.get("card_state") || ""); setFrom(params.has("reg_date") ? "" : params.get("date_from") || ""); setTo(params.has("reg_date") ? "" : params.get("date_to") || ""); setTypeId(params.get("document_type_id") || ""); setSort(params.get("sort") || "auto"); setDirection(params.get("direction") || "desc");
     setScope((params.get("scope") as SearchScope) || "all"); setVersionScope(params.get("version_scope") || "current"); setFuzzy(params.get("fuzzy") !== "false");
     setFieldFilters(parseFieldFilters(params.get("filters")));
     setPublicationTarget(params.get("publication_target") || "");
+    setLegalStatus(params.get("status") || "");
+  }
+  function loadView(query: string) {
+    restoreSearchDraft(query);
+    const params = new URLSearchParams(query);
+    params.delete("page"); params.delete("cursor");
     if ("&" + params.toString() === search) list.retry();
     setSearch("&" + params.toString());
     startSearchTiming();
@@ -954,6 +990,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
           <DocumentCard
             key={card.data.id + ":" + card.data.revision + ":" + navigationRevision}
             card={card.data}
+            registryName={registries.data?.find(item => item.id === card.data?.registry_id)?.name || "Реестр"}
             readOnly={readOnly}
             references={references.data || []}
             onSaved={() => {card.reload(); setSavedDocument({id: card.data!.id, revision: card.data!.revision});}}
@@ -995,7 +1032,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
           <span className="eyebrow">
             {readOnly ? "ПРОСМОТР ДОКУМЕНТОВ" : "РАБОТА С ДОКУМЕНТАМИ"}
           </span>
-          <h1>{registry ? registry.name : "Документы"}</h1>
+          <h1>Документы</h1>
         </div>
       </div>
       <Feedback
@@ -1007,46 +1044,35 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
       )}
       {(registry || registries.data?.some(item => item.permissions.includes("read"))) && (
         <>
-          <details className="document-search-disclosure" aria-label="Поиск документов" open={searchOpen} onToggle={event => setSearchOpen(event.currentTarget.open)}>
-            <summary><span>Поиск</span><span className="search-scope-caption">{registryId ? registry ? `Реестр: ${registry.name}` : "Выбранный реестр недоступен" : "По всем доступным реестрам"}{!searchOpen && applied.query ? ` · ${applied.query}` : ""}</span></summary>
-            <div className="document-search-body" hidden={!searchOpen}>
-          <form
-            className="search-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              applySearch();
-            }}
-          >
-            <label>
-              Поиск
-              <input
-                type="search"
-                value={q}
-                placeholder="Номер, название, реквизиты или фраза из файла"
-                maxLength={255}
-                onChange={(event) => setQ(event.target.value)}
-              />
-            </label>
-            <label>Где искать<select value={scope} onChange={event => setScope(event.target.value as SearchScope)}><option value="all">Везде</option><option value="metadata">Реквизиты</option><option value="content">Содержание документов</option></select></label>
-            <div className="button-row"><button className="primary">Найти</button><button type="button" onClick={() => {setQ(""); const next = new URLSearchParams(search); next.delete("q"); next.delete("text"); setSearch("&" + next.toString()); }}>Очистить запрос</button><button type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>Фильтры</button></div>
-            <SearchStatus loading={list.searching} startedAt={list.startedAt} durationMs={list.durationMs} error={list.searchError}/>
-            <div className="search-quick-filters">
-            <label>
+          <form className="document-quick-search" role="search" aria-label="Поиск документов" onSubmit={event => {event.preventDefault(); applySearch();}}>
+            <label className="quick-query"><span className="sr-only">Поиск</span><input type="search" value={q} maxLength={255} placeholder="Номер, название, реквизиты или текст документа…" onChange={event => setQ(event.target.value)}/></label>
+            <label><span className="sr-only">Где искать</span><select value={scope} onChange={event => setScope(event.target.value as SearchScope)}><option value="all">Везде</option><option value="metadata">Реквизиты</option><option value="content">Содержание документов</option></select></label>
+            <button className="primary" type="submit">Найти</button>
+            <button type="button" aria-haspopup="dialog" onClick={openAdvancedSearch}>Расширенный поиск</button>
+            <button type="button" className="text-button" onClick={() => {setQ(""); const next = new URLSearchParams(search); next.delete("q"); next.delete("text"); setSearch("&" + next.toString());}}>Очистить запрос</button>
+          </form>
+          <div className="search-feedback-line"><span className="search-scope-caption">{registryId ? `Реестр: ${registry?.name || "недоступен"}` : "По всем доступным реестрам"}</span><SearchStatus loading={list.searching} startedAt={list.startedAt} durationMs={list.durationMs} error={list.searchError}/></div>
+          {searchOpen && <DocumentDialog label="Расширенный поиск" className="search-drawer" onClose={closeAdvancedSearch}>
+            <div className="search-drawer-heading"><div><span className="eyebrow">ПОИСК ДОКУМЕНТОВ</span><h2>Расширенный поиск</h2></div><button type="button" aria-label="Закрыть расширенный поиск" onClick={closeAdvancedSearch}>Закрыть</button></div>
+            <form id="advanced-document-search" className="search-drawer-form" onSubmit={event => {event.preventDefault(); applySearch(draftRegistryId); setSearchOpen(false);}}>
+              <fieldset className="search-group"><legend>Основные</legend>
+                <label>Текстовый запрос<input type="search" value={q} maxLength={255} placeholder="Название, реквизиты или текст файла" onChange={event => setQ(event.target.value)}/></label>
+                <label>Область поиска<select value={scope} onChange={event => setScope(event.target.value as SearchScope)}><option value="all">Везде</option><option value="metadata">Реквизиты</option><option value="content">Содержание документов</option></select></label>
+                <label className="checkbox-label"><input type="checkbox" checked={fuzzy} onChange={event => setFuzzy(event.target.checked)}/>Учитывать опечатки</label>
+              </fieldset>
+            <fieldset className="search-group"><legend>Регистрация</legend>
+              <label>
               Регистрационный номер
               <input
                 value={number}
                 onChange={(event) => setNumber(event.target.value)}
               />
             </label>
-            <label>
+              <label>
               Дата регистрации
               <input type="date" value={registrationDate} onChange={event => {setRegistrationDate(event.target.value); if (event.target.value) {setFrom(""); setTo("");}}}/>
             </label>
-            <label>
-              Состояние карточки
-              <select value={status} onChange={event => setStatus(event.target.value)}><option value="">Все доступные</option>{!readOnly && <option value="draft">Черновик</option>}<option value="published">Опубликован</option></select>
-            </label>
-            <label>
+              <label>
               Дата регистрации с
               <input
                 type="date"
@@ -1056,7 +1082,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
                 onChange={(event) => setFrom(event.target.value)}
               />
             </label>
-            <label>
+              <label>
               Дата регистрации по
               <input
                 type="date"
@@ -1066,7 +1092,10 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
                 onChange={(event) => setTo(event.target.value)}
               />
             </label>
-            <label>
+            </fieldset>
+            <fieldset className="search-group"><legend>Документ</legend>
+              <label>Реестр документов<select value={draftRegistryId} onChange={event => {setDraftRegistryId(event.target.value); setTypeId(""); setFieldFilters([]);}}><option value="">Все реестры</option>{registries.data?.filter(item => item.permissions.includes("read")).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label>
               Тип
               <select
                 value={typeId}
@@ -1078,7 +1107,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
                 <option value="">Все типы</option>
                 {types.data
                   ?.filter((type) =>
-                    !registry || registry.document_type_ids.includes(type.id),
+                    !draftRegistryId || !!registries.data?.find(item => item.id === draftRegistryId)?.document_type_ids.includes(type.id),
                   )
                   .map((type) => (
                     <option key={type.id} value={type.id}>
@@ -1087,28 +1116,29 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
                   ))}
               </select>
             </label>
-            </div>
-            <details open={advanced} onToggle={event => setAdvanced(event.currentTarget.open)}><summary>Расширенные фильтры</summary><div className="filters">
-            <label className="checkbox-label"><input type="checkbox" checked={fuzzy} onChange={event => setFuzzy(event.target.checked)}/>Учитывать опечатки</label>
-            <label>Версии файлов<select value={versionScope} onChange={event => setVersionScope(event.target.value)}><option value="current">Актуальные</option><option value="all">Все доступные</option></select></label>
-            <label>База публикации карточки<select value={publicationTarget} onChange={event => setPublicationTarget(event.target.value)}><option value="">Все доступные</option><option value="internal">Внутренняя база</option><option value="shared">Общая база</option></select></label>
+              <label>
+              Состояние карточки
+              <select value={status} onChange={event => setStatus(event.target.value)}><option value="">Все доступные</option>{!readOnly && <option value="draft">Черновик</option>}<option value="published">Опубликован</option></select>
+            </label>
+              <label>База публикации карточки<select value={publicationTarget} onChange={event => setPublicationTarget(event.target.value)}><option value="">Все доступные</option><option value="internal">Внутренняя база</option><option value="shared">Общая база</option></select></label>
+            </fieldset>
+            <fieldset className="search-group"><legend>Содержание</legend><p className="search-group-caption">Для поиска внутри файлов выберите область «Содержание документов».</p>
+              <label>Версии файлов<select value={versionScope} onChange={event => setVersionScope(event.target.value)}><option value="current">Актуальные</option><option value="all">Все доступные</option></select></label>
+            </fieldset>
+              <fieldset className="search-group"><legend>Поля документа</legend>
             <Feedback loading={filterCatalog.loading} error={filterCatalog.error}/>
             {(filterFields.length > 0 || fieldFilters.length > 0) && <DocumentFieldFilters filters={fieldFilters} fields={filterFields} onChange={setFieldFilters}
-              roles={auth.user?.roles || []} registryId={registryId} registryNames={Object.fromEntries((registries.data||[]).map(registry=>[registry.id,registry.name]))} references={references.data || []} readOnly={readOnly}/>}
-            </div></details>
-          </form>
-          {!!applied.query && <p className="muted">Недавно загруженные оригиналы появляются в поиске после обработки. Состояние и ошибки доступны во вкладке «Содержание» карточки.</p>}
-          <details className="search-transfer" aria-label="Экспорт и импорт документов"><summary>Экспорт и импорт</summary>
-          <Feedback {...exportAction} />
-          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
-          {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
+              roles={auth.user?.roles || []} registryId={draftRegistryId} registryNames={Object.fromEntries((registries.data||[]).map(registry=>[registry.id,registry.name]))} references={references.data || []} readOnly={readOnly}/>}
+
+              </fieldset>
+            </form>
+          <details className="panel search-saved-views"><summary>Сохранённые поиски</summary>
+            <div className="inline-form"><label>Название представления<input value={viewName} onChange={event => setViewName(event.target.value)} /></label><button disabled={!viewName.trim()} onClick={() => {persistViews([...savedViews.filter(item => !(item.registry === draftRegistryId && item.name === viewName.trim())), {name: viewName.trim(), registry: draftRegistryId, query: searchDraft()}]); setViewName("");}}>Сохранить текущий поиск</button></div>
+            {savedViews.filter(item => item.registry === draftRegistryId).map(item => <div className="button-row" key={item.name}><button onClick={() => restoreSearchDraft(item.query)}>{item.name}</button><button aria-label={`Удалить представление: ${item.name}`} onClick={() => persistViews(savedViews.filter(current => current !== item))}>Удалить</button></div>)}
           </details>
-          <details className="panel search-saved-views"><summary>Сохранённые фильтры и сортировки</summary>
-            <div className="inline-form"><label>Название представления<input value={viewName} onChange={event => setViewName(event.target.value)} /></label><button disabled={!viewName.trim() || !search} onClick={() => {persistViews([...savedViews.filter(item => !(item.registry === registryId && item.name === viewName.trim())), {name: viewName.trim(), registry: registryId, query: search.slice(1)}]); setViewName("");}}>Сохранить текущий поиск</button></div>
-            {savedViews.filter(item => item.registry === registryId).map(item => <div className="button-row" key={item.name}><button onClick={() => loadView(item.query)}>{item.name}</button><button aria-label={`Удалить представление: ${item.name}`} onClick={() => persistViews(savedViews.filter(current => current !== item))}>Удалить</button></div>)}
-          </details>
-            </div>
-          </details>
+            <div className="search-drawer-footer"><button type="button" onClick={closeAdvancedSearch}>Отмена</button><button className="primary" type="submit" form="advanced-document-search">Найти</button></div>
+          </DocumentDialog>}
+
           <div className="active-search-filters" aria-label="Активные фильтры">{Array.from(new URLSearchParams(search)).filter(([key, value]) => value && ["q", "text", "reg_number", "reg_date", "status", "card_state", "publication_target", "date_from", "date_to", "document_type_id"].includes(key)).map(([key, value]) => <button key={key} type="button" aria-label={"Удалить фильтр " + key} onClick={() => {const next = new URLSearchParams(search); next.delete(key); loadView(next.toString());}}>{({q: "Запрос", text: "Запрос", reg_number: "Номер", reg_date: "Дата регистрации", status: "Статус правового акта", card_state: "Состояние карточки", publication_target: "База публикации", date_from: "С", date_to: "По", document_type_id: "Тип", filters: "Поля"} as Record<string, string>)[key]}: {key === "document_type_id" ? types.data?.find(item => item.id === value)?.name || "Тип документа" : key === "filters" ? "Задан фильтр поля" : key === "publication_target" ? value === "shared" ? "Общая база" : "Внутренняя база" : key === "card_state" ? value === "draft" ? "Черновик" : "Опубликован" : value} ×</button>)}</div>
           <div className="active-search-filters" aria-label="Активные условия полей">{parseFieldFilters(new URLSearchParams(search).get("filters")).map((filter, index) => <button type="button" key={filter.key} onClick={() => {
             const params = new URLSearchParams(search); const remaining = parseFieldFilters(params.get("filters")).filter(item => item.key !== filter.key);
@@ -1165,7 +1195,13 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
             </label>
             <label>Направление сортировки<select value={direction}  onChange={event => {setDirection(event.target.value); const next = new URLSearchParams(search); next.set("direction", event.target.value); setSearch("&" + next.toString()); }}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
 </div>
-            <div className="document-view-actions"><DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
+            <div className="document-view-actions">
+              <details className="search-transfer document-list-export" aria-label="Экспорт документов"><summary>Экспорт</summary>
+          <Feedback {...exportAction} />
+          <div className="button-row">{(["csv", "xlsx"] as const).map(format => <button key={format} disabled={list.loading || exportAction.busy || (configuredColumns.length > 0 && !exportColumns.length)} onClick={() => void exportAction.run(() => saveExport(`/search/export?parameters=${encodeURIComponent(JSON.stringify({...applied, cursor: null}))}&format=${format}${exportColumns.length ? "&columns=" + encodeURIComponent(exportColumns.map(column => column.key).join(",")) : ""}`, `documents.${format}`), "Экспорт подготовлен")}>Экспорт {format.toUpperCase()}</button>)}</div>
+          {configuredColumns.length > 0 && !exportColumns.length && <p className="muted">В выбранном представлении нет разрешённых для экспорта колонок.</p>}
+          </details>
+              <DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
             {!readOnly && createRegistries.length > 0 && <button className="primary" onClick={startCreation}>Создать документ</button>}</div>
           </div>
           <DocumentWorkspace onListEnd={list.appendError ? undefined : list.loadMore} feedKey={JSON.stringify(applied)} busy={list.loading} layout={layout} onChange={chooseLayout} onResize={resizeLayout} onRestore={restoreLayout}
