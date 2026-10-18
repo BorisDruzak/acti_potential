@@ -300,10 +300,16 @@ function DocumentCard({
             </div>
           )}
       </div>
-      <div className="document-header-actions">
-        <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>
-        {canUpload && <button type="button" onClick={() => setTab("files")}>Загрузить новую версию</button>}
-      </div>
+      {(!!card.files?.length || canUpload) && <section className="document-original-panel" aria-label="Оригинал документа">
+        <div className="document-original-heading">
+          <svg className="document-original-icon" width="20" height="24" viewBox="0 0 20 24" fill="none" aria-hidden="true"><path d="M3 1h9l5 5v16H3V1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M12 1v6h5M6 12h8M6 16h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          <div><strong>Оригинал документа</strong><small>{card.files?.length === 1 ? `${card.files[0].name} · Версия ${card.files[0].version}` : card.files?.length ? `Всего файлов и версий: ${card.files.length}` : "Файлы пока не добавлены"}</small></div>
+        </div>
+        <div className="document-header-actions">
+          <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>
+          {canUpload && <button type="button" className="original-upload" onClick={() => setTab("files")}>Загрузить новую версию</button>}
+        </div>
+      </section>}
       <div className="tabs">
         <button
           className={tab === "card" ? "active" : ""}
