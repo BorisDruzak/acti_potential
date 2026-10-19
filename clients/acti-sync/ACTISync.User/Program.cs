@@ -20,6 +20,10 @@ internal static class Program {
    return;
   }
   using var window=new TrayWindow();
+  // Secondary protocol launches may arrive before Application.Run shows this
+  // form, including a hidden logon start. Create the UI dispatch handle on this
+  // STA thread before the pipe task can call BeginInvoke.
+  _=window.Handle;
   using var cancel=new CancellationTokenSource();
   var listener=Task.Run(async()=> {
    while(!cancel.IsCancellationRequested) {

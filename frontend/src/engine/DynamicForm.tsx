@@ -421,7 +421,7 @@ function FieldControl({
           <div className="file-line" key={file.id}>
             {props.canDownload === false ? (
               <span>{file.name} · версия {file.version}</span>
-            ) : props.officeSync ? (
+            ) : props.officeSync && file.name.toLowerCase().endsWith(".docx") ? (
               <><span>{file.name}</span><FileActions file={file}
                 mode={props.displayMode || (props.mode === "view" ? "viewer" : "editor")}
                 csrfToken={props.officeSync.csrfToken}/></>

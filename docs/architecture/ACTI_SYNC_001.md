@@ -103,7 +103,7 @@ both self-contained single-file EXEs and builds a per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-Outputs are `clients/acti-sync/artifacts/ACTISync-1.0.1-win-x64.msi`,
+Outputs are `clients/acti-sync/artifacts/ACTISync-1.0.2-win-x64.msi`,
 `Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`, and `manifest.json` with
 SHA256, size and signature status. The `ACTI Sync` GitHub workflow publishes the
 same outputs as a downloadable artifact for its exact commit.
@@ -113,9 +113,9 @@ and user startup at sign-in. Initial install requires machine administrator/GPO;
 normal tray, protocol and Word operation use the user's existing rights:
 
 ```powershell
-msiexec /i ACTISync-1.0.1-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
-msiexec /i ACTISync-1.0.1-win-x64.msi /qn /norestart /l*v upgrade.log
-msiexec /x ACTISync-1.0.1-win-x64.msi /qn /norestart /l*v uninstall.log
+msiexec /i ACTISync-1.0.2-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
+msiexec /i ACTISync-1.0.2-win-x64.msi /qn /norestart /l*v upgrade.log
+msiexec /x ACTISync-1.0.2-win-x64.msi /qn /norestart /l*v uninstall.log
 ```
 
 An upgrade reuses the configured origin unless explicitly changed. Close the tray
@@ -137,3 +137,59 @@ Backend deployment requires the additive migration before exposing the UI. This
 PR does not authorize production migration or fleet deployment. Reboot, Office
 2021 edition/bitness acceptance and rollout readiness must be distinguished from
 automated tests and from testing another installed Word edition.
+
+
+## Verification on 2026-10-19
+
+A disposable ACTI database/object directory and loopback HTTPS endpoint were used;
+production services and legacy sources were not migrated or modified. The local
+computer runs Windows 11 LTSC x64 with Microsoft 365 Word x64 (16.0.20430).
+This is an actual Word test, **not Word 2021 acceptance**.
+
+Observed results:
+
+- Self-contained Service/User EXEs and a real per-machine MSI were built. Silent
+  install registered SCM automatic startup under LocalService, service recovery,
+  the protocol handler and sign-in startup. Upgrade 1.0.0 -> 1.0.1 returned 0 and
+  retained the working DOCX and persisted state.
+- An actual browser launch reached the installed client and Word. The pilot found
+  Chrome's normalized URI form; the strict parser was corrected and tested.
+- Native Word FileSave changed the managed DOCX. The server acknowledged revision
+  2; downloaded bytes matched the saved working copy. Later offline FileSave,
+  service restart, MSI uninstall/reinstall and reconnection preserved the same
+  pending idempotency key and produced acknowledged revision 3. Stable local bytes,
+  server download and ACK hash matched. Reopening the downloaded DOCX in real Word
+  contained the latest offline edit.
+- The document retained one visible original, three binary revisions, its original
+  stable file ID and unchanged card metadata revision. An attempted second client
+  was rejected with 409 `original_locked`. Finish released the acknowledged lease.
+- The user component and Word were additionally launched under an actual restricted
+  Medium-integrity Windows token with Administrators disabled. The service
+  authenticated IPC, downloaded the DOCX and confirmed Word opened it. This used
+  the existing user's SID with reduced rights, not a new Windows account.
+- The browser displayed committed status/history, preserved a deliberately dirty
+  form across polling and retained existing view/download controls. The pilot
+  corrected a header wrapping regression. Deliberate connection outages caused
+  expected HTTP failures; no application script exception was observed.
+- Backend PostgreSQL tests exercise replay, concurrent exchange/save, lease/CAS,
+  rollback cleanup, legacy links, migration backfill, current search, logout,
+  blocked accounts, viewer and field ACLs. Windows checks cover actual NTFS
+  snapshots/reparse/hardlinks, held Word writer/byte-range locks, safe-save replace,
+  durable retry/restart, origin changes, conflicts and refusing unsafe finish.
+  Frontend checks cover current originals, status freshness, manual versions,
+  readers, dirty forms and existing workspace modes. The CI command lists are in
+  `.github/workflows/acti-sync.yml`.
+
+The first hosted frontend check found a real non-DOCX control regression. The
+Sync renderer is now limited to DOCX and the existing named/versioned download
+control remains for other types. Its failing test passed after the fix. The
+Windows pilot also exposed and corrected live-Word sharing, local-lock heartbeat,
+uncaptured-finish and early hidden-window IPC dispatch defects.
+
+Remaining acceptance limits: Word **2021** is not installed on this computer;
+Office x86, a real PC reboot, GPO fleet deployment and trusted production signing
+were not tested. The available local signing certificate does not have a trusted
+chain, so published artifacts are explicitly unsigned. The real Word save was
+invoked through Word's native FileSave command; a physical Ctrl+S keypress was not
+claimed. No fleet/Word-2021 READY declaration is made. Complete the Word 2021
+edition/bitness and reboot pilot before a broader rollout.
