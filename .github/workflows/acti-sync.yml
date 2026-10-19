@@ -6,11 +6,16 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: acti-sync-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   windows:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.402'
@@ -19,7 +24,7 @@ jobs:
         run: ./clients/acti-sync/packaging/build.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: ACTISync-installer-win-x64-${{ github.sha }}
+          name: ACTISync-installer-win-x64-${{ github.event.pull_request.head.sha || github.sha }}
           path: clients/acti-sync/artifacts/ACTISync-*-win-x64.msi
           if-no-files-found: error
   web:
@@ -29,6 +34,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -61,6 +68,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen
       - run: uv run pytest -q tests/test_office_agent.py tests/test_office_sync.py tests/test_office_open.py tests/test_documents.py tests/test_search_quality_v2.py tests/test_task005_content.py

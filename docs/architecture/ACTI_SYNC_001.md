@@ -99,6 +99,10 @@ saved label when contact or lease is stale.
 
 ## Browser control and agent presence
 
+Additive migration `0021_office_agent` adds browser-owned connections, one-use
+connection tickets, command receipts and nullable observed Word open/close fields.
+Apply it before deploying the background client and browser panel.
+
 The browser's ACTI Sync panel lists the user's editing documents, their last
 confirmed open/close state and independent server save acknowledgement. Closing
 Word does not discard pending bytes or automatically finish a lease. A closed
@@ -227,3 +231,41 @@ chain, so published artifacts are explicitly unsigned. The real Word save was
 invoked through Word's native FileSave command; a physical Ctrl+S keypress was not
 claimed. No fleet/Word-2021 READY declaration is made. Complete the Word 2021
 edition/bitness and reboot pilot before a broader rollout.
+
+### Headless follow-up, version 1.1.0
+
+The local MSI was upgraded from 1.0.2 to **1.1.0** (runtime source commit
+`d59c7b58e15139d7c9061c9a619d09e01ebecaf5`), exit 0. SCM remained running under
+LocalService, existing working copies remained present and the installed user
+process had `MainWindowHandle = 0`. No tray/window/dialog code remains in the user
+component. The downloadable installer artifact now contains one MSI with both
+internal EXEs embedded.
+
+The real browser showed an online 1.1.0 agent with zero editing documents, then
+one synthetic document as **Открыт в Word**. A native FileSave in installed
+Microsoft 365 Word x64 running with Medium integrity produced server revision 2.
+Stable working bytes, the server download and ACK hash matched; the downloaded
+DOCX contained the inserted marker. The document retained one visible original
+and card metadata revision 2. Closing only that saved synthetic Word document
+produced **Закрыт в Word** while retaining the separate server save confirmation.
+The browser's finish command reached the installed client and returned a
+successful command receipt and **Сеанс завершён**. A dirty card title survived
+polling, opening the panel and finishing; its original value was restored without
+submitting the test change.
+Stopping the interactive component made the browser report the agent offline
+while SCM continued running. Restarting the windowless component restored online
+presence. The panel was also rendered and inspected at a 390-pixel viewport.
+
+For this follow-up, the browser-owned single-use tickets were passed to the known
+installed handler by the pilot harness. Chrome's native external-protocol
+confirmation was not automated or bypassed. The earlier browser-to-Word launch
+observation above remains separate evidence. A Windows PowerShell test helper
+failed to initialize with 0xc0000142 and was stopped; it produced no Word save
+evidence. The successful follow-up used a separate windowless test EXE invoking
+the actual Word FileSave and refusing to close unsaved documents. This helper is
+not part of the installed product.
+
+Targeted checks after the correction: **41 backend tests**, **99 frontend tests**
+in nine files, Windows core/recovery/presence/command checks and self-contained
+EXE/MSI build passed. Word 2021, real PC reboot, Office x86, trusted signing and
+fleet/GPO rollout remain unconfirmed as stated above.
