@@ -1,7 +1,6 @@
 using ACTISync.Core;
 using Microsoft.Win32;
 using System.Diagnostics;
-using System.IO.Pipes;
 using System.Text.Json;
 
 namespace ACTISync.User;
@@ -24,7 +23,7 @@ internal sealed class HeadlessContext : ApplicationContext {
  }
  private async Task Listen(string name) {
   while(!cancellation.IsCancellationRequested) {
-   using var pipe=new NamedPipeServerStream(name,PipeDirection.In,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+   using var pipe=UserProtocolPipe.CreateServer(name);
    try {
     await pipe.WaitForConnectionAsync(cancellation.Token);
     using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token); timeout.CancelAfter(5000);
