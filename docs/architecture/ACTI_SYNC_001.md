@@ -72,6 +72,11 @@ certificate verification remains enabled, with redirects disabled. Both the raw
 and browser-normalized `acti-sync://launch/?ticket=...` forms are accepted;
 arbitrary paths, additional queries and malformed tickets are rejected.
 
+For a privately issued server certificate, deploy the approved CA to the machine
+trust store through the existing administration/GPO process: LocalService cannot
+use a CA trusted only by the installing user's profile. The MSI does not bundle a
+private CA or disable certificate verification.
+
 The fixed named pipe is authenticated by Windows SID. The user component checks
 that the server PID belongs to the SCM-registered ACTISync service before sending
 the ticket. The service rejects network clients and separates users by SID.
@@ -138,7 +143,7 @@ both self-contained single-file EXEs and builds a per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.1.0-win-x64.msi`.
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.1.1-win-x64.msi`.
 It embeds both components and needs no separate EXE or .NET runtime installation.
 Internal build outputs include
 `Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`, and `manifest.json` with
@@ -150,13 +155,17 @@ and user startup at sign-in. Initial install requires machine administrator/GPO;
 normal background operation, protocol and Word use the user's existing rights:
 
 ```powershell
-msiexec /i ACTISync-1.1.0-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
-msiexec /i ACTISync-1.1.0-win-x64.msi /qn /norestart /l*v upgrade.log
-msiexec /x ACTISync-1.1.0-win-x64.msi /qn /norestart /l*v uninstall.log
+msiexec /i ACTISync-1.1.1-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
+msiexec /i ACTISync-1.1.1-win-x64.msi /qn /norestart /l*v upgrade.log
+msiexec /x ACTISync-1.1.1-win-x64.msi /qn /norestart /l*v uninstall.log
 ```
 
-An upgrade reuses the configured origin unless explicitly changed. Stop the
-background user component before a managed upgrade; leave Word documents intact.
+An upgrade reuses the configured origin unless explicitly changed.
+An explicit `SERVERORIGIN` takes precedence over the existing registry value;
+the stored value is a fallback only. Service automatic startup and the per-machine
+HKLM Run entry for the background user component are installed by default, with
+no separate autostart step. The user component starts at Windows sign-in.
+Stop the background user component before a managed upgrade; leave Word documents intact.
 Uninstall/upgrade stop the service and deliberately
 preserve managed data, including unsubmitted working copies and pending state.
 Reinstall against the same origin restores state; if authorization/lease expired,
@@ -269,3 +278,23 @@ Targeted checks after the correction: **41 backend tests**, **99 frontend tests*
 in nine files, Windows core/recovery/presence/command checks and self-contained
 EXE/MSI build passed. Word 2021, real PC reboot, Office x86, trusted signing and
 fleet/GPO rollout remain unconfirmed as stated above.
+
+### Main deployment and MSI configuration follow-up
+
+PR #22 was merged and its server release deployed with a verified PostgreSQL
+backup and additive migrations 0020/0021. Existing document, metadata and identity
+rows remained unchanged; original backfill was verified. API, worker and frontend
+were healthy and the authenticated browser passed strict HTTPS, the Sync panel
+and mobile rendering checks without script errors. Data and identity containers
+were preserved. An initial deployment verification selected the obsolete localhost
+CA for the public origin, causing a safe rollback; selecting the configured HTTPS
+CA corrected the verification and activation passed without disabling TLS.
+
+MSI **1.1.1** corrects registry search overwriting an explicitly supplied
+`SERVERORIGIN`. A real 1.1.0 -> 1.1.1 upgrade honored the new configured origin,
+retained working copies and installed automatic service startup plus the HKLM Run
+entry. A silent repair without `SERVERORIGIN` retained the existing origin.
+The installed background client confirmed online presence against the deployed
+server after the already-approved CA was made available to LocalService. No
+business document was edited during this server deployment verification.
+Word 2021 and an actual machine reboot remain unverified.

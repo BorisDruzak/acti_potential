@@ -3,9 +3,12 @@
            UpgradeCode="46C46CCD-DB5A-4A73-942C-4B3E8FDF8B0D" Scope="perMachine" InstallerVersion="500">
     <MajorUpgrade DowngradeErrorMessage="A newer ACTI Sync is already installed." Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
-    <Property Id="SERVERORIGIN" Secure="yes">
+    <Property Id="SERVERORIGIN" Secure="yes" />
+    <Property Id="EXISTINGSERVERORIGIN" Secure="yes">
       <RegistrySearch Id="ExistingOrigin" Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="ServerOrigin" Type="raw" Bitness="always64" />
     </Property>
+    <SetProperty Id="SERVERORIGIN" Value="[EXISTINGSERVERORIGIN]" Before="LaunchConditions"
+                 Sequence="both" Condition="NOT SERVERORIGIN AND EXISTINGSERVERORIGIN" />
     <Launch Condition="Installed OR (SERVERORIGIN AND (SERVERORIGIN &gt;&lt; &quot;https://&quot;))"
             Message="Supply SERVERORIGIN=https://your-acti-server (a trusted HTTPS origin)." />
     <StandardDirectory Id="ProgramFiles64Folder">
