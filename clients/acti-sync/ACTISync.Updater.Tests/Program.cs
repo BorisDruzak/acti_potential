@@ -58,6 +58,13 @@ try {
  if(WindowsSessions.ResumeAll([first,second],user=>{attempted.Add(user.Pid);return user.Pid!=1;}) || !attempted.SequenceEqual(new[]{1,2}))throw new Exception("A deferred user blocked another user's resume");Console.WriteLine("PASS transient resume failure does not block another session");
  attempted.Clear();if(!WindowsSessions.ResumeAll([first,second],user=>{attempted.Add(user.Pid);return true;}) || !attempted.SequenceEqual(new[]{1,2}))throw new Exception("Logged-off receipt blocked active resume");Console.WriteLine("PASS completed logged-off resume entry permits remaining sessions");
  if(WindowsSessions.ResumeDecision(first.Sid,second.Sid,true)!="complete" || WindowsSessions.ResumeDecision(first.Sid,null,false)!="complete" || WindowsSessions.ResumeDecision(first.Sid,null,null)!="defer" || WindowsSessions.ResumeDecision(first.Sid,first.Sid,true)!="launch")throw new Exception("Unsafe session reuse resume plan");Console.WriteLine("PASS session reuse never launches for replacement SID; uncertain WTS lookup defers");
+ var exitTarget=new UserProcess(42,321,"S-1-5-21-1",7,100);var exitBytes=JsonSerializer.SerializeToUtf8Bytes(exitTarget,ACTISync.Core.Wire.Json);
+ if(LegacySessionExit.Parse(exitBytes,exitTarget.Sid,exitTarget.SessionId)!=exitTarget)throw new Exception("Legacy exit target parse");Console.WriteLine("PASS legacy session request preserves exact PID creation SID session and thread identity");
+ Reject(()=>LegacySessionExit.Parse(exitBytes,"S-1-5-21-2",7),"legacy helper refuses other SID");Reject(()=>LegacySessionExit.Parse(exitBytes,exitTarget.Sid,8),"legacy helper refuses other Windows session");
+ Reject(()=>LegacySessionExit.Parse(Encoding.UTF8.GetBytes("{\"pid\":42,\"started\":321,\"sid\":\"S-1-5-21-1\",\"session_id\":7,\"thread_id\":100,\"path\":\"C:\\\\evil.exe\"}"),exitTarget.Sid,7),"legacy helper refuses arbitrary path or extra fields");
+ if(!LegacySessionExit.IsExpectedHelper((uint)own.Id,own.Id,own.StartTime.ToUniversalTime().Ticks) || LegacySessionExit.IsExpectedHelper((uint)own.Id+1,own.Id,own.StartTime.ToUniversalTime().Ticks) || LegacySessionExit.IsExpectedHelper((uint)own.Id,own.Id,1))throw new Exception("Legacy helper pipe accepted foreign or recycled caller");Console.WriteLine("PASS legacy service pipe authenticates exact spawned helper PID and creation identity");
+ NativeQueueChecks.Run();
+ await LegacyPipeChecks.Run();
 } finally {Directory.Delete(temporary,true);}
 Console.WriteLine("All updater trust checks passed.");
 async Task RejectAsync(Func<Task> action,string name) { try { await action(); } catch(InvalidDataException) { Console.WriteLine("PASS "+name); return; } throw new Exception("Accepted "+name); }

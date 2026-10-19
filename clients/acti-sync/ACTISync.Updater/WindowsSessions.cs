@@ -47,9 +47,21 @@ internal static class WindowsSessions {
  }
  internal static async Task LegacyExit(UserProcess user,CancellationToken ct) {
   if(!StillRunning(user))return;
-  if(!PostThreadMessage(user.ThreadId,0x0012,UIntPtr.Zero,IntPtr.Zero)) throw new Win32Exception();
+  await LegacySessionExit.Request(user,ct);
   for(var i=0;i<40 && StillRunning(user);i++)await Task.Delay(250,ct);
   if(StillRunning(user))throw new IOException("Legacy user component did not exit; update deferred.");
+ }
+ internal static Process StartLegacyHelper(UserProcess user) {
+  if(!WTSQueryUserToken((uint)user.SessionId,out var raw))throw new Win32Exception();
+  using var token=new SafeAccessTokenHandle(raw);using var identity=new WindowsIdentity(token.DangerousGetHandle());if(identity.User?.Value!=user.Sid || identity.IsSystem)throw new UnauthorizedAccessException("Legacy session identity changed.");
+  using var medium=MediumToken(token);using var actual=new WindowsIdentity(medium.DangerousGetHandle());
+  if(actual.User?.Value!=user.Sid || TokenIntegrity(medium)!=0x2000 || TokenDword(medium,12)!=user.SessionId)throw new UnauthorizedAccessException("Legacy helper token rejected.");
+  if(!CreateEnvironmentBlock(out var environment,medium,false))throw new Win32Exception();
+  try {
+   SafeFiles.NoReparse(SecureStore.UpdaterExe);var startup=new StartupInfo{Size=Marshal.SizeOf<StartupInfo>(),Desktop=@"winsta0\default"};
+   if(!CreateProcessAsUser(medium,SecureStore.UpdaterExe,new StringBuilder('"'+SecureStore.UpdaterExe+"\" --legacy-exit"),IntPtr.Zero,IntPtr.Zero,false,0x00000400|0x08000000,environment,SecureStore.InstalledDirectory,ref startup,out var created))throw new Win32Exception();
+   try{return Process.GetProcessById((int)created.Pid);}finally{CloseHandle(created.Thread);CloseHandle(created.Process);}
+  }finally{DestroyEnvironmentBlock(environment);}
  }
  internal static bool Resume(UserProcess user) {
   if(Snapshot().Any(p=>p.SessionId==user.SessionId && p.Sid==user.Sid)) return true;
@@ -114,5 +126,4 @@ internal static class WindowsSessions {
  [DllImport("advapi32.dll",EntryPoint="CreateProcessAsUserW",CharSet=CharSet.Unicode,SetLastError=true)]private static extern bool CreateProcessAsUser(SafeAccessTokenHandle token,string app,StringBuilder command,IntPtr proc,IntPtr thread,bool inherit,uint flags,IntPtr environment,string directory,ref StartupInfo startup,out ProcessInfo result);
  [DllImport("kernel32.dll")]private static extern bool CloseHandle(IntPtr handle);
  [DllImport("kernel32.dll",SetLastError=true)]private static extern bool GetNamedPipeServerProcessId(SafePipeHandle pipe,out uint pid);
- [DllImport("user32.dll",EntryPoint="PostThreadMessageW",SetLastError=true)]private static extern bool PostThreadMessage(uint thread,uint message,UIntPtr wparam,IntPtr lparam);
 }
