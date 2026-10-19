@@ -49,6 +49,16 @@ it("supports keyboard reveal and Escape without losing document edits", () => {
   expect((screen.getByLabelText("Текст документа") as HTMLInputElement).value).toBe("Несохранённый текст");
   expect(screen.getByRole("button", {name: "Открыть навигацию"}).getAttribute("aria-expanded")).toBe("false");
 });
+it("moves edge focus into navigation before the opener becomes hidden", () => {
+  setup();
+  fireEvent.pointerDown(screen.getByRole("main"));
+  act(() => screen.getByRole("button", {name: "Открыть навигацию"}).focus());
+  expect(document.activeElement).toBe(screen.getByRole("complementary"));
+  fireEvent.keyDown(screen.getByRole("complementary"), {key: "Escape"});
+  expect(document.activeElement).toBe(screen.getByRole("button", {name: "Открыть навигацию"}));
+  fireEvent.click(document.activeElement!);
+  expect(document.activeElement).toBe(screen.getByRole("complementary"));
+});
 it("keeps Sync and logout in navigation and respects the dirty-document logout guard", async () => {
   setup();
   await act(async () => {});

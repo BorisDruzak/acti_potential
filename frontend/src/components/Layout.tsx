@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { DocumentDialog } from "./DocumentDialog";
 import { OfficeSyncAgent } from "./OfficeSyncAgent";
@@ -35,6 +35,7 @@ export function Layout({
   const sidebar = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const restoreEdgeFocus = useRef(false);
+  const focusNavigation = useRef(false);
   const suppressEdgeReveal = useRef(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const docked = pinned && desktop;
@@ -42,6 +43,10 @@ export function Layout({
   function reveal() {
     clearTimeout(hideTimer.current);
     setExpanded(true);
+  }
+  function enterNavigation() {
+    focusNavigation.current = true;
+    reveal();
   }
   function hide() {
     clearTimeout(hideTimer.current);
@@ -64,8 +69,13 @@ export function Layout({
     try { localStorage.setItem(pinKey, next ? "pinned" : "auto"); } catch { /* Optional preference. */ }
   }
   useEffect(() => () => clearTimeout(hideTimer.current), []);
-  useEffect(() => {
-    if (!open && restoreEdgeFocus.current) {
+  useLayoutEffect(() => {
+    if (open && focusNavigation.current) {
+      focusNavigation.current = false;
+      // Apply the visibility/inert change before moving focus from the edge.
+      sidebar.current?.getBoundingClientRect();
+      sidebar.current?.focus({preventScroll: true});
+    } else if (!open && restoreEdgeFocus.current) {
       restoreEdgeFocus.current = false;
       suppressEdgeReveal.current = true;
       menuButton.current?.focus({preventScroll: true});
@@ -129,8 +139,8 @@ export function Layout({
         <button ref={menuButton} type="button" className="navigation-edge" aria-label="Открыть навигацию" title="Открыть меню"
           aria-controls="main-navigation" aria-expanded={open}
           onPointerEnter={event => { if (event.pointerType !== "touch") reveal(); }}
-          onFocus={() => {if (!suppressEdgeReveal.current) reveal();}} onClick={reveal}><span aria-hidden="true">›</span></button>
-      <aside id="main-navigation" ref={sidebar} className="sidebar" inert={!open}
+          onFocus={() => {if (!suppressEdgeReveal.current) enterNavigation();}} onClick={enterNavigation}><span aria-hidden="true">›</span></button>
+      <aside id="main-navigation" ref={sidebar} className="sidebar" tabIndex={-1} inert={!open}
         onPointerEnter={event => {if (event.currentTarget.contains(event.target as Node)) reveal();}}
         onFocus={event => {if (event.currentTarget.contains(event.target as Node)) reveal();}}
         onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) hide(); }}
