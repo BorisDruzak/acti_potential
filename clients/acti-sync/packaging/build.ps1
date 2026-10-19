@@ -35,7 +35,7 @@ try {
     Run-Native $Wix @('extension', 'add', '-g', 'WixToolset.Util.wixext/6.0.2')
     Run-Native $DotNet @('run', '--project', 'ACTISync.Tests', '-c', 'Release')
     Run-Native $DotNet @('run', '--project', 'ACTISync.Updater.Tests', '-c', 'Release')
-    foreach ($component in @('Service', 'User', 'Updater')) {
+    foreach ($component in @('Service', 'User', 'Updater', 'Tray')) {
         $destination = Join-Path $OutputDirectory $component
         Run-Native $DotNet @('publish', "ACTISync.$component/ACTISync.$component.csproj", '-c', 'Release',
             '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true',
@@ -48,7 +48,7 @@ try {
     }
     if ($SignCertificateThumbprint) {
         $certificate = Get-Item -LiteralPath "Cert:/CurrentUser/My/$SignCertificateThumbprint"
-        foreach ($executable in @(Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'; Join-Path $OutputDirectory 'User/ACTISync.User.exe'; Join-Path $OutputDirectory 'Updater/ACTISync.Updater.exe')) {
+        foreach ($executable in @(Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'; Join-Path $OutputDirectory 'User/ACTISync.User.exe'; Join-Path $OutputDirectory 'Updater/ACTISync.Updater.exe'; Join-Path $OutputDirectory 'Tray/ACTISync.Tray.exe')) {
             $signParameters = @{FilePath=$executable; Certificate=$certificate; HashAlgorithm='SHA256'}
             if ($TimestampUrl) { $signParameters.TimestampServer = $TimestampUrl }
             $result = Set-AuthenticodeSignature @signParameters
@@ -61,16 +61,16 @@ try {
         '-d', "SourceSha=$SourceSha",
         '-d', "ServiceDir=$(Join-Path $OutputDirectory 'Service')",
         '-d', "UserDir=$(Join-Path $OutputDirectory 'User')",
-        '-d', "UpdaterDir=$(Join-Path $OutputDirectory 'Updater')", '-o', $msi)
+        '-d', "UpdaterDir=$(Join-Path $OutputDirectory 'Updater')", '-d', "TrayDir=$(Join-Path $OutputDirectory 'Tray')", '-o', $msi)
     if ($SignCertificateThumbprint) {
         $signParameters.FilePath = $msi
         if ((Set-AuthenticodeSignature @signParameters).Status -ne 'Valid') { throw 'MSI signing failed.' }
     }
-    $files = @($msi, (Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'), (Join-Path $OutputDirectory 'User/ACTISync.User.exe'), (Join-Path $OutputDirectory 'Updater/ACTISync.Updater.exe'))
+    $files = @($msi, (Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'), (Join-Path $OutputDirectory 'User/ACTISync.User.exe'), (Join-Path $OutputDirectory 'Updater/ACTISync.Updater.exe'), (Join-Path $OutputDirectory 'Tray/ACTISync.Tray.exe'))
     $manifest = foreach ($file in $files) {
         $item = Get-Item -LiteralPath $file
         [ordered]@{name=$item.Name; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(); signature=(Get-AuthenticodeSignature -LiteralPath $file).Status.ToString()}
     }
     $manifest | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $OutputDirectory 'manifest.json')
-    Write-Output "Single installer (includes sync service, user component and dedicated updater): $msi"
+    Write-Output "Single installer (includes sync service, native user worker, tray and dedicated updater): $msi"
 } finally { Pop-Location }

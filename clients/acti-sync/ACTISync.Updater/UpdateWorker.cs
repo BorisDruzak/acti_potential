@@ -9,14 +9,18 @@ namespace ACTISync.Updater;
 internal sealed class UpdateWorker:BackgroundService {
  protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
   while(!stoppingToken.IsCancellationRequested) {
+   var retry=TimeSpan.FromMinutes(5);
    try {
     using var mutex=new Mutex(false,@"Global\ACTISync.Install.v1");
     // Kernel mutex ownership is thread-affine; hold it on this thread across
     // async downloads/drains rather than release it from an await continuation.
-    var acquired=false;try{try{acquired=mutex.WaitOne(0);}catch(AbandonedMutexException){acquired=true;}if(acquired)Check(stoppingToken).GetAwaiter().GetResult();}finally{if(acquired)mutex.ReleaseMutex();}
+    var acquired=false;try{try{acquired=mutex.WaitOne(0);}catch(AbandonedMutexException){acquired=true;}if(acquired)Check(stoppingToken).GetAwaiter().GetResult();else retry=TimeSpan.FromSeconds(5);}finally{if(acquired)mutex.ReleaseMutex();}
    } catch(OperationCanceledException)when(stoppingToken.IsCancellationRequested){break;}
    catch(Exception error) {try{SecureStore.Failure("check",error);SecureStore.Status("deferred");}catch{}}
-   try{await Task.Delay(TimeSpan.FromMinutes(5),stoppingToken);}catch(OperationCanceledException){break;}
+   // Recovery handoff is local and bounded. Ordinary release/feed checks retain
+   // the five-minute interval after the previous helper releases its transaction.
+   if(File.Exists(SecureStore.Request))retry=TimeSpan.FromSeconds(5);
+   try{await Task.Delay(retry,stoppingToken);}catch(OperationCanceledException){break;}
   }
  }
  private static async Task Check(CancellationToken ct) {
@@ -58,11 +62,11 @@ internal sealed class UpdateWorker:BackgroundService {
  }
  private static async Task Bootstrap(CancellationToken ct) {
   var receipt=Path.Combine(SecureStore.Root,"bootstrap.json");var request=SecureStore.Read<UpdateRequest>(receipt);
-  if(request?.Phase=="complete")return;
+  if(request?.Phase=="complete"){if(!WindowsSessions.ResumeAll(WindowsSessions.Snapshot()))throw new IOException("Installed component reconciliation deferred.");return;}
   if(request==null){request=new(){Users=WindowsSessions.Snapshot(),Phase="captured"};SecureStore.Write(receipt,request);}
   SecureStore.Status("bootstrapping");
   var legacy=new List<UserProcess>();
-  foreach(var user in request.Users)if(WindowsSessions.StillRunning(user) && !await WindowsSessions.Prepare(user,ct))legacy.Add(user);
+  foreach(var user in request.Users)if(WindowsSessions.StillRunning(user) && !await WindowsSessions.Prepare(user,ct)){WindowsSessions.RequireLegacyUser(user);legacy.Add(user);}
   if(legacy.Count>0) {
    // Old clients have no drain IPC. Pause native command delivery, allow the bounded
    // 120s conversion plus 20s open acknowledgement to settle, then post WM_QUIT.

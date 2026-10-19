@@ -47,6 +47,10 @@
             <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\acti-sync" Name="URL Protocol" Value="" Type="string" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\acti-sync\shell\open\command" Value="&quot;[#UserExe]&quot; &quot;%1&quot;" Type="string" />
           </Component>
+          <Component Id="Tray" Guid="248F6A3C-AF4C-40BB-83BE-C7DAF2926673" Bitness="always64">
+            <File Id="TrayExe" Source="$(var.TrayDir)\ACTISync.Tray.exe" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run" Name="ACTISyncTray" Value="&quot;[#TrayExe]&quot;" Type="string" />
+          </Component>
           <Component Id="Configuration" Guid="F8996799-7DFC-47E3-AAC5-7F957C771B81" Bitness="always64">
             <RegistryValue Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="ServerOrigin" Value="[SERVERORIGIN]" Type="string" KeyPath="yes" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="InstalledVersion" Value="$(var.Version)" Type="string" />
@@ -68,7 +72,7 @@
       </Directory>
     </StandardDirectory>
     <Feature Id="Product" Title="ACTI Sync" Level="1">
-      <ComponentRef Id="Service" /><ComponentRef Id="User" /><ComponentRef Id="Updater" />
+      <ComponentRef Id="Service" /><ComponentRef Id="User" /><ComponentRef Id="Updater" /><ComponentRef Id="Tray" />
       <ComponentRef Id="Configuration" /><ComponentRef Id="DataDirectory" />
     </Feature>
   </Package>

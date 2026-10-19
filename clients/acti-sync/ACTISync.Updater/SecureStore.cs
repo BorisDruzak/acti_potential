@@ -16,6 +16,7 @@ internal static class SecureStore {
  internal static string HelperDirectory=>Path.Combine(Root,"helper");
  internal static string HelperExe=>Path.Combine(HelperDirectory,"ACTISync.Updater.exe");
  internal static string UserExe=>Path.Combine(InstalledDirectory,"ACTISync.User.exe");
+ internal static string TrayExe=>Path.Combine(InstalledDirectory,"ACTISync.Tray.exe");
  internal static void RequireSystem(bool helper=false) { if(!WindowsIdentity.GetCurrent().IsSystem || !string.Equals(Path.GetFullPath(Environment.ProcessPath!),helper?HelperExe:UpdaterExe,StringComparison.OrdinalIgnoreCase)) throw new UnauthorizedAccessException("Updater must run as the fixed SYSTEM component."); SafeFiles.NoReparse(Environment.ProcessPath!);if(helper)HelperImage.Verify(); }
  internal static void Initialize() { DirectoryAcl(Path.GetDirectoryName(Root)!,true); DirectoryAcl(Root,false); DirectoryAcl(HelperDirectory,false); DirectoryAcl(Public,true); }
  private static void DirectoryAcl(string path,bool readable) {
@@ -60,4 +61,11 @@ internal sealed class UpdateRequest {
  public long HelperStarted {get;set;}
  public int? InstallerExitCode {get;set;}
 }
-internal sealed record UserProcess(int Pid,long Started,string Sid,int SessionId,uint ThreadId);
+internal sealed record UserProcess(int Pid,long Started,string Sid,int SessionId,uint ThreadId,string Component="User") {
+ private string component=UserRoles.Require(Component);
+ public string Component {get=>component;init=>component=UserRoles.Require(value);}
+}
+internal static class UserRoles {
+ internal static string Require(string role)=>role is "User" or "Tray"?role:throw new InvalidDataException("Unsupported installed component role.");
+ internal static string PathFor(string role)=>Require(role)=="User"?SecureStore.UserExe:SecureStore.TrayExe;
+}

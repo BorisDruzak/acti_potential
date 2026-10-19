@@ -67,6 +67,22 @@ design/implementation approval stops are required.
 - Tray icon reports current connectivity/update state and opens the existing ACTI
   web panel. No document-management window, no Windows save notifications.
 
+### Desktop tray boundary
+
+The document worker remains restricted to Medium integrity. A separate,
+windowless `ACTISync.Tray.exe` owns only the notification icon, fixed ACTI link,
+version and read-only presence display. It uses the original logged-on user's
+WTS token without adding privileges, obtaining a linked elevated token, using
+SYSTEM, or changing Explorer/UAC. This matches the desktop's existing context
+and allows the icon to work even when an administrator's Explorer is already
+High integrity. The tray cannot dispatch document commands or keep the worker's
+presence alive. Its authenticated update-control pipe drains only the icon.
+
+The updater tracks explicit User/Tray identities with fixed executable paths,
+SID/session/creation checks, drains both, and resumes them separately. Legacy
+receipts default to User; the legacy WM_QUIT helper never targets Tray. The
+single MSI embeds all four EXEs and installs both per-user startup entries.
+
 ## Implementation and evidence
 
 Implementation is complete for the four product areas below. Local checks pass:

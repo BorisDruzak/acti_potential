@@ -54,7 +54,7 @@ internal static class Installer {
  private static bool InstalledMatches(VerifiedRelease release) {
   using var key=Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ACTI\Sync");
   if(key?.GetValue("InstalledVersion")as string!=release.Version || key.GetValue("InstalledSourceSha")as string!=release.SourceSha)return false;
-  foreach(var name in new[]{"User","Service","Updater"}){var file=FileVersionInfo.GetVersionInfo(Path.Combine(SecureStore.InstalledDirectory,$"ACTISync.{name}.exe"));if($"{file.FileMajorPart}.{file.FileMinorPart}.{file.FileBuildPart}"!=release.Version)return false;}
+  foreach(var name in new[]{"User","Tray","Service","Updater"}){var file=FileVersionInfo.GetVersionInfo(Path.Combine(SecureStore.InstalledDirectory,$"ACTISync.{name}.exe"));if($"{file.FileMajorPart}.{file.FileMinorPart}.{file.FileBuildPart}"!=release.Version)return false;}
   return true;
  }
  private static void StartInstaller(UpdateRequest request) {
