@@ -18,7 +18,14 @@ internal sealed class LegacyConversionGuard:IDisposable {
    if(!Directory.Exists(state))return guard;SafeFiles.NoReparse(state);var owners=sids.ToHashSet(StringComparer.Ordinal);var files=Directory.GetFiles(state,"*.json");if(files.Length>10000)throw new IOException("Legacy state limit exceeded.");
    foreach(var file in files) {
     using var input=SafeFiles.OpenRead(file);if(input.Length>1024*1024)throw new IOException("Legacy state is oversized.");using var json=JsonDocument.Parse(input,new JsonDocumentOptions{MaxDepth=16});var data=json.RootElement;
-    var sid=data.GetProperty("sid").GetString();var format=data.GetProperty("source_format").GetString();
+    var sid=data.GetProperty("sid").GetString();
+    // Persisted states written before source conversion existed are DOCX-only;
+    // match SessionState.SourceFormat's historical default without rewriting.
+    var format="docx";
+    if(data.TryGetProperty("source_format",out var storedFormat)) {
+     if(storedFormat.ValueKind!=JsonValueKind.String || storedFormat.GetString() is not string declared || !SafeFiles.WordSourceFormat(declared))throw new IOException("Legacy conversion state is invalid.");
+     format=declared;
+    }
     if(sid==null || !owners.Contains(sid) || format=="docx")continue;
     if(format==null || !SafeFiles.WordSourceFormat(format) || !Guid.TryParse(data.GetProperty("session_id").GetString(),out var id))throw new IOException("Legacy conversion state is invalid.");
     var source=Path.Combine(root,"work",sid,id.ToString("D"),"original."+format);if(!File.Exists(source))continue;SafeFiles.NoReparse(source);
