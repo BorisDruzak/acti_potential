@@ -10,7 +10,11 @@ namespace ACTISync.Service;
 public sealed class SyncWorker(SyncEngine engine) : BackgroundService {
  protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
   engine.Initialize();
-  await Task.WhenAll(PipeLoop(stoppingToken), PollLoop(stoppingToken));
+  await Task.WhenAll(PipeLoop(stoppingToken), PollLoop(stoppingToken),AgentLoop(stoppingToken));
+ }
+ private async Task AgentLoop(CancellationToken ct) {
+  using var timer=new PeriodicTimer(TimeSpan.FromSeconds(4));
+  while(!ct.IsCancellationRequested) { await engine.AgentTick(ct); await timer.WaitForNextTickAsync(ct); }
  }
  private async Task PollLoop(CancellationToken ct) {
   using var timer = new PeriodicTimer(TimeSpan.FromSeconds(4));
@@ -23,8 +27,13 @@ public sealed class SyncWorker(SyncEngine engine) : BackgroundService {
   acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
   acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.InteractiveSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
   while (!ct.IsCancellationRequested) {
-   using var pipe = NamedPipeServerStreamAcl.Create(Wire.PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance, 4096, 4096, acl);
-   await pipe.WaitForConnectionAsync(ct);
+   var pipe = NamedPipeServerStreamAcl.Create(Wire.PipeName, PipeDirection.InOut, 16, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 4096, 4096, acl);
+   try { await pipe.WaitForConnectionAsync(ct); } catch { pipe.Dispose(); throw; }
+   _=Serve(pipe,ct);
+  }
+ }
+ private async Task Serve(NamedPipeServerStream pipe,CancellationToken ct) {
+  using(pipe) {
    try {
     string? sid = null;
     pipe.RunAsClient(() => { using var identity = WindowsIdentity.GetCurrent(true); sid = identity?.User?.Value; if (identity is null || !identity.IsAuthenticated || identity.IsAnonymous) sid = null; });

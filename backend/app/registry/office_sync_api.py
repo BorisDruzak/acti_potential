@@ -39,6 +39,9 @@ from app.registry.models import (
     DocumentFile,
     LogicalOriginal,
     MetadataRevision,
+    OfficeAgentCommand,
+    OfficeAgentConnection,
+    OfficeAgentTicket,
     OfficeEditSession,
     OfficeSaveReceipt,
 )
@@ -69,6 +72,7 @@ class Exchange(Input):
 
 class Heartbeat(Input):
     state: Literal["opening", "editing", "local_saved", "syncing", "offline", "conflict", "error"]
+    document_open: bool | None = None
 
 
 def ensure_original(session, file):
@@ -179,6 +183,10 @@ def status_payload(session, row, original):
         "state": row.state,
         "last_seen_at": row.last_seen_at,
         "last_saved_at": row.last_saved_at,
+        "document_open": row.document_open,
+        "opened_at": row.opened_at,
+        "closed_at": row.closed_at,
+        "connection_id": row.connection_id,
     }
 
 
@@ -309,13 +317,19 @@ def exchange(data: Exchange, request: Request, session: Db):
     row.lease_expires_at, row.state = now + timedelta(seconds=LEASE_SECONDS), "opening"
     token = secrets.token_urlsafe(32)
     row.token_hash = token_digest(token)
-    return {**status_payload(session, row, original), "token": token}
+    agent = issue_agent_connection(session, row, data.client_version, now)
+    row.connection_id = agent["connection_id"]
+    return {**status_payload(session, row, original), "token": token, "agent": agent}
 
 
 @client_router.post("/sessions/{identity}/heartbeat")
 def heartbeat(identity: UUID, data: Heartbeat, request: Request, session: Db):
     row, _, _, original, now = client_context(session, request, identity)
     row.last_seen_at, row.lease_expires_at = now, now + timedelta(seconds=LEASE_SECONDS)
+    if data.document_open is True and row.document_open is not True:
+        row.document_open, row.opened_at, row.closed_at = True, now, None
+    elif data.document_open is False and row.document_open is True:
+        row.document_open, row.closed_at = False, now
     # The client cannot claim a server acknowledgement through heartbeat.
     # Preserve saved only if it reports an unchanged editing state.
     if not (row.state == "saved" and data.state == "editing"):
@@ -597,7 +611,7 @@ def file_status(
             if isinstance(error.detail, dict)
             else "Редактирование недоступно"
         )
-    file, now = current_file(session, anchor, original), datetime.now(UTC)
+    now = datetime.now(UTC)
     row = session.scalar(
         select(OfficeEditSession)
         .where(OfficeEditSession.original_id == file_id)
@@ -607,6 +621,12 @@ def file_status(
         )
         .limit(1)
     )
+    return browser_file_payload(session, actor, anchor, original, row, reason, now)
+
+
+def browser_file_payload(session, actor, anchor, original, row, reason, now):
+    file_id = anchor.id
+    file = current_file(session, anchor, original)
     state = row.state if row else "idle"
     if row and row.finished_at is None and (row.expires_at <= now or row.lease_expires_at <= now):
         state = "offline" if row.exchanged_at else "error"
@@ -626,6 +646,10 @@ def file_status(
         "last_seen_at": row.last_seen_at if row else None,
         "last_saved_at": row.last_saved_at if row else None,
         "lease_expires_at": row.lease_expires_at if row else None,
+        "document_open": row.document_open if row else None,
+        "opened_at": row.opened_at if row else None,
+        "closed_at": row.closed_at if row else None,
+        "connection_id": row.connection_id if row else None,
         "editor": {"id": editor.id, "display_name": editor.display_name} if editor else None,
     }
 
@@ -672,4 +696,358 @@ def file_history(
             }
             for revision, file, name in rows
         ],
+    }
+
+
+class CommandInput(Input):
+    session_id: UUID
+    action: Literal["open", "retry", "finish", "reveal"]
+
+
+class CommandResult(Input):
+    id: UUID
+    ok: bool
+    error: str | None = Field(default=None, max_length=256)
+
+
+class AgentHeartbeat(Input):
+    command_results: list[CommandResult] = Field(default_factory=list, max_length=20)
+
+
+def browser_auth(session, request):
+    return session.scalar(
+        select(AuthSession).where(
+            AuthSession.token_hash == token_digest(request.cookies[COOKIE_NAME])
+        )
+    )
+
+
+def require_interactive(actor):
+    if (
+        actor.must_change_password
+        or actor.scoped_operations is not None
+        or actor.scoped_registry_ids is not None
+    ):
+        fail(403, "interactive_session_required", "Нужна пользовательская сессия")
+
+
+def require_https(request):
+    origin = urlsplit(request.app.state.settings.origin)
+    if origin.scheme != "https" or not origin.netloc or origin.username:
+        fail(503, "office_https_required", "Для ACTI Sync требуется HTTPS")
+
+
+def issue_agent_connection(session, owner, version, now):
+    # Serialize first connection creation and token rotation per browser, including
+    # concurrent exchanges for distinct documents. Existing document bindings survive.
+    auth = session.scalar(
+        select(AuthSession)
+        .where(AuthSession.id == owner.auth_session_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    verify_browser(session, owner, now)
+    connection = session.scalar(
+        select(OfficeAgentConnection)
+        .where(OfficeAgentConnection.auth_session_id == auth.id)
+        .with_for_update()
+    )
+    token = secrets.token_urlsafe(32)
+    if connection is None:
+        connection = OfficeAgentConnection(auth_session_id=auth.id, user_id=owner.user_id)
+        session.add(connection)
+    connection.token_hash = token_digest(token)
+    connection.expires_at = min(auth.expires_at, now + timedelta(seconds=TOKEN_SECONDS))
+    connection.client_version = version
+    session.flush()
+    return {"connection_id": connection.id, "token": token, "expires_at": connection.expires_at}
+
+
+def agent_context(session, request, identity):
+    row = session.scalar(
+        select(OfficeAgentConnection)
+        .where(OfficeAgentConnection.id == identity)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    value = request.headers.get("Authorization", "")
+    token = value[7:] if value.startswith("Bearer ") else ""
+    now = datetime.now(UTC)
+    if (
+        row is None
+        or len(token) != 43
+        or row.expires_at <= now
+        or not secrets.compare_digest(row.token_hash, token_digest(token))
+    ):
+        fail(401, "agent_token_invalid", "Повторно подключите ACTI Sync")
+    actor = verify_browser(session, row, now)
+    require_interactive(actor)
+    return row, actor, now
+
+
+def connection_online(row, now):
+    return bool(
+        row
+        and row.expires_at > now
+        and row.last_seen_at
+        and row.last_seen_at >= now - timedelta(seconds=35)
+    )
+
+
+def expire_command(row, now):
+    if row.state == "pending" and row.expires_at <= now:
+        row.state, row.error = "expired", None
+
+
+def command_access(session, actor, connection, command, *, allow_finished=False):
+    row = session.get(OfficeEditSession, command.session_id)
+    if (
+        row is None
+        or row.auth_session_id != connection.auth_session_id
+        or row.user_id != connection.user_id
+        or row.connection_id != connection.id
+    ):
+        fail(404, "not_found", "Сеанс не найден")
+    if row.finished_at and not allow_finished:
+        fail(409, "sync_finished", "Сеанс завершён")
+    authorized(session, actor, row.original_id, write=True)
+    return row
+
+
+@router.post("/agent/connect")
+def agent_connect(request: Request, session: Db, actor: Actor):
+    require_interactive(actor)
+    require_https(request)
+    auth, token, now = browser_auth(session, request), secrets.token_urlsafe(32), datetime.now(UTC)
+    session.scalar(select(AuthSession).where(AuthSession.id == auth.id).with_for_update())
+    # A bounded pending-ticket set also prevents indefinite accumulation by retries.
+    pending = list(
+        session.scalars(
+            select(OfficeAgentTicket).where(
+                OfficeAgentTicket.auth_session_id == auth.id,
+                OfficeAgentTicket.exchanged_at.is_(None),
+                OfficeAgentTicket.expires_at > now,
+            )
+        )
+    )
+    if len(pending) >= 10:
+        fail(429, "agent_connect_pending", "Дождитесь подключения ACTI Sync")
+    ticket = OfficeAgentTicket(
+        auth_session_id=auth.id,
+        user_id=actor.id,
+        ticket_hash=token_digest(token),
+        expires_at=now + timedelta(seconds=60),
+    )
+    session.add(ticket)
+    return {"uri": "acti-sync://connect?ticket=" + token, "expires_at": ticket.expires_at}
+
+
+@client_router.post("/agent/exchange")
+def agent_exchange(data: Exchange, request: Request, session: Db):
+    ticket = session.scalar(
+        select(OfficeAgentTicket)
+        .where(OfficeAgentTicket.ticket_hash == token_digest(data.ticket))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    now = datetime.now(UTC)
+    if ticket is None:
+        fail(401, "agent_ticket_invalid", "Ссылка подключения недействительна")
+    if ticket.exchanged_at or ticket.expires_at <= now:
+        fail(409, "agent_ticket_consumed", "Ссылка подключения истекла или уже использована")
+    actor = verify_browser(session, ticket, now)
+    require_interactive(actor)
+    result = issue_agent_connection(session, ticket, data.client_version, now)
+    ticket.exchanged_at = now
+    return result
+
+
+@client_router.post("/agents/{identity}/renew")
+def agent_renew(identity: UUID, request: Request, session: Db):
+    connection, _, now = agent_context(session, request, identity)
+    token = secrets.token_urlsafe(32)
+    auth = session.get(AuthSession, connection.auth_session_id)
+    connection.token_hash = token_digest(token)
+    connection.expires_at = min(auth.expires_at, now + timedelta(seconds=TOKEN_SECONDS))
+    return {"connection_id": connection.id, "token": token, "expires_at": connection.expires_at}
+
+
+@client_router.post("/agents/{identity}/heartbeat")
+def agent_heartbeat(identity: UUID, data: AgentHeartbeat, request: Request, session: Db):
+    connection, actor, now = agent_context(session, request, identity)
+    connection.last_seen_at = now
+    pending = list(
+        session.scalars(
+            select(OfficeAgentCommand)
+            .where(
+                OfficeAgentCommand.connection_id == identity, OfficeAgentCommand.state == "pending"
+            )
+            .order_by(OfficeAgentCommand.created_at, OfficeAgentCommand.id)
+            .with_for_update()
+        )
+    )
+    results = {result.id: result for result in data.command_results}
+    commands = []
+    for command in pending:
+        expire_command(command, now)
+        if command.state != "pending":
+            continue
+        result = results.get(command.id)
+        try:
+            command_access(
+                session,
+                actor,
+                connection,
+                command,
+                allow_finished=bool(result and result.ok and command.action == "finish"),
+            )
+        except HTTPException:
+            command.state, command.error = "failed", "Доступ к сеансу больше недоступен"
+            continue
+        if result:
+            command.state = "succeeded" if result.ok else "failed"
+            # The client error may contain paths, credentials or exception internals.
+            # Never store or relay arbitrary native exception text to the browser.
+            command.error = (
+                None if result.ok else "ACTI Sync не выполнил действие; локальная копия сохранена"
+            )
+        else:
+            commands.append(
+                {
+                    "id": command.id,
+                    "session_id": command.session_id,
+                    "action": command.action,
+                    "expires_at": command.expires_at,
+                }
+            )
+    return {"commands": commands}
+
+
+@router.post("/agent/commands")
+def browser_command(data: CommandInput, request: Request, session: Db, actor: Actor):
+    require_interactive(actor)
+    auth, now = browser_auth(session, request), datetime.now(UTC)
+    row = session.get(OfficeEditSession, data.session_id)
+    if row is None or row.auth_session_id != auth.id or row.user_id != actor.id:
+        fail(404, "not_found", "Сеанс не найден")
+    connection = session.scalar(
+        select(OfficeAgentConnection)
+        .where(OfficeAgentConnection.id == row.connection_id)
+        .with_for_update()
+    )
+    if not connection_online(connection, now):
+        fail(409, "agent_offline", "Подключите ACTI Sync на этом компьютере")
+    probe = OfficeAgentCommand(
+        connection_id=connection.id,
+        session_id=row.id,
+        action=data.action,
+        expires_at=now + timedelta(seconds=60),
+    )
+    command_access(session, actor, connection, probe)
+    pending = list(
+        session.scalars(
+            select(OfficeAgentCommand)
+            .where(
+                OfficeAgentCommand.connection_id == connection.id,
+                OfficeAgentCommand.state == "pending",
+            )
+            .with_for_update()
+        )
+    )
+    for command in pending:
+        expire_command(command, now)
+    if sum(command.state == "pending" for command in pending) >= 20:
+        fail(429, "agent_commands_pending", "Дождитесь выполнения предыдущих действий")
+    session.add(probe)
+    session.flush()
+    return {"id": probe.id, "state": "pending"}
+
+
+@router.get("/agent/status")
+def agent_status(request: Request, session: Db, actor: Actor):
+    auth, now = browser_auth(session, request), datetime.now(UTC)
+    connections = list(
+        session.scalars(
+            select(OfficeAgentConnection).where(
+                OfficeAgentConnection.auth_session_id == auth.id,
+                OfficeAgentConnection.user_id == actor.id,
+            )
+        )
+    )
+    items = [
+        {
+            "connection_id": row.id,
+            "online": connection_online(row, now),
+            "last_seen_at": row.last_seen_at,
+            "client_version": row.client_version,
+        }
+        for row in connections
+    ]
+    recent = max(connections, key=lambda row: row.last_seen_at or row.created_at, default=None)
+    # PostgreSQL DISTINCT ON picks the latest owned session per logical original;
+    # apply the panel bound after deduplication, never returning another browser's rows.
+    latest = (
+        select(OfficeEditSession.id)
+        .where(
+            OfficeEditSession.auth_session_id == auth.id,
+            OfficeEditSession.user_id == actor.id,
+            OfficeEditSession.connection_id.is_not(None),
+        )
+        .distinct(OfficeEditSession.original_id)
+        .order_by(
+            OfficeEditSession.original_id,
+            OfficeEditSession.created_at.desc(),
+            OfficeEditSession.id.desc(),
+        )
+    )
+    rows = session.scalars(
+        select(OfficeEditSession)
+        .where(OfficeEditSession.id.in_(latest))
+        .order_by(OfficeEditSession.created_at.desc())
+        .limit(100)
+    )
+    documents = []
+    for row in rows:
+        try:
+            document, anchor, original = authorized(session, actor, row.original_id)
+        except HTTPException:
+            continue
+        reason, can_control = None, not bool(row.finished_at)
+        try:
+            authorized(session, actor, row.original_id, write=True)
+        except HTTPException as error:
+            reason, can_control = error.detail.get("message", "Редактирование недоступно"), False
+        payload = browser_file_payload(session, actor, anchor, original, row, reason, now)
+        command = session.scalar(
+            select(OfficeAgentCommand)
+            .where(OfficeAgentCommand.session_id == row.id)
+            .order_by(OfficeAgentCommand.created_at.desc(), OfficeAgentCommand.id.desc())
+            .limit(1)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if command:
+            expire_command(command, now)
+        payload.update(
+            {
+                "document_id": document.id,
+                "document_title": document.title,
+                "can_control": can_control,
+                "command": {
+                    "id": command.id,
+                    "action": command.action,
+                    "state": command.state,
+                    "error": command.error,
+                }
+                if command
+                else None,
+            }
+        )
+        documents.append(payload)
+    return {
+        "online": any(item["online"] for item in items),
+        "last_seen_at": recent.last_seen_at if recent else None,
+        "client_version": recent.client_version if recent else None,
+        "connections": items,
+        "documents": documents,
     }

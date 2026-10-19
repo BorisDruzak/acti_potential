@@ -98,6 +98,15 @@ it("does not present an old ACK as current after the lease/client contact expire
   expect(screen.getByText(/Последняя связь:/)).toBeTruthy();
 });
 
+it("keeps Word open/closed observation independent of the server save ACK", async () => {
+  const now = new Date().toISOString();
+  request.mockResolvedValue({...base, state: "saved", session_id: "session", document_open: false, opened_at: now, closed_at: now, last_saved_at: now, last_seen_at: now, lease_expires_at: new Date(Date.now() + 60000).toISOString()});
+  show();
+  await screen.findByText("Закрыт в Word");
+  expect(screen.getByText("Сохранено в ACTI")).toBeTruthy();
+  expect(screen.getByText(/Открыт:/)).toBeTruthy(); expect(screen.getByText(/Закрыт:/)).toBeTruthy();
+});
+
 it("shows a fresh server commit ACK, then removes it when contact with the API fails", async () => {
   vi.useFakeTimers();
   request.mockResolvedValue({...base, state: "saved", session_id: "session", last_saved_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), lease_expires_at: new Date(Date.now() + 120000).toISOString()});

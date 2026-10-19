@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Layout } from "./Layout";
 
 vi.mock("../auth/AuthProvider", () => ({useAuth: () => ({user: {id: "test", display_name: "Тест", roles: ["admin"]}, logout: vi.fn()})}));
+vi.mock("../api/client", async original => ({...await original<typeof import("../api/client")>(), apiRequest: vi.fn(async () => ({online: false, last_seen_at: null, client_version: null, connections: [], documents: []}))}));
 afterEach(() => {cleanup(); localStorage.clear(); vi.useRealTimers();});
 function setup() {
   return render(<Layout section="Документы" setSection={vi.fn()} space="work" setSpace={vi.fn()}><h1>Документы</h1><input aria-label="Текст документа"/></Layout>);
@@ -45,4 +46,13 @@ it("supports keyboard reveal and Escape without losing document edits", () => {
   fireEvent.keyDown(screen.getByRole("complementary"), {key: "Escape"});
   expect((screen.getByLabelText("Текст документа") as HTMLInputElement).value).toBe("Несохранённый текст");
   expect(screen.getByRole("button", {name: "Открыть навигацию"}).getAttribute("aria-expanded")).toBe("false");
+});
+it.each(["admin", "work", "view"] as const)("makes agent status available in %s without losing the page draft", async space => {
+  render(<Layout section="Документы" setSection={vi.fn()} space={space} setSpace={vi.fn()}><input aria-label="Черновик карточки" defaultValue="Несохранённое"/></Layout>);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("button", {name: "ACTI Sync: нет связи"}));
+  const panel = screen.getByRole("dialog", {name: "ACTI Sync"});
+  expect(!!within(panel).queryByRole("button", {name: "Подключить агент"})).toBe(space !== "view");
+  fireEvent.click(within(panel).getByRole("button", {name: "Закрыть"}));
+  expect((screen.getByLabelText("Черновик карточки") as HTMLInputElement).value).toBe("Несохранённое");
 });

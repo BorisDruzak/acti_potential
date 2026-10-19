@@ -61,7 +61,10 @@ the newly uncommitted object. A save response is produced after commit.
 
 `ACTISync.Service.exe` runs as **NT AUTHORITY\LocalService**. It never launches
 Word or displays a window. `ACTISync.User.exe` runs in the interactive Windows
-session, owns the tray and opens the managed local DOCX in installed Word.
+session and opens the managed local DOCX in installed Word. Both processes work
+in the background: there is no agent window, taskbar entry, tray icon or modal
+agent dialog. The user's subsequent instruction supersedes the issue's original
+tray requirement. Document states and recovery actions live in the browser.
 
 The MSI pins `HKLM\SOFTWARE\ACTI\Sync\ServerOrigin` to an HTTPS origin. Neither
 the protocol URI nor IPC can supply an arbitrary server or file path. Standard
@@ -88,10 +91,38 @@ Snapshots and queue state are flushed before network upload. Retries preserve
 the uncertain request's idempotency key. Two pending snapshots coalesce later
 saves while retaining the in-flight bytes; per-user snapshots are bounded to
 1 GiB with a 256 MiB free-space guard. Rejections and conflicts retain both the
-working copy and pending bytes. The tray offers retry, open local file, save copy
-and finish. Finish refuses uncaptured, unstable or unacknowledged bytes; close
+working copy and pending bytes. The browser offers retry, open local file, reveal
+the local copy in Explorer and finish. Word's Save As or Explorer can preserve a
+separate recovery copy. Finish refuses uncaptured, unstable or unacknowledged bytes; close
 Word before finishing. The browser polls every seven seconds and suppresses a
 saved label when contact or lease is stale.
+
+## Browser control and agent presence
+
+The browser's ACTI Sync panel lists the user's editing documents, their last
+confirmed open/close state and independent server save acknowledgement. Closing
+Word does not discard pending bytes or automatically finish a lease. A closed
+document can still be waiting for synchronization. Stale presence is shown as
+unknown/offline rather than fresh evidence of saving or an open Word window.
+
+`POST /office-sync/agent/connect` issues a one-use, 60-second
+`acti-sync://connect?ticket=...` link. `POST /agent/exchange` returns a restricted
+connection bearer; an ordinary edit exchange also returns connection credentials.
+Connection tokens authorize only heartbeat/renew and bounded command relay,
+never file reading or writing. They are bound to the originating interactive
+browser session, stored with DPAPI and revoked by logout, account blocking or
+expiry. The configured origin remains fixed by the MSI.
+
+The user component pulses its authenticated named pipe; the service reports
+presence only while that pulse is recent. This distinguishes a running service
+from an available interactive component and works with no open documents.
+`GET /office-sync/agent/status` supplies the browser panel. CSRF-protected
+`POST /agent/commands` queues only `open`, `retry`, `reveal` or `finish` for a
+specific authorized editing session. Commands expire, return acknowledged
+results and cannot supply paths, executables or URLs. Dispatch rechecks the
+current document ACL and the client checks the local owner SID. A retry is not
+a claim that a save succeeded. Browser responses contain no local paths or
+connection credentials.
 
 ## Build and deployment
 
@@ -103,23 +134,26 @@ both self-contained single-file EXEs and builds a per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-Outputs are `clients/acti-sync/artifacts/ACTISync-1.0.2-win-x64.msi`,
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.1.0-win-x64.msi`.
+It embeds both components and needs no separate EXE or .NET runtime installation.
+Internal build outputs include
 `Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`, and `manifest.json` with
-SHA256, size and signature status. The `ACTI Sync` GitHub workflow publishes the
-same outputs as a downloadable artifact for its exact commit.
+SHA256, size and signature status. The `ACTI Sync` GitHub workflow publishes only
+the MSI in its downloadable installer artifact for the exact commit.
 
 The installer registers automatic service startup/recovery, the protocol handler
 and user startup at sign-in. Initial install requires machine administrator/GPO;
-normal tray, protocol and Word operation use the user's existing rights:
+normal background operation, protocol and Word use the user's existing rights:
 
 ```powershell
-msiexec /i ACTISync-1.0.2-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
-msiexec /i ACTISync-1.0.2-win-x64.msi /qn /norestart /l*v upgrade.log
-msiexec /x ACTISync-1.0.2-win-x64.msi /qn /norestart /l*v uninstall.log
+msiexec /i ACTISync-1.1.0-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
+msiexec /i ACTISync-1.1.0-win-x64.msi /qn /norestart /l*v upgrade.log
+msiexec /x ACTISync-1.1.0-win-x64.msi /qn /norestart /l*v uninstall.log
 ```
 
-An upgrade reuses the configured origin unless explicitly changed. Close the tray
-before a managed upgrade. Uninstall/upgrade stop the service and deliberately
+An upgrade reuses the configured origin unless explicitly changed. Stop the
+background user component before a managed upgrade; leave Word documents intact.
+Uninstall/upgrade stop the service and deliberately
 preserve managed data, including unsubmitted working copies and pending state.
 Reinstall against the same origin restores state; if authorization/lease expired,
 sign into ACTI and launch the same original again. A changed server revision

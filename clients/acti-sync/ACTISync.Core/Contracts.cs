@@ -12,6 +12,11 @@ public static class Wire {
  public const long MaxFileSize = 25 * 1024 * 1024;
 }
 public static class LaunchProtocol {
+ public static IpcRequest ParseInvocation(string input) {
+  var match=Regex.Match(input,@"\Aacti-sync://(launch|connect)/?\?ticket=([A-Za-z0-9_-]{43})\z",RegexOptions.CultureInvariant);
+  if(!match.Success) throw new ArgumentException("Недопустимая ссылка ACTI Sync.");
+  return new(){Action=match.Groups[1].Value,Ticket=match.Groups[2].Value};
+ }
  public static string Parse(string input) {
   var match = Regex.Match(input, @"\Aacti-sync://launch/?\?ticket=([A-Za-z0-9_-]{43})\z", RegexOptions.CultureInvariant);
   if (!match.Success) throw new ArgumentException("Недопустимая ссылка запуска ACTI Sync.");
@@ -30,6 +35,7 @@ public sealed record ClientConfig(Uri Origin) {
  public Uri Api(string suffix) => new(Origin, "/api/v1/office-sync/" + suffix);
 }
 public sealed class ServerSession {
+ public AgentCredentials? Agent { get; set; }
  public string SessionId { get; set; } = "";
  public string? Token { get; set; }
  public string FileId { get; set; } = "";
@@ -48,6 +54,9 @@ public sealed class Snapshot {
  public int ExpectedRevision { get; set; }
 }
 public sealed class SessionState {
+ public string? ConnectionId { get; set; }
+ public bool? DocumentOpen { get; set; }
+ public bool PresenceDirty { get; set; }
  public string ServerOrigin { get; set; } = "";
  public string SessionId { get; set; } = "";
  public string Sid { get; set; } = "";
@@ -72,11 +81,14 @@ public sealed class SessionState {
  [JsonIgnore] public bool Dirty { get; set; }
 }
 public sealed class IpcRequest {
+ public string? CommandId { get; set; }
+ public bool? Ok { get; set; }
  public string Action { get; set; } = "list";
  public string? Ticket { get; set; }
  public string? SessionId { get; set; }
 }
 public sealed class SessionView {
+ public bool? DocumentOpen { get; set; }
  public string SessionId { get; set; } = "";
  public string FileName { get; set; } = "";
  public string WorkingPath { get; set; } = "";
@@ -85,11 +97,45 @@ public sealed class SessionView {
  public int Revision { get; set; }
  public DateTimeOffset? LastAck { get; set; }
  public bool HasPending { get; set; }
- public static SessionView From(SessionState s) => new() { SessionId=s.SessionId, FileName=s.FileName, WorkingPath=s.WorkingPath, Status=s.Status, Error=s.Error, Revision=s.Revision, LastAck=s.LastAck, HasPending=s.Pending!=null || s.NextPending!=null };
+ public static SessionView From(SessionState s) => new() { DocumentOpen=s.DocumentOpen, SessionId=s.SessionId, FileName=s.FileName, WorkingPath=s.WorkingPath, Status=s.Status, Error=s.Error, Revision=s.Revision, LastAck=s.LastAck, HasPending=s.Pending!=null || s.NextPending!=null };
 }
 public sealed class IpcResponse {
+ public List<AgentCommand> Commands { get; set; } = [];
  public bool Ok { get; set; }
  public string? Error { get; set; }
  public SessionView? Session { get; set; }
  public List<SessionView> Sessions { get; set; } = [];
+}
+public sealed class AgentCredentials {
+ public string ConnectionId { get; set; } = "";
+ public string Token { get; set; } = "";
+ public DateTimeOffset ExpiresAt { get; set; }
+}
+public sealed class AgentCommand {
+ public DateTimeOffset ExpiresAt { get; set; }
+ public string Id { get; set; } = "";
+ public string SessionId { get; set; } = "";
+ public string Action { get; set; } = "";
+}
+public sealed class CommandResult {
+ public string Id { get; set; } = "";
+ public bool Ok { get; set; }
+ public string? Error { get; set; }
+}
+public sealed class AgentHeartbeat {
+ public List<AgentCommand> Commands { get; set; } = [];
+}
+public sealed class AgentState {
+ public string ServerOrigin { get; set; } = "";
+ public string Sid { get; set; } = "";
+ public string ConnectionId { get; set; } = "";
+ public string ProtectedToken { get; set; } = "";
+ public DateTimeOffset ExpiresAt { get; set; }
+ public List<CommandResult> Results { get; set; } = [];
+ public Dictionary<string,CommandResult> Completed { get; set; } = [];
+ public Dictionary<string,AgentCommand> Pending { get; set; } = [];
+ public HashSet<string> Started { get; set; } = [];
+}
+public static class AgentPresence {
+ public static bool IsFresh(DateTimeOffset? pulse,DateTimeOffset now) => pulse.HasValue && now>=pulse.Value && now-pulse.Value<=TimeSpan.FromSeconds(15);
 }

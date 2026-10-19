@@ -14,17 +14,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.402'
-      - name: Test and build self-contained EXEs and MSI
+      - name: Test and build single MSI with embedded service and user component
         shell: pwsh
         run: ./clients/acti-sync/packaging/build.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: ACTISync-win-x64-${{ github.sha }}
-          path: |
-            clients/acti-sync/artifacts/*.msi
-            clients/acti-sync/artifacts/Service/*.exe
-            clients/acti-sync/artifacts/User/*.exe
-            clients/acti-sync/artifacts/manifest.json
+          name: ACTISync-installer-win-x64-${{ github.sha }}
+          path: clients/acti-sync/artifacts/ACTISync-*-win-x64.msi
           if-no-files-found: error
   web:
     runs-on: ubuntu-latest
@@ -39,7 +35,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run test -- --run src/components/OfficeSync.test.tsx src/components/OfficeOpen.test.tsx src/components/OriginalActions.test.tsx src/engine/FormChanges.test.tsx src/pages/BrowserRegressions.test.tsx src/pages/DocumentsLayout.test.tsx src/pages/Workspaces.test.tsx
+      - run: npm run test -- --run src/components/OfficeSyncAgent.test.tsx src/components/OfficeSync.test.tsx src/components/OfficeOpen.test.tsx src/components/OriginalActions.test.tsx src/components/Layout.test.tsx src/engine/FormChanges.test.tsx src/pages/BrowserRegressions.test.tsx src/pages/DocumentsLayout.test.tsx src/pages/Workspaces.test.tsx
       - run: npm run build
   api:
     runs-on: ubuntu-latest
@@ -67,5 +63,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen
-      - run: uv run pytest -q tests/test_office_sync.py tests/test_office_open.py tests/test_documents.py tests/test_search_quality_v2.py tests/test_task005_content.py
+      - run: uv run pytest -q tests/test_office_agent.py tests/test_office_sync.py tests/test_office_open.py tests/test_documents.py tests/test_search_quality_v2.py tests/test_task005_content.py
       - run: uv run ruff check app tests

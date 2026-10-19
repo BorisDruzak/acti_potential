@@ -6,6 +6,7 @@ static void Check(bool condition, string name) { if (!condition) throw new Excep
 static void Reject(Action action, string name) { try { action(); } catch (ArgumentException) { Console.WriteLine("PASS " + name); return; } throw new Exception(name); }
 Check(LaunchProtocol.Parse("acti-sync://launch?ticket=" + new string('a', 43)) == new string('a', 43), "strict launch ticket");
 Check(LaunchProtocol.Parse("acti-sync://launch/?ticket=" + new string('a', 43)) == new string('a', 43), "browser-normalized launch authority");
+Check(LaunchProtocol.ParseInvocation("acti-sync://connect?ticket=" + new string('b',43)).Action == "connect", "strict headless connect protocol");
 var configured = new ClientConfig(new Uri("https://example.com"));
 Check(configured.Matches("https://example.com/") && !configured.Matches("https://other.example.com/") && !configured.Matches(""), "recovered credentials remain bound to installed server origin");
 foreach (var uri in new[] { "https://launch?ticket=" + new string('a', 43), "acti-sync://launch?ticket=x", "acti-sync://launch?ticket=" + new string('a', 43) + "&url=https://evil", "acti-sync://launch/path?ticket=" + new string('a', 43), "acti-sync://launch/evil?ticket=" + new string('a',43), "acti-sync://launch//?ticket=" + new string('a',43) }) Reject(() => LaunchProtocol.Parse(uri), "reject URI injection");
@@ -48,6 +49,7 @@ try {
  Console.WriteLine("ALL WINDOWS CORE CHECKS PASSED");
 } finally { Directory.Delete(root, true); }
 await EngineChecks.Run();
+await AgentChecks.Run();
 internal static class NativeLinks {
  [System.Runtime.InteropServices.DllImport("kernel32.dll",EntryPoint="CreateHardLinkW",CharSet=System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true)]
  [return:System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] internal static extern bool CreateHardLink(string link,string target,IntPtr security);

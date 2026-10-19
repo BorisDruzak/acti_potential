@@ -11,9 +11,10 @@ export type OfficeSyncStatus = {
   state: "idle" | "opening" | "editing" | "local_saved" | "syncing" | "saved" | "offline" | "conflict" | "error" | "finished";
   session_id: string | null; last_seen_at: string | null; last_saved_at: string | null;
   lease_expires_at: string | null; editor: {id: string; display_name: string} | null;
+  document_open?: boolean | null; opened_at?: string | null; closed_at?: string | null;
 };
 type BinaryRevision = {file_id: string; revision: number; size: number; created_at: string; created_by_name?: string};
-const labels: Record<OfficeSyncStatus["state"], string> = {
+export const officeSyncLabels: Record<OfficeSyncStatus["state"], string> = {
   idle: "", opening: "Открывается", editing: "Редактируется", local_saved: "Сохранено локально",
   syncing: "Синхронизируется", saved: "Сохранено в ACTI", offline: "Нет связи",
   conflict: "Конфликт: требуется действие", error: "Ошибка ACTI Sync", finished: "Сеанс завершён",
@@ -106,11 +107,11 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
   }
   const current = {...file, id: status?.current_file_id || file.current_file_id || file.id, name: status?.filename || file.name};
   const lost = !!status?.session_id && status.state !== "finished" && status.state !== "opening" &&
-    (!status.last_seen_at || Date.now() - Date.parse(status.last_seen_at) > 45000 ||
+    (!status.last_seen_at || Date.now() - Date.parse(status.last_seen_at) > 35000 ||
       !!status.lease_expires_at && Date.parse(status.lease_expires_at) <= Date.now());
   const unopened = !!requested && Date.now() - requested > 30000 && !status?.last_seen_at;
   const state = statusError ? "" : unopened ? "ACTI Sync не подключился. Проверьте установку и запуск программы." : lost ? "Нет связи — сохранение в ACTI не подтверждено" :
-    status?.state === "saved" && !status.last_saved_at ? "Состояние сохранения неизвестно" : status ? labels[status.state] || "" : "";
+    status?.state === "saved" && !status.last_saved_at ? "Состояние сохранения неизвестно" : status ? officeSyncLabels[status.state] || "" : "";
   return <div className={`office-sync-actions${compact ? " office-sync-actions--compact" : ""}`}>
     <div className="office-sync-buttons">
       {enabled && mode === "editor" && status?.can_edit && <button type="button" className="primary" disabled={busy || !!statusError} onClick={() => void launch()}>Редактировать в Word</button>}
@@ -131,13 +132,17 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
       {(state || statusError) && <small className="office-sync-state" role="status">{statusError || state}{status?.editor && !statusError ? ` · ${status.editor.display_name}` : ""}</small>}
       {status?.last_seen_at && <small>Последняя связь: {date(status.last_seen_at)}</small>}
       {status?.last_saved_at && <small>Последняя серверная синхронизация: {date(status.last_saved_at)}</small>}
+      {typeof status?.document_open === "boolean" && <small>{lost || statusError ? "Последнее известное состояние: " : ""}{status.document_open ? "Открыт в Word" : "Закрыт в Word"}</small>}
+      {status?.session_id && status.document_open == null && <small>Состояние Word неизвестно</small>}
+      {status?.opened_at && <small>Открыт: {date(status.opened_at)}</small>}
+      {status?.closed_at && <small>Закрыт: {date(status.closed_at)}</small>}
       {mode === "editor" && status?.reason && !status.can_edit && <small>{status.reason}</small>}
       </div>
       {(!!requested || status?.state === "opening" || state === "Ошибка ACTI Sync" || lost) && (compact
         ? <small className="office-sync-help" role="status">Word не открылся? Проверьте установку и запуск ACTI Sync — инструкция ниже.</small>
-        : <p className="office-sync-help" role="status">Подтвердите открытие программы в браузере. Если Word не открылся, установите или запустите ACTI Sync через администратора / GPO и проверьте наличие Word 2021. При ошибке откройте ACTI Sync в трее: повторите отправку или сохраните локальную копию. Для просмотра используйте Word, LibreOffice или скачайте файл.</p>)}
+        : <p className="office-sync-help" role="status">Подтвердите открытие программы в браузере. Если Word не открылся, установите один MSI ACTI Sync через администратора / GPO и проверьте наличие Word 2021. Состояние агента и команды «Повторить отправку», «Открыть папку» доступны в панели ACTI Sync вверху страницы. Для просмотра используйте Word, LibreOffice или скачайте файл.</p>)}
       <div className="office-sync-more">
-      <details className="office-sync-help"><summary>Как редактировать в Word</summary><p>Нужны ACTI Sync и Microsoft Word 2021 на Windows. Установщик предоставляет администратор, в том числе через GPO. Подтвердите запрос браузера на запуск ACTI Sync. Сохраняйте в Word через Ctrl+S; «Сохранено в ACTI» появляется только после подтверждения сервера. При потере связи локальная копия остаётся в ACTI Sync.</p></details>
+      <details className="office-sync-help"><summary>Как редактировать в Word</summary><p>Нужны ACTI Sync и Microsoft Word 2021 на Windows. Один MSI устанавливает агент целиком; его предоставляет администратор, в том числе через GPO. Агент работает в фоне, управление и состояния документов находятся в панели ACTI Sync вверху страницы. Подтвердите запрос браузера на запуск ACTI Sync. Сохраняйте в Word через Ctrl+S; «Сохранено в ACTI» появляется только после подтверждения сервера. При потере связи локальная копия сохраняется; повторите отправку из панели после восстановления связи.</p></details>
       <details onToggle={event => setHistoryOpen(event.currentTarget.open)}>
         <summary>История версий</summary>
         {historyError && <small role="alert">{historyError}</small>}

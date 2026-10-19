@@ -20,13 +20,15 @@ internal static class EngineChecks {
     id=launch.Session!.SessionId; path=launch.Session.WorkingPath;
     Check(!File.ReadAllText(Path.Combine(root,"state",id+".json")).Contains(Server.Token,StringComparison.Ordinal),"credential persisted only through DPAPI");
     var crossUser=await engine.Handle("S-1-5-21-1-2-3-1234",new(){Action="opened",SessionId=id},default); Check(!crossUser.Ok,"cross-user session IPC rejected");
+    var unconfirmed=await engine.Handle(sid,new(){Action="opened",SessionId=id},default); Check(!unconfirmed.Ok,"process launch alone cannot confirm Word document open");
+    File.WriteAllText(Path.Combine(Path.GetDirectoryName(path)!,"~$test.docx"),"owner");
     await engine.Handle(sid,new(){Action="opened",SessionId=id},default);
     using(var locked=new FileStream(path,FileMode.Open,FileAccess.ReadWrite,FileShare.ReadWrite|FileShare.Delete)) {
      locked.Lock(0,1);
      try {
       await engine.Tick(default);
       var waiting=DurableJson.Read<SessionState>(Path.Combine(root,"state",id+".json"))!;
-      Check(waiting.Status=="editing" && waiting.Failures==0 && server.Heartbeats==1,"Word byte-range lock preserves editing and renews server lease");
+      Check(waiting.Status=="editing" && waiting.Failures==0 && server.Heartbeats==2,"Word byte-range lock preserves editing and renews server lease");
      } finally { locked.Unlock(0,1); }
     }
     File.WriteAllBytes(path,Document("local offline change"));
@@ -57,6 +59,9 @@ internal static class EngineChecks {
     await recovered.Tick(default); state=DurableJson.Read<SessionState>(Path.Combine(root,"state",id+".json"))!;
     Check(state.Status=="conflict" && state.Pending!=null && File.Exists(path),"CAS conflict preserves local file and pending snapshot");
     var count=server.SaveRequests; await recovered.Tick(default); Check(server.SaveRequests==count,"conflict never silently retries overwrite");
+    File.Delete(Path.Combine(Path.GetDirectoryName(path)!,"~$test.docx"));
+    await recovered.Tick(default); state=DurableJson.Read<SessionState>(Path.Combine(root,"state",id+".json"))!;
+    Check(state.DocumentOpen==false && state.Status=="conflict" && state.Pending!=null && server.LastDocumentOpen==false,"observed Word close reports independently of conflict and pending upload ACK");
     var finish=await recovered.Handle(sid,new(){Action="finish",SessionId=id},default); Check(!finish.Ok,"pending edit cannot be accidentally finished");
    }
    var requests=server.Requests;
@@ -67,15 +72,15 @@ internal static class EngineChecks {
  private sealed class Server : HttpMessageHandler {
   public const string Token="test-scoped-credential-never-plaintext";
   private readonly string id=Guid.NewGuid().ToString(); private readonly byte[] initial=Document("server initial");
-  private int revision=1; public int Requests,SaveRequests,Heartbeats; public List<string> Keys=[]; public HttpStatusCode SaveStatus=HttpStatusCode.OK;
+  private int revision=1; public int Requests,SaveRequests,Heartbeats; public bool? LastDocumentOpen; public List<string> Keys=[]; public HttpStatusCode SaveStatus=HttpStatusCode.OK;
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) {
    Requests++;
    var operation=request.RequestUri!.Segments.Last();
-   object Session(string hash)=>new { session_id=id,token=Token,file_id="old-stable-file-id",filename="test.docx",revision,sha256=hash,expires_at=DateTimeOffset.UtcNow.AddMinutes(15),lease_expires_at=DateTimeOffset.UtcNow.AddSeconds(90),last_saved_at=DateTimeOffset.UtcNow,state="saved" };
+   object Session(string hash)=>new { agent=new{connection_id=Guid.NewGuid().ToString(),token=Token,expires_at=DateTimeOffset.UtcNow.AddMinutes(15)},session_id=id,token=Token,file_id="old-stable-file-id",filename="test.docx",revision,sha256=hash,expires_at=DateTimeOffset.UtcNow.AddMinutes(15),lease_expires_at=DateTimeOffset.UtcNow.AddSeconds(90),last_saved_at=DateTimeOffset.UtcNow,state="saved" };
    if(operation=="exchange") return new(HttpStatusCode.OK){Content=JsonContent.Create(Session(Convert.ToHexStringLower(SHA256.HashData(initial))),options:Wire.Json)};
    if(request.Headers.Authorization?.Parameter!=Token) throw new Exception("scoped token absent");
    if(operation=="download") return new(HttpStatusCode.OK){Content=new ByteArrayContent(initial)};
-   if(operation=="heartbeat") Heartbeats++;
+   if(operation=="heartbeat") { Heartbeats++; var body=await request.Content!.ReadFromJsonAsync<System.Text.Json.JsonElement>(Wire.Json,ct); if(body.TryGetProperty("document_open",out var open) && open.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False) LastDocumentOpen=open.GetBoolean(); }
    if(operation=="save") {
     SaveRequests++; Keys.Add(request.Headers.GetValues("Idempotency-Key").Single()); Check(request.Headers.GetValues("If-Match").Single()==$"\"{revision}\"","save carries strong expected revision");
     if(SaveStatus!=HttpStatusCode.OK) return new(SaveStatus);

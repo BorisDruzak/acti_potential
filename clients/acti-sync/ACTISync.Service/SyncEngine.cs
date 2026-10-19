@@ -7,7 +7,7 @@ using System.Text.Json;
 
 namespace ACTISync.Service;
 
-public sealed class SyncEngine : IDisposable {
+public sealed partial class SyncEngine : IDisposable {
  private readonly string root;
  private readonly Dictionary<string, SessionState> sessions = [];
  private readonly List<FileSystemWatcher> watchers = [];
@@ -22,6 +22,7 @@ public sealed class SyncEngine : IDisposable {
  public void Initialize() {
   config ??= ClientConfig.Load(); Security.DirectoryAcl(root, traverse:true);
   Security.DirectoryAcl(Path.Combine(root, "state")); Security.DirectoryAcl(Path.Combine(root, "snapshots")); Security.DirectoryAcl(Path.Combine(root, "work"), traverse:true);
+  InitializeAgents();
   foreach (var path in Directory.EnumerateFiles(Path.Combine(root,"state"), "*.json")) {
    try { var s = DurableJson.Read<SessionState>(path); if (s is null || !Guid.TryParse(s.SessionId, out _) || !s.WorkingPath.StartsWith(Path.Combine(root,"work") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue; SafeFiles.NoReparse(s.WorkingPath); Security.DirectoryAcl(Path.GetDirectoryName(s.WorkingPath)!,s.Sid); if(!config.Matches(s.ServerOrigin)) { s.Status="reauth"; s.Error="Сервер ACTI в настройке установки изменён. Старая очередь изолирована; сохраните локальную копию и обратитесь к администратору."; Persist(s); } sessions[s.SessionId]=s; Watch(s); }
    catch (Exception e) when (e is IOException or JsonException or ArgumentException or UnauthorizedAccessException) { /* Preserve corrupt state and workspaces for recovery; never erase them. */ }
@@ -35,8 +36,33 @@ public sealed class SyncEngine : IDisposable {
   watchers.Add(w);
  }
  public async Task<IpcResponse> Handle(string sid, IpcRequest request, CancellationToken ct) {
+  if(request.Action=="pulse") return Pulse(sid);
   await gate.WaitAsync(ct);
   try {
+   AgentState? owner=null;
+   if(request.CommandId!=null) {
+    owner=FindCommand(sid,request.CommandId,request.SessionId);
+    if(owner is null) return new(){Error="Команда не принадлежит этому сеансу пользователя."};
+    lock(owner) {
+     if(owner.Completed.TryGetValue(request.CommandId,out var done)) return new(){Ok=done.Ok,Error=done.Error};
+     var command=owner.Pending[request.CommandId];
+     if(request.Action=="command_result") { Complete(owner,request.CommandId,request.Ok==true); return new(){Ok=true}; }
+     if(request.Action=="command_start") {
+      if(command.Action is not ("open" or "reveal") || !owner.Started.Add(command.Id)) return new(){Error="Команда уже принята."};
+      PersistAgent(owner); return new(){Ok=true,Session=SessionView.From(sessions[command.SessionId])};
+     }
+     if(request.Action!=command.Action || command.Action is not ("retry" or "finish") || !owner.Started.Add(command.Id)) return new(){Error="Недопустимая команда."};
+     PersistAgent(owner);
+    }
+   }
+   var response=await HandleLocked(sid,request,ct);
+   if(owner!=null) lock(owner) Complete(owner,request.CommandId!,response.Ok);
+   return response;
+  } finally { gate.Release(); }
+ }
+ private async Task<IpcResponse> HandleLocked(string sid,IpcRequest request,CancellationToken ct) {
+  try {
+   if(request.Action=="connect") return await Connect(sid,request.Ticket,ct);
    if (request.Action == "launch") {
     if (request.Ticket is null || !System.Text.RegularExpressions.Regex.IsMatch(request.Ticket, @"\A[A-Za-z0-9_-]{43}\z")) return new() { Error="Недопустимый одноразовый билет." };
     if (sessions.Values.Count(s=>s.Sid==sid && !s.Finished) >= 20) return new() { Error="Открыто слишком много файлов. Завершите ненужные сеансы." };
@@ -45,13 +71,15 @@ public sealed class SyncEngine : IDisposable {
      await Ensure(result);
      var server = await result.Content.ReadFromJsonAsync<ServerSession>(Wire.Json, ct) ?? throw new IOException();
      if (!Guid.TryParse(server.SessionId,out _) || server.Token is null) throw new IOException("Недопустимый ответ сервера.");
+     if(server.Agent is null) throw new IOException("Сервер не подтвердил подключение агента.");
+     SaveAgent(sid,server.Agent);
      var prior = sessions.Values.FirstOrDefault(s=>s.Sid==sid && s.FileId==server.FileId && config.Matches(s.ServerOrigin) && !s.Finished);
-     var s = new SessionState { ServerOrigin=config.Origin.AbsoluteUri, SessionId=server.SessionId, FileId=server.FileId, Sid=sid, FileName=SafeFiles.FileName(server.Filename), ProtectedToken=Security.Protect(server.Token), AckHash=server.Sha256, Revision=server.Revision, ExpiresAt=server.ExpiresAt, LeaseExpiresAt=server.LeaseExpiresAt };
+     var s = new SessionState { ConnectionId=server.Agent.ConnectionId,ServerOrigin=config.Origin.AbsoluteUri, SessionId=server.SessionId, FileId=server.FileId, Sid=sid, FileName=SafeFiles.FileName(server.Filename), ProtectedToken=Security.Protect(server.Token), AckHash=server.Sha256, Revision=server.Revision, ExpiresAt=server.ExpiresAt, LeaseExpiresAt=server.LeaseExpiresAt };
      Security.DirectoryAcl(Path.Combine(root,"work",sid), traverse:true);
      var work = Path.Combine(root,"work",sid,s.SessionId); Security.DirectoryAcl(work,sid);
      s.WorkingPath=Path.Combine(work,s.FileName); Security.DirectoryAcl(Snapshots(s));
      if (prior is not null) {
-      s.WorkingPath=prior.WorkingPath; s.Pending=prior.Pending; s.NextPending=prior.NextPending; s.Opened=prior.Opened;
+      s.WorkingPath=prior.WorkingPath; s.Pending=prior.Pending; s.NextPending=prior.NextPending; s.Opened=prior.Opened; s.DocumentOpen=prior.DocumentOpen;
       s.Status = prior.AckHash==server.Sha256 ? "editing" : "conflict";
       if(s.Status=="conflict") s.Error="На сервере уже другая редакция. Локальная копия сохранена; сохраните её отдельно для разрешения конфликта.";
       if(s.Pending!=null && s.Status!="conflict") s.Pending.ExpectedRevision=server.Revision;
@@ -65,8 +93,9 @@ public sealed class SyncEngine : IDisposable {
    if(request.Action=="list") return new() { Ok=true, Sessions=sessions.Values.Where(s=>s.Sid==sid && !s.Finished).Select(SessionView.From).ToList() };
    if(request.SessionId is null || !sessions.TryGetValue(request.SessionId,out var session) || session.Sid!=sid) return new() { Error="Сеанс не найден." };
    switch(request.Action) {
-    case "opened": session.Opened=true; if(!session.Blocked) session.Status="editing"; break;
-    case "word_missing": session.Status="error"; session.Error="Microsoft Word не найден. Локальная копия сохранена."; break;
+    case "opened": if(!OwnerFilePresent(session)) return new(){Error="Открытие в Word ещё не подтверждено."}; session.Opened=true; session.DocumentOpen=true; session.PresenceDirty=true; session.RetryAt=DateTimeOffset.MinValue; if(!session.Blocked) session.Status="editing"; break;
+    case "word_missing": session.Status="error"; session.PresenceDirty=true; session.Error="Microsoft Word не найден. Локальная копия сохранена."; break;
+    case "open_failed": session.Status="error"; session.PresenceDirty=true; session.Error="Открытие в Word не подтверждено. Проверьте Word и повторите действие в ACTI; локальная копия сохранена."; break;
     case "retry": if(session.Status is "offline" or "error") { session.Status="local_saved"; session.Failures=0; session.RetryAt=DateTimeOffset.MinValue; session.Error=null; } break;
     case "finish":
      if(Directory.EnumerateFiles(Path.GetDirectoryName(session.WorkingPath)!,"~$*.docx").Any() || !SafeFiles.ValidDocx(session.WorkingPath)) return new() { Error="Сначала закройте Word и дождитесь завершения сохранения DOCX." };
@@ -83,8 +112,8 @@ public sealed class SyncEngine : IDisposable {
    }
    Persist(session); return new() { Ok=true, Session=SessionView.From(session) };
   } catch(Exception e) when(e is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException or CryptographicException or JsonException or InvalidOperationException) { return new() { Error=UserError(e) }; }
-  finally { gate.Release(); }
  }
+ private static bool OwnerFilePresent(SessionState s) { SafeFiles.NoReparse(Path.GetDirectoryName(s.WorkingPath)!); return Directory.EnumerateFiles(Path.GetDirectoryName(s.WorkingPath)!,"~$*.docx").Any(); }
  private async Task Download(SessionState s,CancellationToken ct) {
   using var response=await Send(s,HttpMethod.Get,"download",null,ct); await Ensure(response);
   var temporary=Path.Combine(Snapshots(s),"initial.docx");
@@ -119,6 +148,18 @@ public sealed class SyncEngine : IDisposable {
     await gate.WaitAsync(ct);
     try {
      if(s.Finished) continue;
+     if(s.Opened) {
+      var documentOpen=OwnerFilePresent(s);
+      if(s.DocumentOpen!=documentOpen) { s.DocumentOpen=documentOpen; s.PresenceDirty=true; s.RetryAt=DateTimeOffset.MinValue; Persist(s); }
+     }
+     // Word close is independent of upload ACK, including conflicts and queued
+     // unsent changes. A failed report is retained durably for the next poll.
+     if(s.PresenceDirty) {
+      try {
+       using var presence=await Send(s,HttpMethod.Post,"heartbeat",JsonContent.Create(new{state=s.Status is "conflict" ? "conflict" : s.Status is "error" or "reauth" ? "error" : "editing",document_open=s.DocumentOpen},options:Wire.Json),ct);
+       await Ensure(presence); s.PresenceDirty=false; Persist(s);
+      } catch(Exception e) when(e is HttpRequestException or IOException or TaskCanceledException) { if(ct.IsCancellationRequested) throw; }
+     }
      string? observedHash;
      try { observedHash=await Capture(s,ct); }
      catch(Exception local) when(local is IOException or UnauthorizedAccessException) {
@@ -146,7 +187,7 @@ public sealed class SyncEngine : IDisposable {
       s.Pending=s.NextPending; s.NextPending=null; if(s.Pending!=null) s.Pending.ExpectedRevision=s.Revision;
       s.Status=s.Pending!=null ? "local_saved" : observedHash==pending.Hash ? "saved" : "editing"; s.Failures=0; s.Error=null; Persist(s); content.Dispose(); input.Dispose(); File.Delete(pending.Path);
      }
-     using var heartbeat=await Send(s,HttpMethod.Post,"heartbeat",JsonContent.Create(new{state=s.Opened ? s.Status is "saved" ? "editing" : s.Status : "opening"},options:Wire.Json),ct); await Ensure(heartbeat);
+     using var heartbeat=await Send(s,HttpMethod.Post,"heartbeat",JsonContent.Create(new{state=s.Opened ? s.Status is "saved" ? "editing" : s.Status : "opening",document_open=s.DocumentOpen},options:Wire.Json),ct); await Ensure(heartbeat);
      var alive=await heartbeat.Content.ReadFromJsonAsync<ServerSession>(Wire.Json,ct); if(alive!=null) s.LeaseExpiresAt=alive.LeaseExpiresAt;
      s.RetryAt=DateTimeOffset.UtcNow.AddSeconds(20); Persist(s);
     } catch(Exception e) when(e is HttpRequestException or IOException or UnauthorizedAccessException or CryptographicException or TaskCanceledException or JsonException or InvalidOperationException) {

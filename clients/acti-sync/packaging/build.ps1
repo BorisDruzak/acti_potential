@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.0.2',
+    [string]$Version = '1.1.0',
     [string]$OutputDirectory = '',
     [string]$DotNet = 'dotnet',
     [string]$Wix = '',
@@ -65,5 +65,5 @@ try {
         [ordered]@{name=$item.Name; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(); signature=(Get-AuthenticodeSignature -LiteralPath $file).Status.ToString()}
     }
     $manifest | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $OutputDirectory 'manifest.json')
-    Write-Output "Installers and self-contained EXEs: $OutputDirectory"
+    Write-Output "Single installer (includes service and user component): $msi"
 } finally { Pop-Location }
