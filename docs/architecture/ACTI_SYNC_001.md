@@ -183,7 +183,17 @@ both self-contained single-file EXEs and builds a per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.2.2-win-x64.msi`.
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.2.3-win-x64.msi`.
+The stable MSI UpgradeCode identifies one machine-wide installation: newer MSI
+versions replace the previous product at the same installation path. Working
+copies, queue, protected credentials and configured server origin survive upgrades.
+New builds are distributed by the administrator/MSI or GPO; the agent does not
+download and install releases by itself.
+From 1.2.3 every authenticated agent heartbeat reports `client_version`, including
+recovered connections established by an older installation. The browser therefore
+shows the installed running service version after an upgrade without a new
+connect ticket. Older clients may omit this additive field and retain their known
+connection version. Invalid or unauthenticated reports cannot change it.
 Version 1.2.2 also permits validated reopening while Word retains its writable
 file handle. This read-only check still validates the actual final path, rejects
 reparse points/hard links and checks the macro-free DOCX package. It neither

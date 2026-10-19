@@ -73,7 +73,7 @@ public sealed partial class SyncEngine {
      lock(agent) { if(agent.ProtectedToken!=protectedToken) continue; agent.ProtectedToken=Security.Protect(rotated.Token); agent.ExpiresAt=rotated.ExpiresAt; protectedToken=agent.ProtectedToken; PersistAgent(agent); }
     }
     if(!pulses.TryGetValue(agent.Sid,out pulse) || !AgentPresence.IsFresh(pulse,Clock())) continue;
-    using var response=await SendAgent(agent,protectedToken,"heartbeat",new{command_results=results},ct); await Ensure(response);
+    using var response=await SendAgent(agent,protectedToken,"heartbeat",new{command_results=results,client_version=Wire.Version},ct); await Ensure(response);
     var heartbeat=await response.Content.ReadFromJsonAsync<AgentHeartbeat>(Wire.Json,ct) ?? throw new IOException();
     lock(agent) {
      // Connect/launch may rotate this credential while HTTP is in flight.

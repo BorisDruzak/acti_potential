@@ -738,6 +738,9 @@ class CommandResult(Input):
 
 class AgentHeartbeat(Input):
     command_results: list[CommandResult] = Field(default_factory=list, max_length=20)
+    client_version: str | None = Field(
+        default=None, max_length=32, pattern=r"^1\.[0-9]{1,5}\.[0-9]{1,5}$"
+    )
 
 
 def browser_auth(session, request):
@@ -902,6 +905,8 @@ def agent_renew(identity: UUID, request: Request, session: Db):
 def agent_heartbeat(identity: UUID, data: AgentHeartbeat, request: Request, session: Db):
     connection, actor, now = agent_context(session, request, identity)
     connection.last_seen_at = now
+    if data.client_version is not None:
+        connection.client_version = data.client_version
     pending = list(
         session.scalars(
             select(OfficeAgentCommand)

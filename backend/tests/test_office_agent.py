@@ -79,6 +79,34 @@ def test_connect_presence_without_documents_is_single_use_rotates_and_scoped(cli
     assert pulse(client, renewed.json()).status_code == 200
 
 
+def test_existing_connection_reports_installed_upgrade_without_reconnecting(client, factory):
+    original(client, factory)
+    agent, _ = connect(client)
+    assert pulse(client, agent).status_code == 200
+    assert client.get(BASE + "/agent/status").json()["client_version"] == "1.1.0"
+
+    response = client.post(
+        BASE + "/agents/" + agent["connection_id"] + "/heartbeat",
+        headers=agent_headers(agent),
+        json={"client_version": "1.2.3", "command_results": []},
+    )
+    assert response.status_code == 200, response.text
+    status = client.get(BASE + "/agent/status").json()
+    assert status["online"] is True
+    assert status["client_version"] == "1.2.3"
+    assert len(status["connections"]) == 1
+    # A legacy client omitting the additive field must not erase a known version.
+    assert pulse(client, agent).status_code == 200
+    assert client.get(BASE + "/agent/status").json()["client_version"] == "1.2.3"
+    for invalid in ("2.0.0", "1.2.3 injected", "1." + "2" * 33 + ".3"):
+        assert client.post(
+            BASE + "/agents/" + agent["connection_id"] + "/heartbeat",
+            headers=agent_headers(agent),
+            json={"client_version": invalid},
+        ).status_code == 422
+    assert client.get(BASE + "/agent/status").json()["client_version"] == "1.2.3"
+
+
 def test_launch_binds_connection_commands_are_browser_owned_and_results_do_not_leak(
     client, factory
 ):
