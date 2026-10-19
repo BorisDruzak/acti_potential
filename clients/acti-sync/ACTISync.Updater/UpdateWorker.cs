@@ -3,7 +3,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Win32;
 using System.Diagnostics;
 using System.Security.Cryptography;
-using System.ServiceProcess;
 
 namespace ACTISync.Updater;
 
@@ -65,12 +64,15 @@ internal sealed class UpdateWorker:BackgroundService {
   var legacy=new List<UserProcess>();
   foreach(var user in request.Users)if(WindowsSessions.StillRunning(user) && !await WindowsSessions.Prepare(user,ct))legacy.Add(user);
   if(legacy.Count>0) {
-   // Old clients have no drain IPC. Disable command delivery, allow the bounded
+   // Old clients have no drain IPC. Pause native command delivery, allow the bounded
    // 120s conversion plus 20s open acknowledgement to settle, then post WM_QUIT.
-   // Saved files/leases/Word windows are never touched by this bootstrap.
-   using var sync=new ServiceController("ACTISync");
-   try {if(sync.Status!=ServiceControllerStatus.Stopped){sync.Stop();sync.WaitForStatus(ServiceControllerStatus.Stopped,TimeSpan.FromSeconds(45));}await Task.Delay(TimeSpan.FromSeconds(150),ct);using var sources=LegacyConversionGuard.Acquire(legacy.Select(u=>u.Sid));foreach(var user in legacy)await WindowsSessions.LegacyExit(user,ct);}
-   finally {sync.Refresh();if(sync.Status==ServiceControllerStatus.Stopped)sync.Start();}
+   // Background synchronization and lease heartbeats continue throughout drain.
+   // The bounded marker is released even on cancellation or a deferred exit.
+   using(var pause=NativeDispatchMaintenance.Begin()) {
+    await Task.Delay(TimeSpan.FromSeconds(150),ct);
+    using var sources=LegacyConversionGuard.Acquire(legacy.Select(u=>u.Sid));
+    foreach(var user in legacy){pause.Refresh();await WindowsSessions.LegacyExit(user,ct);}
+   }
   }
   if(!WindowsSessions.ResumeAll(request.Users))throw new IOException("User session resume deferred.");
   request.Phase="complete";SecureStore.Write(receipt,request);

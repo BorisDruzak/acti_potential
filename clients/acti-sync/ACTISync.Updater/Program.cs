@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 try {
+ if(args.Length==1 && args[0]=="--legacy-exit") {await LegacySessionExit.Run();return;}
  if(args.Length==1 && args[0]=="--install") {SecureStore.RequireSystem(helper:true);await Installer.Run();return;}
  SecureStore.RequireSystem();
  if(args.Length==1 && args[0]=="--uninstall-cleanup") {LoopbackPolicies.Cleanup();return;}
