@@ -14,6 +14,7 @@ public sealed partial class SyncEngine : IDisposable {
  private readonly SemaphoreSlim gate = new(1);
  private readonly HttpClient http;
  private ClientConfig config = null!;
+ internal Func<bool> NativeDispatchPaused {get;set;}=()=>NativeDispatchMaintenance.Active;
  public SyncEngine() { root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"ACTI","Sync"); http=new(new HttpClientHandler { AllowAutoRedirect=false }) { Timeout=TimeSpan.FromSeconds(10) }; }
  internal SyncEngine(string testRoot,ClientConfig testConfig,HttpClient testHttp) { root=testRoot; config=testConfig; http=testHttp; }
  private string StatePath(string id) => Path.Combine(root, "state", Guid.Parse(id).ToString("D") + ".json");
@@ -37,8 +38,10 @@ public sealed partial class SyncEngine : IDisposable {
  }
  public async Task<IpcResponse> Handle(string sid, IpcRequest request, CancellationToken ct) {
   if(request.Action=="pulse") return Pulse(sid);
+  if(NativeDispatchPaused() && request.Action is "launch" or "command_start")return new(){Error="Агент обновляется. Повторите действие позднее."};
   await gate.WaitAsync(ct);
   try {
+   if(NativeDispatchPaused() && request.Action is "launch" or "command_start")return new(){Error="Агент обновляется. Повторите действие позднее."};
    AgentState? owner=null;
    if(request.CommandId!=null) {
     owner=FindCommand(sid,request.CommandId,request.SessionId);

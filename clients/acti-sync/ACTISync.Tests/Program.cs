@@ -8,6 +8,8 @@ Check(LaunchProtocol.Parse("acti-sync://launch?ticket=" + new string('a', 43)) =
 Check(LaunchProtocol.Parse("acti-sync://launch/?ticket=" + new string('a', 43)) == new string('a', 43), "browser-normalized launch authority");
 Check(LaunchProtocol.ParseInvocation("acti-sync://connect?ticket=" + new string('b',43)).Action == "connect", "strict headless connect protocol");
 var configured = new ClientConfig(new Uri("https://example.com"));
+var maintenanceNow=DateTimeOffset.UtcNow;
+Check(NativeDispatchMaintenance.ActiveAt(maintenanceNow.AddMinutes(3).ToString("O"),maintenanceNow) && !NativeDispatchMaintenance.ActiveAt(maintenanceNow.AddSeconds(-1).ToString("O"),maintenanceNow) && !NativeDispatchMaintenance.ActiveAt(maintenanceNow.AddMinutes(5).ToString("O"),maintenanceNow) && !NativeDispatchMaintenance.ActiveAt(null,maintenanceNow),"native dispatch pause expires and cannot persist beyond its bounded deadline");
 Check(configured.Matches("https://example.com/") && !configured.Matches("https://other.example.com/") && !configured.Matches(""), "recovered credentials remain bound to installed server origin");
 foreach (var uri in new[] { "https://launch?ticket=" + new string('a', 43), "acti-sync://launch?ticket=x", "acti-sync://launch?ticket=" + new string('a', 43) + "&url=https://evil", "acti-sync://launch/path?ticket=" + new string('a', 43), "acti-sync://launch/evil?ticket=" + new string('a',43), "acti-sync://launch//?ticket=" + new string('a',43) }) Reject(() => LaunchProtocol.Parse(uri), "reject URI injection");
 foreach (var name in new[] { "../x.docx", "x/evil.docx", "~$lock.docx", "CON.docx", "x.docx:evil", "x.exe" }) Reject(() => SafeFiles.FileName(name), "reject unsafe filename");

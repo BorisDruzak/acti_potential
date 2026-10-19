@@ -36,6 +36,14 @@ internal static class AgentChecks {
     await engine.Handle(sid,new(){Action="pulse"},default); await engine.AgentTick(default);
     var pending=await engine.Handle(sid,new(){Action="pulse"},default);
     Check(pending.Commands.Single().Id==command.Id,"browser command relays to bound interactive component");
+    var paused=true;engine.NativeDispatchPaused=()=>paused;
+    Check((await engine.Handle(sid,new(){Action="pulse"},default)).Commands.Count==0,"legacy drain pauses new native commands without stopping user pulses");
+    var beforePaused=server.Requests;
+    Check(!(await engine.Handle(sid,new(){Action="launch",Ticket=new string('p',43)},default)).Ok && !(await engine.Handle(sid,new(){Action="command_start",CommandId=command.Id,SessionId=session},default)).Ok && server.Requests==beforePaused,"legacy drain refuses new launch and command start without consuming tickets or commands");
+    await engine.Tick(default);
+    Check(server.DocumentHeartbeats==1,"legacy drain keeps document lease heartbeat running");
+    paused=false;
+    Check((await engine.Handle(sid,new(){Action="pulse"},default)).Commands.Single().Id==command.Id,"native dispatch resumes its existing unconsumed command after drain");
     Check(!(await engine.Handle(other,new(){Action="command_start",CommandId=command.Id,SessionId=session},default)).Ok,"command cannot cross local SID boundary");
     Check(!(await engine.Handle(sid,new(){Action="command_start",CommandId=Guid.NewGuid().ToString(),SessionId=session},default)).Ok,"invented command cannot access a local working path");
     var started=await engine.Handle(sid,new(){Action="command_start",CommandId=command.Id,SessionId=session},default);
@@ -75,7 +83,7 @@ internal static class AgentChecks {
  private sealed class RelayServer : HttpMessageHandler {
   public string ConnectionId=Guid.NewGuid().ToString(),Token="test-agent-connection-token";
   private readonly string session=Guid.NewGuid().ToString(); private readonly byte[] document=EngineChecks.Document("initial");
-  public int Requests,Heartbeats,Renews; public List<AgentCommand> Commands=[]; public List<CommandResult> Results=[];
+  public int Requests,Heartbeats,Renews,DocumentHeartbeats; public List<AgentCommand> Commands=[]; public List<CommandResult> Results=[];
   public string? LastClientVersion;
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) {
    Requests++; var path=request.RequestUri!.AbsolutePath;
@@ -92,6 +100,7 @@ internal static class AgentChecks {
     return Json(new{commands=Commands});
    }
    Check(request.Headers.Authorization?.Parameter=="document-scoped-token","document download retains separate document bearer");
+   if(path.EndsWith("/heartbeat")){DocumentHeartbeats++;return Json(new{lease_expires_at=DateTimeOffset.UtcNow.AddSeconds(90)});}
    return new(HttpStatusCode.OK){Content=new ByteArrayContent(document)};
   }
  }

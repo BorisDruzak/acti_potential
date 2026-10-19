@@ -46,7 +46,7 @@ public sealed partial class SyncEngine {
  private IpcResponse Pulse(string sid) {
   pulses[sid]=Clock();
   var commands=new List<AgentCommand>();
-  foreach(var agent in agents.Values.Where(a=>a.Sid==sid && config.Matches(a.ServerOrigin))) lock(agent) commands.AddRange(agent.Pending.Values.Where(c=>c.ExpiresAt>Clock() && !agent.Started.Contains(c.Id) && !agent.Completed.ContainsKey(c.Id)));
+  if(!NativeDispatchPaused()) foreach(var agent in agents.Values.Where(a=>a.Sid==sid && config.Matches(a.ServerOrigin))) lock(agent) commands.AddRange(agent.Pending.Values.Where(c=>c.ExpiresAt>Clock() && !agent.Started.Contains(c.Id) && !agent.Completed.ContainsKey(c.Id)));
   return new(){Ok=true,Commands=commands,AgentOnline=agents.Values.Any(a=>a.Sid==sid && config.Matches(a.ServerOrigin) && agentContacts.TryGetValue(a.ConnectionId,out var seen) && Clock()>=seen && Clock()-seen<=TimeSpan.FromSeconds(35))};
  }
  private AgentState? FindCommand(string sid,string id,string? sessionId) {
