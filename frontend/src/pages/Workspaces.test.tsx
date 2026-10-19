@@ -158,7 +158,7 @@ it("reader route exposes no mutation controls even when returned permissions inc
   expect(screen.queryByRole("button", { name: "Сохранить карточку" })).toBeNull();
   expect(screen.queryByRole("textbox", { name: "Название" })).toBeNull();
   expect(
-    screen.queryByLabelText("Добавить файл или следующую версию"),
+    screen.queryByLabelText("Добавить файл"),
   ).toBeNull();
   expect(screen.queryByRole("button", { name: "Пользователи" })).toBeNull();
   await waitFor(() =>

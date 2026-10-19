@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { DocumentDialog } from "./DocumentDialog";
+import { OfficeSyncAgent } from "./OfficeSyncAgent";
 export type Space = "admin" | "work" | "view";
 const spaceNames: Record<Space, string> = {
   admin: "Администратор",
@@ -190,6 +191,8 @@ export function Layout({
             <b>/</b>
             <strong>{section}</strong>
           </span>
+          <OfficeSyncAgent owner={auth.user?.id || ""} csrfToken={auth.user?.csrf_token || ""}
+            canControl={space !== "view" && roles.some(role => ["admin", "editor"].includes(role))}/>
           <div className="account">
             <button type="button" className="account-trigger" aria-label="Учётная запись" aria-haspopup="dialog" onClick={() => {setAccountInSidebar(false); setAccountOpen(true);}}>
             <span className="avatar" aria-hidden="true">

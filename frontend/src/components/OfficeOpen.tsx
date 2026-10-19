@@ -38,7 +38,7 @@ export function OfficeOpen({file, mode, csrfToken}: {
   }
   return <span className="office-open-actions">
     {available.map(application => <button type="button" key={application} disabled={busy}
-      onClick={() => void open(application)}>Открыть в {application === "word" ? "Word" : "LibreOffice"}</button>)}
+      onClick={() => void open(application)}>Открыть в {application === "word" ? "Word" : "LibreOffice"} (просмотр)</button>)}
     {error && <small role="alert">{error}</small>}
     {launched && <small role="status">Подтвердите открытие приложения в браузере. Оригинал открывается для просмотра; изменения можно загрузить новой версией. Если приложение недоступно, выберите LibreOffice или скачайте файл.</small>}
   </span>;

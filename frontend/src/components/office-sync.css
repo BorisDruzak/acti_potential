@@ -1,0 +1,34 @@
+.office-sync-actions {display: flex; flex-direction: column; gap: .35rem; min-width: 0; max-width: 42rem; overflow-wrap: anywhere;}
+.office-sync-buttons {display: flex; flex-wrap: wrap; align-items: center; gap: .4rem;}
+.office-sync-actions small {display: block; color: var(--muted, #526c72); line-height: 1.5;}
+.office-sync-actions .office-sync-state {font-weight: 600; color: var(--text, #284740);}
+.office-sync-actions details {font-size: .85rem; padding: 0; border: 0; min-width: 0; max-width: 100%;}
+.office-sync-actions summary {cursor: pointer; padding: .25rem 0;}
+.office-sync-help {max-width: 42rem; font-size: .85rem; line-height: 1.5; margin: .2rem 0; color: var(--muted, #526c72);}
+.office-sync-history {display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .4rem 0; border-bottom: 1px solid #e4e9e8;}
+.office-sync-metadata {display: flex; flex-direction: column; gap: .2rem; min-width: 0;}
+.office-sync-more {display: flex; flex-direction: column; gap: .3rem; min-width: 0;}
+.office-sync-actions--compact {max-width: none; width: 100%; gap: .2rem;}
+.office-sync-actions--compact .office-sync-metadata {flex-direction: row; flex-wrap: wrap; column-gap: .8rem; row-gap: .1rem;}
+.office-sync-actions--compact .office-sync-more {flex-direction: row; flex-wrap: wrap; column-gap: 1rem;}
+.office-sync-actions--compact small, .office-sync-actions--compact summary {font-size: 11px; line-height: 1.4;}
+.office-sync-actions--compact .office-sync-help {max-width: 100%; margin: 0;}
+.office-sync-actions--compact details[open] {flex-basis: 100%;}
+.office-agent-trigger {display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: .3rem .5rem; min-height: 36px; padding: .4rem .65rem; color: var(--muted, #526c72); font-size: 12px; white-space: nowrap; flex-shrink: 0;}
+.office-agent-dot {width: 7px; height: 7px; border-radius: 50%; background: #87959b; flex-shrink: 0;}
+.office-agent-trigger--online .office-agent-dot {background: #397453;}
+.office-agent-presence {font-size: 10px;}
+.office-agent-panel {width: min(680px, 100%);}
+.office-agent-panel .toolbar {margin-top: 0;}
+.office-agent-panel h3 {font-size: 15px; margin-top: 1.4rem;}
+.office-agent-summary {display: flex; flex-direction: column; gap: .5rem;}
+.office-agent-summary small, .office-agent-documents small {color: var(--muted, #526c72); font-size: 12px;}
+.office-agent-documents {list-style: none; padding: 0; margin: 0;}
+.office-agent-documents > li {display: flex; flex-direction: column; align-items: flex-start; gap: .4rem; padding: 1rem 0; border-top: 1px solid #e4e9e8; overflow-wrap: anywhere;}
+.office-agent-document-status {display: flex; flex-wrap: wrap; gap: .4rem 1rem; font-size: 13px;}
+.office-agent-panel .button-row {display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .35rem;}
+.office-agent-panel button {font-size: 12px;}
+@media (max-width: 700px) {
+  .office-agent-presence {display: none;}
+  .office-agent-trigger {padding: .35rem .45rem; font-size: 11px;}
+}

@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker"><PropertyGroup><OutputType>Exe</OutputType><AssemblyName>ACTISync.Service</AssemblyName></PropertyGroup><ItemGroup><ProjectReference Include="../ACTISync.Core/ACTISync.Core.csproj" /><PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" /></ItemGroup></Project>

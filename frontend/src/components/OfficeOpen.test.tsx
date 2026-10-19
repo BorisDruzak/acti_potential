@@ -10,7 +10,7 @@ it("issues a CSRF protected exact-file handoff and opens the returned native URI
   vi.stubGlobal("fetch", fetch);
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   render(<OfficeOpen file={{id: "file", name: "letter.docx"}} mode="viewer" csrfToken="csrf"/>);
-  fireEvent.click(screen.getByRole("button", {name: "Открыть в Word"}));
+  fireEvent.click(screen.getByRole("button", {name: "Открыть в Word (просмотр)"}));
   await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
   expect(fetch.mock.calls[0][0]).toBe("/api/v1/files/file/office-open");
   expect(fetch.mock.calls[0][1].headers.get("X-CSRF-Token")).toBe("csrf");
@@ -22,7 +22,7 @@ it("shows an access error and never launches an unapproved URI", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({uri: "file:///private.docx"}))));
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   render(<OfficeOpen file={{id: "file", name: "letter.docx"}} mode="editor" csrfToken="csrf"/>);
-  fireEvent.click(screen.getByRole("button", {name: "Открыть в LibreOffice"}));
+  fireEvent.click(screen.getByRole("button", {name: "Открыть в LibreOffice (просмотр)"}));
   expect((await screen.findByRole("alert")).textContent).toContain("Ссылка открытия недоступна");
   expect(click).not.toHaveBeenCalled();
 });

@@ -197,3 +197,94 @@ class DocumentACL(Base):
     document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id"), primary_key=True)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
     permissions: Mapped[list] = mapped_column(JSONB, default=list)
+
+
+class LogicalOriginal(Base):
+    """Stable attachment identity; storage objects and binary history never change."""
+
+    __tablename__ = "logical_originals"
+    __table_args__ = (CheckConstraint("revision > 0", name="original_revision"),)
+    id: Mapped[UUID] = mapped_column(ForeignKey("document_files.id"), primary_key=True)
+    document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id"), index=True)
+    current_file_id: Mapped[UUID] = mapped_column(ForeignKey("document_files.id"), unique=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class BinaryRevision(Base):
+    __tablename__ = "binary_revisions"
+    original_id: Mapped[UUID] = mapped_column(ForeignKey("logical_originals.id"), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    file_id: Mapped[UUID] = mapped_column(ForeignKey("document_files.id"), unique=True)
+
+
+class OfficeEditSession(Base):
+    __tablename__ = "office_edit_sessions"
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    connection_id: Mapped[UUID | None] = mapped_column(ForeignKey("office_agent_connections.id"), index=True)
+    document_open: Mapped[bool | None] = mapped_column(Boolean)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    original_id: Mapped[UUID] = mapped_column(ForeignKey("logical_originals.id"), index=True)
+    auth_session_id: Mapped[UUID] = mapped_column(ForeignKey("auth_sessions.id"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    ticket_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    ticket_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    exchanged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(String(24), default="opening")
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OfficeSaveReceipt(Base):
+    __tablename__ = "office_save_receipts"
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("office_edit_sessions.id"), primary_key=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64))
+    expected_revision: Mapped[int] = mapped_column(Integer)
+    revision: Mapped[int] = mapped_column(Integer)
+
+
+class OfficeAgentConnection(Base):
+    """Presence capability, deliberately separate from document edit credentials."""
+    __tablename__ = "office_agent_connections"
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    auth_session_id: Mapped[UUID] = mapped_column(ForeignKey("auth_sessions.id"), unique=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    client_version: Mapped[str] = mapped_column(String(32))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OfficeAgentTicket(Base):
+    __tablename__ = "office_agent_tickets"
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    auth_session_id: Mapped[UUID] = mapped_column(ForeignKey("auth_sessions.id"), index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    ticket_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    exchanged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OfficeAgentCommand(Base):
+    __tablename__ = "office_agent_commands"
+    __table_args__ = (
+        CheckConstraint("action IN ('open','retry','finish','reveal')", name="office_agent_action"),
+        CheckConstraint("state IN ('pending','succeeded','failed','expired')", name="office_agent_command_state"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    connection_id: Mapped[UUID] = mapped_column(ForeignKey("office_agent_connections.id"), index=True)
+    session_id: Mapped[UUID] = mapped_column(ForeignKey("office_edit_sessions.id"), index=True)
+    action: Mapped[str] = mapped_column(String(16))
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    error: Mapped[str | None] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

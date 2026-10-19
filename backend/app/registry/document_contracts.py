@@ -81,6 +81,8 @@ class CollaborationOutput(BaseModel):
 
 class FileOutput(BaseModel):
     id: UUID
+    current_file_id: UUID | None = None
+    binary_revision: int = 1
     version: int
     name: str
     size: int

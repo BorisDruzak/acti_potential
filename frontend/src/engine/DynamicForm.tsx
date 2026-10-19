@@ -4,6 +4,7 @@ import { displayConfigText } from "./presentation";
 import "./Lookup.css";
 import { LookupCombobox, type LookupChoice } from "./LookupCombobox";
 import { sameFormValue } from "./formChanges";
+import { FileActions } from "../components/OfficeSync";
 import {
   canRead,
   canWrite,
@@ -30,6 +31,8 @@ type Props = {
   referenceScope?: "registry" | "available";
   files?: FileVersion[];
   canDownload?: boolean;
+  /** Omitted for historical metadata revisions: their file IDs stay immutable. */
+  officeSync?: {csrfToken: string};
   onFile?: (field: string, file: File) => void;
   prefix?: string;
   conditionValues?: Values;
@@ -418,6 +421,10 @@ function FieldControl({
           <div className="file-line" key={file.id}>
             {props.canDownload === false ? (
               <span>{file.name} · версия {file.version}</span>
+            ) : props.officeSync && file.name.toLowerCase().endsWith(".docx") ? (
+              <><span>{file.name}</span><FileActions file={file}
+                mode={props.displayMode || (props.mode === "view" ? "viewer" : "editor")}
+                csrfToken={props.officeSync.csrfToken}/></>
             ) : (
             <button
               type="button"

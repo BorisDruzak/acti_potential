@@ -18,9 +18,15 @@ from app.content.search import (
     matching_ids,
     search_response,
 )
-from app.registry.documents import file_visible, get_document, get_schema, raw_values
+from app.registry.documents import (
+    current_binary_clause,
+    file_visible,
+    get_document,
+    get_schema,
+    raw_values,
+)
 from app.registry.events import emit
-from app.registry.models import DocumentFile, DocumentVersion
+from app.registry.models import DocumentFile, DocumentVersion, LogicalOriginal
 from app.service_api.contracts import ExtractionRead, Page
 
 router = APIRouter()
@@ -204,7 +210,10 @@ def document_content(
         if file is None or file.document_id != document.id:
             fail(404, "content_not_found", "Файл не найден")
         authorize_file(session, actor, file, mode)
-        query = query.where(ContentExtraction.file_id == file_id)
+        original = session.get(LogicalOriginal, file_id)
+        query = query.where(ContentExtraction.file_id == (original.current_file_id if original else file_id))
+    else:
+        query = query.where(current_binary_clause())
     for row, file, version in session.execute(
         query.order_by(
             DocumentVersion.version, ContentExtraction.created_at, ContentExtraction.id
@@ -221,6 +230,9 @@ def document_content(
 def extract(file_id: UUID, request: Request, session: Db, actor: Actor, mode: Mode | None = None):
     file = session.get(DocumentFile, file_id)
     authorize_file(session, actor, file, mode, action="upload")
+    original = session.get(LogicalOriginal, file_id)
+    if original:
+        file = session.get(DocumentFile, original.current_file_id)
     row = queue_file(session, file, retry=True)
     if row.state == "failed" and row.attempts >= 3:
         fail(409, "content_retry_limit", "Достигнут предел трёх попыток обработки")

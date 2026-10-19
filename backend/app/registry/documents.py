@@ -6,10 +6,12 @@ from sqlalchemy import select
 from app.api.errors import fail
 from app.identity.models import User
 from app.registry.models import (
+    BinaryRevision,
     Document,
     DocumentFile,
     DocumentVersion,
     FormSchema,
+    LogicalOriginal,
     MetadataRevision,
 )
 from app.registry.policy import (
@@ -218,26 +220,64 @@ def files_for(session, document, actor, schema, mode=None):
         .where(DocumentFile.document_id == document.id)
         .order_by(DocumentVersion.version)
     ).all()
-    return [
-        {
-            **{
-                key: getattr(file, key)
-                for key in (
-                    "id",
-                    "name",
-                    "size",
-                    "mime",
-                    "sha256",
-                    "field_key",
-                    "created_by",
-                    "created_at",
-                )
-            },
-            "version": version,
-        }
-        for file, version in rows
-        if file_visible(schema, actor, file, raw_values(document, schema), mode)
-    ]
+    # Stable original IDs remain in schema values. Resolve their current bytes,
+    # suppressing the immutable history rows from the main attachment list.
+    originals = {
+        row.id: row
+        for row in session.scalars(
+            select(LogicalOriginal).where(LogicalOriginal.document_id == document.id)
+        )
+    }
+    history_ids = set(
+        session.scalars(
+            select(BinaryRevision.file_id)
+            .join(LogicalOriginal, LogicalOriginal.id == BinaryRevision.original_id)
+            .where(LogicalOriginal.document_id == document.id, BinaryRevision.revision > 1)
+        )
+    )
+    result = []
+    for anchor, version in rows:
+        if anchor.id in history_ids or not file_visible(
+            schema, actor, anchor, raw_values(document, schema), mode
+        ):
+            continue
+        original = originals.get(anchor.id)
+        file = session.get(DocumentFile, original.current_file_id) if original else anchor
+        result.append(
+            {
+                **{
+                    key: getattr(file, key)
+                    for key in (
+                        "id",
+                        "name",
+                        "size",
+                        "mime",
+                        "sha256",
+                        "field_key",
+                        "created_by",
+                        "created_at",
+                    )
+                },
+                "id": anchor.id,
+                "current_file_id": file.id,
+                "binary_revision": original.revision if original else 1,
+                "version": version,
+            }
+        )
+    return result
+
+
+def current_binary_clause():
+    """Retire history from current projections without merging independent uploads."""
+    return (
+        ~select(BinaryRevision.file_id)
+        .join(LogicalOriginal, LogicalOriginal.id == BinaryRevision.original_id)
+        .where(
+            BinaryRevision.file_id == DocumentFile.id,
+            LogicalOriginal.current_file_id != DocumentFile.id,
+        )
+        .exists()
+    )
 
 
 def document_output(session, document, actor, mode=None):

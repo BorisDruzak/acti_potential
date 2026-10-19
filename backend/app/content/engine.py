@@ -30,7 +30,6 @@ from sqlalchemy import (
     values,
 )
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.orm import aliased
 
 from app.api.errors import fail
 from app.content.authorization import download_clause, source_clauses
@@ -218,20 +217,11 @@ def candidate_query(session, actor, params, *, weights=None, synonyms=None, lega
             )
         )
         if params.version_scope == "current":
-            # DocumentVersion is a global upload sequence, not a bundle of all
-            # attachments. Keep each independent original's latest edition.
-            newer_file, newer_version = aliased(DocumentFile), aliased(DocumentVersion)
-            branch = branch.where(
-                ~select(newer_file.id)
-                .join(newer_version, newer_version.id == newer_file.version_id)
-                .where(
-                    newer_file.document_id == Document.id,
-                    newer_file.field_key.is_not_distinct_from(DocumentFile.field_key),
-                    func.lower(newer_file.name) == func.lower(DocumentFile.name),
-                    newer_version.version > DocumentVersion.version,
-                )
-                .exists()
-            )
+            # Original identity, never filename, determines binary succession.
+            # Independent legacy uploads with identical names remain independent.
+            from app.registry.documents import current_binary_clause
+
+            branch = branch.where(current_binary_clause())
         branches.append(branch)
     if not branches:
         # A documents-only service token can browse metadata but never file text.
