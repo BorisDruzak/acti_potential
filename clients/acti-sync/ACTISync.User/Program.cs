@@ -1,5 +1,4 @@
 using ACTISync.Core;
-using System.IO.Pipes;
 using System.Security.Principal;
 using System.Text.Json;
 
@@ -20,8 +19,8 @@ internal static class Program {
    var ownPipe="ACTISync.User."+sid+"."+System.Diagnostics.Process.GetCurrentProcess().SessionId;
    if(!first) {
     if(invocation is null) return;
-    using var pipe=new NamedPipeClientStream(".",ownPipe,PipeDirection.Out,PipeOptions.CurrentUserOnly);
-    pipe.Connect(3000); using var writer=new StreamWriter(pipe){AutoFlush=true};
+    using var pipe=UserProtocolPipe.Connect(ownPipe);
+    using var writer=new StreamWriter(pipe){AutoFlush=true};
     writer.WriteLine(JsonSerializer.Serialize(invocation,Wire.Json)); return;
    }
    using var context=new HeadlessContext(ownPipe,invocation);

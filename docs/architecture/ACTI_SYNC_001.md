@@ -183,7 +183,7 @@ both self-contained single-file EXEs and builds a per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.2.0-win-x64.msi`.
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.2.1-win-x64.msi`.
 It embeds both components and needs no separate EXE or .NET runtime installation.
 Internal build outputs include
 `Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`, and `manifest.json` with
@@ -338,3 +338,8 @@ The installed background client confirmed online presence against the deployed
 server after the already-approved CA was made available to LocalService. No
 business document was edited during this server deployment verification.
 Word 2021 and an actual machine reboot remain unverified.
+
+MSI **1.2.1** also binds the interactive protocol pipe explicitly to the actual
+Windows user SID, independent of the token default owner. This permits the same
+user to forward a browser launch across standard/elevated processes while
+retaining the per-user pipe ACL and verifying its owner before writing a ticket.
