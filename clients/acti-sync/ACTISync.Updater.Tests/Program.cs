@@ -70,6 +70,7 @@ try {
  if(!LegacySessionExit.IsExpectedHelper((uint)own.Id,own.Id,own.StartTime.ToUniversalTime().Ticks) || LegacySessionExit.IsExpectedHelper((uint)own.Id+1,own.Id,own.StartTime.ToUniversalTime().Ticks) || LegacySessionExit.IsExpectedHelper((uint)own.Id,own.Id,1))throw new Exception("Legacy helper pipe accepted foreign or recycled caller");Console.WriteLine("PASS legacy service pipe authenticates exact spawned helper PID and creation identity");
  NativeQueueChecks.Run();
  await LegacyPipeChecks.Run();
+ await ForeignProcessChecks.Run();
 } finally {Directory.Delete(temporary,true);}
 Console.WriteLine("All updater trust checks passed.");
 async Task RejectAsync(Func<Task> action,string name) { try { await action(); } catch(InvalidDataException) { Console.WriteLine("PASS "+name); return; } throw new Exception("Accepted "+name); }
