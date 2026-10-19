@@ -219,11 +219,46 @@ it("ignores unbound documents and clears active-edit notices immediately when br
   vi.useFakeTimers(); let data = withDocument(); data.documents[0].document_open = true; data.documents[0].connection_id = "another-browser";
   request.mockImplementation(async () => data); show(); await act(async () => {});
   expect(screen.queryByTitle("Редактируется документов: 1")).toBeNull();
-  data = {...data, documents: data.documents.map(item => ({...item, connection_id: "agent"}))};
+  data = {...data, documents: data.documents.map(item => ({...item, connection_id: "agent", opened_at: new Date(Date.now() + 1000).toISOString()}))};
   await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
   expect(screen.getByRole("region", {name: "Уведомления ACTI Sync"})).toBeTruthy();
   expect(screen.getByTitle("Редактируется документов: 1")).toBeTruthy();
   act(() => {window.dispatchEvent(new Event("acti:unauthorized"));});
   expect(screen.queryByRole("region", {name: "Уведомления ACTI Sync"})).toBeNull();
   expect(screen.queryByTitle("Редактируется документов: 1")).toBeNull();
+});
+
+it("announces a new session opened, saved and closed entirely between successful status polls", async () => {
+  vi.useFakeTimers(); const baseline = Date.now(); let data = connected();
+  request.mockImplementation(async () => data); show(); await act(async () => {});
+  data = withDocument(); data.documents[0] = {...data.documents[0], document_open: false,
+    opened_at: new Date(baseline + 1000).toISOString(), last_saved_at: new Date(baseline + 2000).toISOString(),
+    closed_at: new Date(baseline + 3000).toISOString()};
+  await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
+  const notices = screen.getByRole("region", {name: "Уведомления ACTI Sync"});
+  expect(within(notices).getByText("Письмо: открыт в Word")).toBeTruthy();
+  expect(within(notices).getByText("Письмо: закрыт в Word")).toBeTruthy();
+  expect(within(notices).getByText("Письмо: редакция 2 сохранена в ACTI")).toBeTruthy();
+  expect(screen.queryByTitle("Редактируется документов: 1")).toBeNull();
+});
+
+it("detects changed open and close timestamps even when a known session remains closed between polls", async () => {
+  vi.useFakeTimers(); const baseline = Date.now(); let data = withDocument();
+  request.mockImplementation(async () => data); show(); await act(async () => {});
+  data = {...data, documents: data.documents.map(item => ({...item, opened_at: new Date(baseline + 1000).toISOString(), closed_at: new Date(baseline + 2000).toISOString()}))};
+  await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
+  const notices = screen.getByRole("region", {name: "Уведомления ACTI Sync"});
+  expect(within(notices).getAllByText("Письмо: открыт в Word")).toHaveLength(1);
+  expect(within(notices).getAllByText("Письмо: закрыт в Word")).toHaveLength(1);
+  expect(within(notices).queryByText(/сохранена в ACTI/)).toBeNull();
+});
+
+it("does not announce history older than the previous successful poll for a newly visible session", async () => {
+  vi.useFakeTimers(); const baseline = Date.now(); let data = connected();
+  request.mockImplementation(async () => data); show(); await act(async () => {});
+  data = withDocument(); data.documents[0] = {...data.documents[0], document_open: true,
+    opened_at: new Date(baseline - 1000).toISOString(), closed_at: new Date(baseline - 500).toISOString(),
+    last_saved_at: new Date(baseline - 1000).toISOString()};
+  await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
+  expect(screen.queryByRole("region", {name: "Уведомления ACTI Sync"})).toBeNull();
 });

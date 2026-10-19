@@ -15,9 +15,9 @@ export type AgentStatus = {
   online: boolean; last_seen_at: string | null; client_version: string | null;
   connections: Connection[]; documents: AgentDocument[];
 };
-type Snapshot = {data: AgentStatus | null; error: string; denied: boolean};
+type Snapshot = {data: AgentStatus | null; error: string; denied: boolean; receivedAt: number | null};
 type Notice = {id: number; text: string; expires: number};
-const empty: Snapshot = {data: null, error: "", denied: false};
+const empty: Snapshot = {data: null, error: "", denied: false, receivedAt: null};
 const actionNames: Record<AgentAction, string> = {open: "Открыть в Word", retry: "Повторить отправку", finish: "Завершить сеанс", reveal: "Открыть папку"};
 const commandNames: Record<AgentCommand["state"], string> = {pending: "ожидает выполнения", succeeded: "выполнено", failed: "ошибка выполнения", expired: "время ожидания истекло"};
 const fresh = (value: string | null, now: number) => !!value && Number.isFinite(Date.parse(value)) && now - Date.parse(value) <= 35000 && now - Date.parse(value) >= -5000;
@@ -37,7 +37,7 @@ function useAgentStatus(owner: string) {
     let controller: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stop = () => {stopped = true; controller?.abort(); clearTimeout(timer);};
-    const denied = () => {stop(); setSnapshot({data: null, error: "Сеанс браузера завершён или доступ отозван.", denied: true, owner});};
+    const denied = () => {stop(); setSnapshot({data: null, error: "Сеанс браузера завершён или доступ отозван.", denied: true, receivedAt: null, owner});};
     async function load() {
       if (stopped) return;
       clearTimeout(timer); controller?.abort();
@@ -45,7 +45,7 @@ function useAgentStatus(owner: string) {
       try {
         const data = await apiRequest<AgentStatus>("/office-sync/agent/status", {signal: active.signal});
         if (!data || typeof data.online !== "boolean" || !Array.isArray(data.connections) || !Array.isArray(data.documents)) throw new Error("invalid_agent_status");
-        if (!active.signal.aborted && !stopped) setSnapshot({data, error: "", denied: false, owner});
+        if (!active.signal.aborted && !stopped) setSnapshot({data, error: "", denied: false, receivedAt: Date.now(), owner});
       } catch (failure) {
         if (active.signal.aborted || stopped) return;
         if (failure instanceof ApiError && [401, 403].includes(failure.status)) denied();
@@ -68,25 +68,25 @@ function useAgentStatus(owner: string) {
 /** This component owns no document form state and never changes workspace navigation. */
 export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; csrfToken: string; canControl: boolean}) {
   const identity = owner ? `${owner}:${csrfToken}` : "";
-  const {data, error: statusError, denied, refresh, deny, recordCommand} = useAgentStatus(identity);
+  const {data, error: statusError, denied, receivedAt, refresh, deny, recordCommand} = useAgentStatus(identity);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [requested, setRequested] = useState(false);
   const [heartbeatTick, setHeartbeatTick] = useState(0);
   const [notices, setNotices] = useState<Notice[]>([]);
-  const observations = useRef<{initialized: boolean; documents: Map<string, AgentDocument>}>({initialized: false, documents: new Map()});
+  const observations = useRef<{receivedAt: number | null; documents: Map<string, AgentDocument>}>({receivedAt: null, documents: new Map()});
   const noticeSequence = useRef(0);
   const now = Date.now();
   const lifecycle = useRef(0);
   const pending = useRef<AbortController | null>(null);
   useEffect(() => {
     lifecycle.current += 1; setOpen(false); setBusy(""); setError(""); setRequested(false); setNotices([]);
-    observations.current = {initialized: false, documents: new Map()};
+    observations.current = {receivedAt: null, documents: new Map()};
     return () => {lifecycle.current += 1; pending.current?.abort();};
   }, [identity]);
   useEffect(() => {
-    if (denied) {pending.current?.abort(); setBusy(""); setError(""); setRequested(false); setNotices([]); observations.current = {initialized: false, documents: new Map()};}
+    if (denied) {pending.current?.abort(); setBusy(""); setError(""); setRequested(false); setNotices([]); observations.current = {receivedAt: null, documents: new Map()};}
   }, [denied]);
   // A pending HTTP request must not keep an expired heartbeat looking online.
   useEffect(() => {
@@ -102,33 +102,39 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
   const editingCount = data?.documents.filter(item => online && connectionOnline(item.connection_id) && fresh(item.last_seen_at, now) &&
     item.document_open === true && item.state !== "finished" && !!item.lease_expires_at && Date.parse(item.lease_expires_at) > now).length || 0;
   useEffect(() => {
-    if (!data || statusError || denied) return;
+    if (!data || statusError || denied || receivedAt === null) return;
     const observed = observations.current;
-    const receivedAt = Date.now();
+    // Command acceptance changes panel data, but is not another server observation.
+    if (receivedAt === observed.receivedAt) return;
+    const cutoff = observed.receivedAt;
+    const newEvent = (value: string | null, previous: string | null | undefined) => !!value && value !== previous && cutoff !== null &&
+      Date.parse(value) >= cutoff && Date.parse(value) <= receivedAt + 5000;
     const messages: string[] = [];
     for (const item of data.documents) {
       if (!item.session_id || !fresh(item.last_seen_at, receivedAt) || !data.connections.some(connection =>
         connection.connection_id === item.connection_id && connection.online && fresh(connection.last_seen_at, receivedAt))) continue;
       const previous = observed.documents.get(item.session_id);
       const title = item.document_title || item.filename || "Документ";
-      if (observed.initialized) {
-        if (item.document_open === true && previous?.document_open !== true) messages.push(`${title}: открыт в Word`);
-        else if (previous?.document_open === true && item.document_open === false) messages.push(`${title}: закрыт в Word`);
+      if (cutoff !== null) {
+        const opened = newEvent(item.opened_at, previous?.opened_at);
+        const closed = newEvent(item.closed_at, previous?.closed_at);
+        if (opened || previous && item.document_open === true && previous.document_open !== true) messages.push(`${title}: открыт в Word`);
+        if (closed || previous?.document_open === true && item.document_open === false) messages.push(`${title}: закрыт в Word`);
         if (previous && previous.state !== item.state) {
           if (item.state === "local_saved") messages.push(`${title}: сохранено локально, ожидается подтверждение ACTI`);
           else if (item.state === "syncing") messages.push(`${title}: синхронизируется с ACTI`);
           else if (item.state === "conflict") messages.push(`${title}: конфликт, требуется действие в ACTI Sync`);
           else if (item.state === "error") messages.push(`${title}: ошибка синхронизации, проверьте ACTI Sync`);
         }
-        if (previous && item.last_saved_at && item.last_saved_at !== previous.last_saved_at && Number.isFinite(Date.parse(item.last_saved_at)))
+        if (newEvent(item.last_saved_at, previous?.last_saved_at))
           messages.push(`${title}: редакция ${item.revision} сохранена в ACTI`);
       }
       observed.documents.set(item.session_id, item);
     }
-    observed.initialized = true;
+    observed.receivedAt = receivedAt;
     if (messages.length) setNotices(previous => [...previous.filter(item => item.expires > receivedAt),
       ...messages.map(text => ({id: ++noticeSequence.current, text, expires: receivedAt + 10000}))].slice(-3));
-  }, [data, statusError, denied]);
+  }, [data, statusError, denied, receivedAt]);
   useEffect(() => {
     if (!notices.length) return;
     const timer = setTimeout(() => setNotices(previous => previous.filter(item => item.expires > Date.now())), Math.max(0, Math.min(...notices.map(item => item.expires)) - Date.now()));
