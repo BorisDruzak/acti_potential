@@ -85,7 +85,10 @@ internal sealed class HeadlessContext : ApplicationContext {
    var exe=WordPath(); if(exe is null) { await ServiceClient.Send(new(){Action="word_missing",SessionId=session.SessionId}); return false; }
    SafeFiles.NoReparse(session.WorkingPath);
    if(session.SourceFormat!="docx" && !File.Exists(session.WorkingPath)) await WordSourceConversion.ConvertAsync(session);
-   if(!SafeFiles.ValidDocx(session.WorkingPath)) return false;
+   // An already open Word document retains a writable handle. Reopening must
+   // validate its bytes and final path without denying Word's existing writes.
+   // This grants no save/finish acknowledgement; those retain their own guards.
+   if(!SafeFiles.ValidDocx(session.WorkingPath,allowWordWrites:true)) return false;
    var start=new ProcessStartInfo(exe){UseShellExecute=false}; start.ArgumentList.Add(session.WorkingPath); Process.Start(start)?.Dispose();
    for(var i=0;i<40;i++) {
     if(Directory.EnumerateFiles(Path.GetDirectoryName(session.WorkingPath)!,"~$*.docx").Any()) return (await ServiceClient.Send(new(){Action="opened",SessionId=session.SessionId})).Ok;

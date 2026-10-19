@@ -66,9 +66,9 @@ public static class SafeFiles {
   for (var info = new FileInfo(Path.GetFullPath(path)); info != null; info = info.Directory is { } parent ? new FileInfo(parent.FullName) : null)
    if ((File.Exists(info.FullName) || Directory.Exists(info.FullName)) && (File.GetAttributes(info.FullName) & FileAttributes.ReparsePoint) != 0) throw new IOException("Переадресация файлового пути запрещена.");
  }
- public static bool ValidDocx(string path) {
+ public static bool ValidDocx(string path,bool allowWordWrites=false) {
   try {
-   using var stream = OpenRead(path);
+   using var stream = OpenRead(path,allowWordWrites);
    if (stream.Length < 1 || stream.Length > Wire.MaxFileSize) return false;
    using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
    var content = zip.GetEntry("[Content_Types].xml"); var document = zip.GetEntry("word/document.xml");
