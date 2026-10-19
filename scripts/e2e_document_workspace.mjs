@@ -393,7 +393,8 @@ export async function runDocumentWorkspace({browser, origin, admin, outputDir, e
     await up.waitForURL(url=>url.pathname==='/view');await up.getByRole('button',{name:'История изменений',exact:true}).waitFor();
     assert.equal(await up.getByRole('button',{name:'Создать документ',exact:true}).count(),0);assert.equal(await up.getByRole('button',{name:'Редактировать карточку',exact:true}).count(),0);assert.equal(await up.getByRole('button',{name:'Сохранить карточку',exact:true}).count(),0);
     assert.equal(await up.getByRole('combobox',{name:'Состояние карточки',exact:true}).getByRole('option',{name:'Черновик',exact:true}).count(),0);
-    await up.getByRole('button',{name:'Открыть навигацию',exact:true}).click();
+    const readerNavigationEdge = up.getByRole('button',{name:'Открыть навигацию',exact:true});
+    if(await readerNavigationEdge.getAttribute('aria-expanded') !== 'true')await readerNavigationEdge.click();
     const spacePicker=up.getByRole('combobox',{name:'Рабочее пространство',exact:true});await spacePicker.waitFor();
     const spaces=await spacePicker.locator('option').allTextContents();assert.deepEqual(spaces,['Читатель']);
     await dismissNav(up);

@@ -196,9 +196,8 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
     await detail().getByRole('heading', {name: 'Новый документ из рабочей области', exact: true}).waitFor();
     pass('Creation uses published schema, keeps search and retains input across layouts');
     stage = 'account and navigation';
-    await page.getByRole('button', {name: 'Учётная запись', exact: true}).click();
-    await page.getByRole('dialog', {name: 'Учётная запись', exact: true}).getByRole('button', {name: 'Закрыть', exact: true}).click();
-    await page.getByRole('button', {name: 'Открыть навигацию', exact: true}).click();
+    const navigationEdge = page.getByRole('button', {name: 'Открыть навигацию', exact: true});
+    if (await navigationEdge.getAttribute('aria-expanded') !== 'true') await navigationEdge.click();
     await page.getByRole('button', {name: 'Закрепить панель', exact: true}).click();
     assert.deepEqual(await page.getByRole('navigation').getByRole('button').allTextContents(), ['⌂Документы', '◇Моя работа', '◇Реестр номеров', '◇Мой пароль']);
     await page.getByRole('button', {name: 'Учётная запись в панели', exact: true}).click();
@@ -209,7 +208,7 @@ export async function runUnifiedInterface({browser, origin, outputDir, users, or
     await page.getByRole('navigation').getByRole('button', {name: 'Реестр номеров', exact: true}).click();
     await page.getByRole('heading', {name: 'Реестр номеров', exact: true}).waitFor();
     await capture('number-book');
-    pass('Account access from both surfaces; original navigation, password, history and number book');
+    pass('Sidebar account access; original navigation, password, history and number book');
     stage = 'pinned layout, resize, saved search and editor mobile draft';
     await page.getByRole('navigation').getByRole('button', {name: 'Документы', exact: true}).click();
     await mode('Вместе').click();

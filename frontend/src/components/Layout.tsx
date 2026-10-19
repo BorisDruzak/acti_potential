@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { DocumentDialog } from "./DocumentDialog";
 import { OfficeSyncAgent } from "./OfficeSyncAgent";
+import { SignOutIcon } from "@phosphor-icons/react/dist/csr/SignOut";
 export type Space = "admin" | "work" | "view";
 const spaceNames: Record<Space, string> = {
   admin: "Администратор",
@@ -25,7 +26,6 @@ export function Layout({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [accountInSidebar, setAccountInSidebar] = useState(false);
   const pinKey = `acti.navigation.v1:${auth.user?.id ?? "local"}`;
   const [pinned, setPinned] = useState(() => {
     try { return localStorage.getItem(pinKey) === "pinned"; } catch { return false; }
@@ -34,6 +34,8 @@ export function Layout({
   const [desktop, setDesktop] = useState(() => window.innerWidth > 700);
   const sidebar = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const restoreEdgeFocus = useRef(false);
+  const suppressEdgeReveal = useRef(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const docked = pinned && desktop;
   const open = docked || expanded;
@@ -44,14 +46,14 @@ export function Layout({
   function hide() {
     clearTimeout(hideTimer.current);
     if (!docked) hideTimer.current = setTimeout(() => {
-      if (!sidebar.current?.contains(document.activeElement)) setExpanded(false);
+      if (!sidebar.current?.contains(document.activeElement) && !document.activeElement?.closest('[role="dialog"]')) setExpanded(false);
     }, 220);
   }
   function close() {
     clearTimeout(hideTimer.current);
     if (!docked) {
+      restoreEdgeFocus.current = !!sidebar.current?.contains(document.activeElement);
       setExpanded(false);
-      if (sidebar.current?.contains(document.activeElement)) menuButton.current?.focus();
     }
   }
   function togglePin() {
@@ -62,6 +64,14 @@ export function Layout({
     try { localStorage.setItem(pinKey, next ? "pinned" : "auto"); } catch { /* Optional preference. */ }
   }
   useEffect(() => () => clearTimeout(hideTimer.current), []);
+  useEffect(() => {
+    if (!open && restoreEdgeFocus.current) {
+      restoreEdgeFocus.current = false;
+      suppressEdgeReveal.current = true;
+      menuButton.current?.focus({preventScroll: true});
+      suppressEdgeReveal.current = false;
+    }
+  }, [open]);
   useEffect(() => {
     const media = window.matchMedia?.("(min-width: 701px)");
     if (!media) return;
@@ -116,14 +126,15 @@ export function Layout({
         Перейти к содержанию
       </a>
       <div className="sidebar-region" onPointerLeave={hide}>
-        <button type="button" className="navigation-edge" aria-label="Показать навигацию у края"
+        <button ref={menuButton} type="button" className="navigation-edge" aria-label="Открыть навигацию" title="Открыть меню"
           aria-controls="main-navigation" aria-expanded={open}
           onPointerEnter={event => { if (event.pointerType !== "touch") reveal(); }}
-          onFocus={reveal} onClick={reveal}><span aria-hidden="true">›</span></button>
+          onFocus={() => {if (!suppressEdgeReveal.current) reveal();}} onClick={reveal}><span aria-hidden="true">›</span></button>
       <aside id="main-navigation" ref={sidebar} className="sidebar" inert={!open}
-        onPointerEnter={reveal} onFocus={reveal}
+        onPointerEnter={event => {if (event.currentTarget.contains(event.target as Node)) reveal();}}
+        onFocus={event => {if (event.currentTarget.contains(event.target as Node)) reveal();}}
         onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) hide(); }}
-        onKeyDown={event => { if (event.key === "Escape" && !docked) { event.preventDefault(); close(); } }}>
+        onKeyDown={event => { if (!event.defaultPrevented && event.key === "Escape" && !docked) { event.preventDefault(); close(); } }}>
         <div className="sidebar-heading">
         <div className="brand">
           ACTI<span>v3</span>
@@ -173,50 +184,23 @@ export function Layout({
             </button>
           ))}
         </nav>
-        <button className="sidebar-user" type="button" aria-label="Учётная запись в панели" aria-haspopup="dialog" onClick={() => {setAccountInSidebar(true); setAccountOpen(true);}}>
+        <div className="sidebar-utilities">
+          <OfficeSyncAgent owner={auth.user?.id || ""} csrfToken={auth.user?.csrf_token || ""}
+            canControl={space !== "view" && roles.some(role => ["admin", "editor"].includes(role))}/>
+          <div className="sidebar-account-row">
+        <button className="sidebar-user" type="button" aria-label="Учётная запись в панели" aria-haspopup="dialog" onClick={() => setAccountOpen(true)}>
           <span className="avatar" aria-hidden="true">{auth.user?.display_name?.charAt(0).toUpperCase()}</span>
           <span><strong>{auth.user?.display_name}</strong><small>{spaceNames[space]}</small></span>
         </button>
+          <button type="button" className="sidebar-logout" aria-label={busy ? "Выход…" : "Выйти"} title="Выйти из учётной записи" onClick={() => void logout()} disabled={busy}>
+            <SignOutIcon size={20} aria-hidden="true"/>
+          </button>
+          </div>
+          {error && <p role="alert" className="sidebar-error">{error}</p>}
+        </div>
       </aside>
       </div>
       <div className="main-column">
-        <header className="topbar">
-          <button ref={menuButton} type="button" className="navigation-toggle"
-            aria-label="Открыть навигацию" aria-expanded={open} aria-controls="main-navigation"
-            onClick={() => { if (open && !docked) close(); else reveal(); }}>
-            <span aria-hidden="true">☰</span><span className="navigation-toggle-label">Меню</span>
-          </button>
-          <span className="breadcrumb">
-            {spaceNames[space]}
-            <b>/</b>
-            <strong>{section}</strong>
-          </span>
-          <OfficeSyncAgent owner={auth.user?.id || ""} csrfToken={auth.user?.csrf_token || ""}
-            canControl={space !== "view" && roles.some(role => ["admin", "editor"].includes(role))}/>
-          <div className="account">
-            <button type="button" className="account-trigger" aria-label="Учётная запись" aria-haspopup="dialog" onClick={() => {setAccountInSidebar(false); setAccountOpen(true);}}>
-            <span className="avatar" aria-hidden="true">
-              {auth.user?.display_name.charAt(0).toUpperCase()}
-            </span>
-            </button>
-            <span className="account-name">
-              {auth.user?.display_name}
-              <small>{spaceNames[space]}</small>
-            </span>
-            <button
-              className="logout"
-              onClick={() => void logout()}
-              disabled={busy}
-            >
-              {busy ? "Выход…" : "Выйти"}
-            </button>
-          </div>
-        </header>
-        {error && (
-          <div role="alert" className="error top-error">
-            {error}
-          </div>
-        )}
         <main id="content" tabIndex={-1} onPointerEnter={hide} onPointerDown={close} onFocus={hide}>
           {children}
         </main>
@@ -224,7 +208,7 @@ export function Layout({
           ACTI v3<span>Документы · Реестры · Совместная работа</span>
         </footer>
       </div>
-      {accountOpen && <DocumentDialog label="Учётная запись" className={accountInSidebar ? "account-menu-sidebar" : "account-menu-topbar"} onClose={() => setAccountOpen(false)}>
+      {accountOpen && <DocumentDialog label="Учётная запись" className="account-menu-sidebar" onClose={() => setAccountOpen(false)}>
         <div className="toolbar"><h2>Учётная запись</h2><button autoFocus onClick={() => setAccountOpen(false)}>Закрыть</button></div>
         <strong>{auth.user?.display_name}</strong><p>Рабочее пространство: {spaceNames[space]}</p>
         <div className="button-row"><button onClick={() => {setAccountOpen(false); setSection("Мой пароль");}}>Мой пароль</button>

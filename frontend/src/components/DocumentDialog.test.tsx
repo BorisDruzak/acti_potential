@@ -4,6 +4,16 @@ import { DocumentDialog } from "./DocumentDialog";
 import { LookupCombobox } from "../engine/LookupCombobox";
 
 afterEach(cleanup);
+it("restores the opener when a child receives React autofocus", () => {
+  const opener = document.createElement("button");
+  document.body.append(opener);
+  opener.focus();
+  const dialog = render(<DocumentDialog label="Окно" onClose={vi.fn()}><button autoFocus>Закрыть</button></DocumentDialog>);
+  expect(document.activeElement).toBe(screen.getByRole("button", {name: "Закрыть"}));
+  dialog.unmount();
+  expect(document.activeElement).toBe(opener);
+  opener.remove();
+});
 it("lets Escape close lookup suggestions without cancelling the search dialog", () => {
   const close = vi.fn();
   render(<DocumentDialog label="Расширенный поиск" onClose={close}>

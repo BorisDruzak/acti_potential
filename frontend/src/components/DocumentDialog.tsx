@@ -1,10 +1,10 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 const focusable = 'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]';
 export function DocumentDialog({children, label, labelledBy, className = "", onClose}: {children: ReactNode; label?: string; labelledBy?: string; className?: string; onClose: () => void}) {
   const root = useRef<HTMLElement>(null);
+  const [previous] = useState(() => document.activeElement as HTMLElement | null);
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
     const bodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const siblings: {element: HTMLElement; inert: boolean}[] = [];
@@ -24,7 +24,7 @@ export function DocumentDialog({children, label, labelledBy, className = "", onC
       document.body.style.overflow = bodyOverflow;
       if (previous?.isConnected && !previous.closest("[inert]")) previous.focus({preventScroll: true});
     };
-  }, []);
+  }, [previous]);
   return createPortal(<div className={`document-modal-backdrop ${className ? className + "-backdrop" : ""}`} onPointerDown={event => {event.stopPropagation(); if (event.target === event.currentTarget) onClose();}}><section ref={root} className={`panel document-dialog ${className}`} role="dialog" aria-modal="true" aria-label={label} aria-labelledby={labelledBy}
     onKeyDown={event => {
       if (event.defaultPrevented) return;
