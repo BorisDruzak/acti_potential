@@ -64,6 +64,50 @@ def credential(edit):
     return {"Authorization": "Bearer " + edit["token"]}
 
 
+def test_conversion_event_contract_rejects_incomplete_or_unexpected_formats():
+    from app.platform.contracts import validate_payload
+
+    for payload in [
+        {"from_format": "doc", "to_format": "docx"},
+        {"previous_file_id": "00000000-0000-0000-0000-000000000001", "from_format": "html", "to_format": "docx"},
+        {"previous_file_id": "invalid", "from_format": "doc", "to_format": "docx"},
+    ]:
+        with pytest.raises(ValueError):
+            validate_payload("document.binary.saved", payload)
+
+
+def test_reopen_capability_is_bound_to_current_browser_acl_and_live_agent(client, factory):
+    from app.identity.sessions import issue_session
+    from app.registry.models import Document
+    from tests.test_office_agent import pulse
+
+    card, edit = editing(client, factory)
+    url = "/api/v1/office-sync/files/" + edit["file_id"] + "/status"
+    assert client.get(url).json()["can_reopen"] is False
+    assert pulse(client, edit["agent"]).status_code == 200
+    with factory.begin() as db:
+        document = db.get(Document, UUID(card["id"]))
+        document.card_state, document.publication_targets = "published", ["shared"]
+    owned = client.get(url).json()
+    assert owned["can_edit"] is False and owned["can_reopen"] is True
+    assert client.get(url, params={"mode": "viewer"}).json()["can_reopen"] is False
+    with factory.begin() as db:
+        alternate = issue_session(db, UUID(card["files"][0]["created_by"]), datetime.now(UTC))
+    other = client.get(url, headers={"Cookie": "acti_session=" + alternate.token}).json()
+    assert other["can_reopen"] is False and other["can_edit"] is False
+    with factory.begin() as db:
+        db.get(RegistryAccess, (
+            UUID(card["registry_id"]), UUID(card["files"][0]["created_by"])
+        )).permissions = ["read", "download"]
+    assert client.get(url).json()["can_reopen"] is False
+    with factory.begin() as db:
+        db.get(RegistryAccess, (
+            UUID(card["registry_id"]), UUID(card["files"][0]["created_by"])
+        )).permissions = ["read", "update", "upload", "download"]
+        db.get(OfficeEditSession, UUID(edit["session_id"])).lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    assert client.get(url).json()["can_reopen"] is False
+
+
 def save(client, edit, body, key="save-1", revision=None, digest=None):
     return client.put(
         endpoint(edit, "save"),
@@ -118,6 +162,120 @@ def test_committed_binary_pointer_keeps_one_attachment_and_immutable_history(cli
     assert (
         client.get("/api/v1/office-sync/files/" + file["id"] + "/status").json()["state"] == "saved"
     )
+
+
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("source,mime", [
+    ("doc", "application/msword"),
+    ("docm", "application/vnd.ms-word.document.macroEnabled.12"),
+    ("dot", "application/msword"),
+    ("dotx", "application/vnd.openxmlformats-officedocument.wordprocessingml.template"),
+    ("dotm", "application/vnd.ms-word.template.macroEnabled.12"),
+    ("rtf", "application/rtf"),
+    ("odt", "application/vnd.oasis.opendocument.text"),
+])
+def test_legacy_doc_conversion_preserves_original_and_audits_new_docx_version(client, factory, manual, source, mime):
+    from app.platform.models import AuditEvent
+    from app.registry.models import Document, OfficeAgentConnection
+
+    card = original(client, factory)
+    file_id = card["files"][0]["id"]
+    original_name = "Исторический оригинал." + source.upper()
+    with factory.begin() as db:
+        anchor = db.get(DocumentFile, UUID(file_id))
+        anchor.name, anchor.mime = original_name, mime
+        fingerprint = (anchor.storage_key, anchor.sha256, anchor.size)
+        document = db.get(Document, UUID(card["id"]))
+        document.card_state, document.reg_number = "published", "registered-original"
+        document.source_database, document.source_entity, document.source_id = "synthetic", "docs", "21"
+        before = {column.name: getattr(document, column.name) for column in Document.__table__.columns}
+    status_url = "/api/v1/office-sync/files/" + file_id + "/status"
+    status = client.get(status_url).json()
+    assert status["can_edit"] is True, status
+    assert status["filename"] == original_name
+    before_download = client.get("/api/v1/office-sync/files/" + file_id + "/download")
+    assert before_download.headers["content-type"] == mime
+    body = docx("converted legacy original with preserved history")
+    if manual:
+        url = "/api/v1/office-sync/files/" + file_id + "/content"
+        save_headers = {
+            **headers(client), "If-Match": '"1"', "Idempotency-Key": "legacy-manual",
+            "X-Content-SHA256": hashlib.sha256(body).hexdigest(),
+        }
+        assert client.put(url, content=b"not a DOCX", headers={
+            **save_headers, "X-Content-SHA256": hashlib.sha256(b"not a DOCX").hexdigest()
+        }).status_code == 422
+        reply = client.put(url, content=body, headers=save_headers)
+        assert reply.status_code == 200, reply.text
+        assert client.put(url, content=body, headers=save_headers).json()["revision"] == 2
+    else:
+        pending, ticket = launch(client, file_id)
+        # Incompatible clients must neither consume the one-use ticket nor create a connection.
+        for old_version in ["1.0.0", "1.1.9999"]:
+            denied = client.post("/api/v1/office-sync/exchange", json={
+                "ticket": ticket, "client_version": old_version,
+            })
+            assert denied.status_code == 422, denied.text
+            assert denied.json()["error"]["code"] == "client_upgrade_required"
+        with factory() as db:
+            row = db.get(OfficeEditSession, UUID(pending["session_id"]))
+            assert row.exchanged_at is None and row.token_hash is None and row.connection_id is None
+            assert db.scalar(select(func.count()).select_from(OfficeAgentConnection)) == 0
+        accepted = client.post("/api/v1/office-sync/exchange", json={
+            "ticket": ticket, "client_version": "1.2.0",
+        })
+        assert accepted.status_code == 200, accepted.text
+        edit = accepted.json()
+        assert edit["filename"] == "Исторический оригинал.docx" and edit["source_format"] == source
+        assert client.post("/api/v1/office-sync/exchange", json={
+            "ticket": ticket, "client_version": "1.2.1",
+        }).status_code == 409
+        download = client.get(endpoint(edit, "download"), headers=credential(edit))
+        assert download.headers["content-type"] == mime
+        assert download.content == b"owned immutable office bytes"
+        assert save(client, edit, b"not DOCX").status_code == 422
+        assert save(client, edit, download.content).status_code == 422
+        macro = BytesIO(body)
+        with ZipFile(macro, "a") as archive:
+            archive.writestr("word/vbaProject.bin", b"synthetic disabled VBA payload")
+        assert save(client, edit, macro.getvalue()).status_code == 422
+        reply = save(client, edit, body)
+        assert reply.status_code == 200, reply.text
+        assert save(client, edit, body).json()["revision"] == 2
+        assert reply.json()["source_format"] == "docx"
+        assert client.post(endpoint(edit, "finish"), headers=credential(edit)).status_code == 200
+        _, next_ticket = launch(client, file_id)
+        # The current format, rather than the immutable anchor extension, gates clients.
+        reopened = exchange(client, next_ticket)
+        assert reopened.status_code == 200, reopened.text
+        assert reopened.json()["source_format"] == "docx"
+    assert reply.json()["revision"] == 2 and reply.json()["file_id"] == file_id
+    current = client.get("/api/v1/documents/" + card["id"]).json()
+    assert len(current["files"]) == 1
+    projected = current["files"][0]
+    assert projected["id"] == file_id and projected["name"] == "Исторический оригинал.docx"
+    assert client.get(status_url).json()["filename"] == "Исторический оригинал.docx"
+    history = client.get("/api/v1/office-sync/files/" + file_id + "/history").json()["items"]
+    assert [item["revision"] for item in history] == [2, 1]
+    assert [item["filename"] for item in history] == ["Исторический оригинал.docx", original_name]
+    assert client.get("/api/v1/files/" + file_id + "/download").content == b"owned immutable office bytes"
+    latest = client.get("/api/v1/office-sync/files/" + file_id + "/download")
+    assert latest.content == body
+    assert latest.headers["content-type"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    with factory() as db:
+        document = db.get(Document, UUID(card["id"]))
+        assert {column.name: getattr(document, column.name) for column in Document.__table__.columns} == before
+        anchor = db.get(DocumentFile, UUID(file_id))
+        assert (anchor.storage_key, anchor.sha256, anchor.size) == fingerprint
+        assert anchor.name == original_name and anchor.mime == mime
+        event = db.scalar(select(AuditEvent).where(
+            AuditEvent.object_id == document.id, AuditEvent.action == "document.binary.saved"
+        ))
+        assert event.details == {
+            "original_id": file_id, "file_id": history[0]["file_id"], "version": 2,
+            "previous_file_id": file_id, "from_format": source, "to_format": "docx",
+        }
+        assert db.get(DocumentFile, UUID(history[0]["file_id"])).mime == latest.headers["content-type"]
 
 
 def test_ticket_single_use_rotation_conflicts_and_expired_lease(client, factory):

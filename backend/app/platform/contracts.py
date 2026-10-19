@@ -31,7 +31,9 @@ EVENT_FIELDS = {
 EVENT_FIELDS["platform.admin_created"] = frozenset({"user_id"})
 EVENT_FIELDS["document.sync.launched"] = frozenset()
 EVENT_FIELDS["document.sync.finished"] = frozenset()
-EVENT_FIELDS["document.binary.saved"] = frozenset({"original_id", "file_id", "version"})
+EVENT_FIELDS["document.binary.saved"] = frozenset({
+    "original_id", "file_id", "version", "previous_file_id", "from_format", "to_format",
+})
 for _event in ("identity.external_linked", "identity.external_unlinked"):
     EVENT_FIELDS[_event] = frozenset({"identity_id"})
 for _event in ("reference.item.created", "reference.item.updated"):
@@ -90,10 +92,20 @@ def validate_payload(event_type, payload):
     allowed = EVENT_FIELDS.get(event_type)
     if allowed is None or set(payload) - allowed:
         raise ValueError("Outbox payload contains unsupported fields or event type")
+    conversion_fields = {"previous_file_id", "from_format", "to_format"}
+    if event_type == "document.binary.saved" and set(payload) & conversion_fields:
+        if (
+            not conversion_fields <= set(payload)
+            or payload["from_format"] not in {"doc", "docm", "dot", "dotx", "dotm", "rtf", "odt"}
+            or payload["to_format"] != "docx"
+        ):
+            raise ValueError("Invalid binary conversion evidence")
     for key, value in payload.items():
         if key in {"revision", "version"}:
             if type(value) is not int or value < 1:
                 raise ValueError("Invalid event version")
+        elif event_type == "document.binary.saved" and key in {"from_format", "to_format"}:
+            continue
         else:
             from uuid import UUID
 

@@ -4,7 +4,7 @@ import { displayConfigText } from "./presentation";
 import "./Lookup.css";
 import { LookupCombobox, type LookupChoice } from "./LookupCombobox";
 import { sameFormValue } from "./formChanges";
-import { FileActions } from "../components/OfficeSync";
+import { FileActions, isOfficeSyncSource } from "../components/OfficeSync";
 import {
   canRead,
   canWrite,
@@ -421,7 +421,7 @@ function FieldControl({
           <div className="file-line" key={file.id}>
             {props.canDownload === false ? (
               <span>{file.name} · версия {file.version}</span>
-            ) : props.officeSync && file.name.toLowerCase().endsWith(".docx") ? (
+            ) : props.officeSync && isOfficeSyncSource(file.name) ? (
               <><span>{file.name}</span><FileActions file={file}
                 mode={props.displayMode || (props.mode === "view" ? "viewer" : "editor")}
                 csrfToken={props.officeSync.csrfToken}/></>

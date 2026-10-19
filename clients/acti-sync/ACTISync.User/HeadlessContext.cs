@@ -84,7 +84,9 @@ internal sealed class HeadlessContext : ApplicationContext {
  private static async Task<bool> OpenWord(SessionView session) {
   try {
    var exe=WordPath(); if(exe is null) { await ServiceClient.Send(new(){Action="word_missing",SessionId=session.SessionId}); return false; }
-   SafeFiles.NoReparse(session.WorkingPath); if(!SafeFiles.ValidDocx(session.WorkingPath)) return false;
+   SafeFiles.NoReparse(session.WorkingPath);
+   if(session.SourceFormat!="docx" && !File.Exists(session.WorkingPath)) await WordSourceConversion.ConvertAsync(session);
+   if(!SafeFiles.ValidDocx(session.WorkingPath)) return false;
    var start=new ProcessStartInfo(exe){UseShellExecute=false}; start.ArgumentList.Add(session.WorkingPath); Process.Start(start)?.Dispose();
    for(var i=0;i<40;i++) {
     if(Directory.EnumerateFiles(Path.GetDirectoryName(session.WorkingPath)!,"~$*.docx").Any()) return (await ServiceClient.Send(new(){Action="opened",SessionId=session.SessionId})).Ok;

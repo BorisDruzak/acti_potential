@@ -7,13 +7,13 @@ import "./office-sync.css";
 
 export type OfficeSyncStatus = {
   file_id: string; current_file_id: string; filename: string; revision: number;
-  can_edit: boolean; reason: string | null;
+  can_edit: boolean; can_reopen?: boolean; reason: string | null;
   state: "idle" | "opening" | "editing" | "local_saved" | "syncing" | "saved" | "offline" | "conflict" | "error" | "finished";
   session_id: string | null; last_seen_at: string | null; last_saved_at: string | null;
   lease_expires_at: string | null; editor: {id: string; display_name: string} | null;
   document_open?: boolean | null; opened_at?: string | null; closed_at?: string | null;
 };
-type BinaryRevision = {file_id: string; revision: number; size: number; created_at: string; created_by_name?: string};
+type BinaryRevision = {file_id: string; filename?: string; revision: number; size: number; created_at: string; created_by_name?: string};
 export const officeSyncLabels: Record<OfficeSyncStatus["state"], string> = {
   idle: "", opening: "Открывается", editing: "Редактируется", local_saved: "Сохранено локально",
   syncing: "Синхронизируется", saved: "Сохранено в ACTI", offline: "Нет связи",
@@ -25,12 +25,13 @@ function date(value: string) {return new Date(value).toLocaleString("ru-RU");}
 export function validSyncUri(uri: string): boolean {
   return /^acti-sync:\/\/launch\?ticket=[A-Za-z0-9_-]{43}$/.test(uri);
 }
+export const isOfficeSyncSource = (name: string) => /\.(doc|docx|docm|dot|dotx|dotm|rtf|odt)$/i.test(name);
 
 export function FileActions({file, mode, csrfToken, sync = true, showDownload = true, compact = false}: {
   file: FileVersion; mode: "editor" | "viewer"; csrfToken: string; sync?: boolean; showDownload?: boolean; compact?: boolean;
 }) {
-  const docx = file.name.toLowerCase().endsWith(".docx");
-  const enabled = sync && docx;
+  const convertsToDocx = !file.name.toLowerCase().endsWith(".docx");
+  const enabled = sync && isOfficeSyncSource(file.name);
   const {status, error: statusError, refresh} = useOfficeSyncStatus(file.id, mode, enabled);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,6 +40,7 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
   const [history, setHistory] = useState<BinaryRevision[] | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [manualSaved, setManualSaved] = useState("");
+  const [commandSent, setCommandSent] = useState("");
   const versionInput = useRef<HTMLInputElement>(null);
   const versionInputId = useId();
   const lifecycle = useRef(0);
@@ -46,7 +48,7 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
     lifecycle.current += 1;
     setError(""); setRequested(0); setBusy(false);
     setHistoryOpen(false); setHistory(null); setHistoryError("");
-    setManualSaved("");
+    setManualSaved(""); setCommandSent("");
     return () => {lifecycle.current += 1;};
   }, [file.id, mode, enabled]);
   useEffect(() => {
@@ -75,6 +77,22 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
       setRequested(Date.now()); refresh();
     } catch (failure) {
       if (generation === lifecycle.current) setError(failure instanceof Error ? failure.message : "Не удалось запустить ACTI Sync.");
+    } finally {if (generation === lifecycle.current) setBusy(false);}
+  }
+  const canReopen = mode === "editor" && !!status?.can_reopen && !!status.session_id && !statusError && status.state !== "finished" &&
+    !!status.last_seen_at && Date.now() - Date.parse(status.last_seen_at) <= 35000 && Date.now() - Date.parse(status.last_seen_at) >= -5000 &&
+    !!status.lease_expires_at && Date.parse(status.lease_expires_at) > Date.now();
+  async function reopen() {
+    if (busy || !canReopen || !status?.session_id) return;
+    const generation = lifecycle.current;
+    setBusy(true); setError(""); setCommandSent("");
+    try {
+      await apiRequest("/office-sync/agent/commands", {method: "POST", headers: {"X-CSRF-Token": csrfToken},
+        body: JSON.stringify({session_id: status.session_id, action: "open"})});
+      if (generation !== lifecycle.current) return;
+      setCommandSent("Команда открытия отправлена. Ожидаем состояние Word от агента."); refresh();
+    } catch (failure) {
+      if (generation === lifecycle.current) {setError(failure instanceof Error ? failure.message : "Не удалось открыть рабочую копию."); refresh();}
     } finally {if (generation === lifecycle.current) setBusy(false);}
   }
   async function download(id: string, name: string) {
@@ -115,6 +133,7 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
   return <div className={`office-sync-actions${compact ? " office-sync-actions--compact" : ""}`}>
     <div className="office-sync-buttons">
       {enabled && mode === "editor" && status?.can_edit && <button type="button" className="primary" disabled={busy || !!statusError} onClick={() => void launch()}>Редактировать в Word</button>}
+      {enabled && canReopen && <button type="button" className="primary" disabled={busy} onClick={() => void reopen()}>Открыть в Word</button>}
       {enabled && mode === "editor" && status?.can_edit && <>
         <button type="button" disabled={busy || !!statusError} onClick={() => versionInput.current?.click()}>Новая версия</button>
         <input ref={versionInput} id={versionInputId} aria-label={`Новая версия оригинала ${file.name}`} type="file" accept=".docx" hidden onChange={event => {
@@ -130,6 +149,7 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
       <div className="office-sync-metadata">
       {status && <small>Актуальная редакция содержимого: {status.revision}</small>}
       {mode === "editor" && status?.can_edit && <small>Сохранение создаёт новую версию этого оригинала. Предыдущие версии и аудит сохраняются.</small>}
+      {mode === "editor" && (status?.can_edit || canReopen) && convertsToDocx && <small>Нужен ACTI Sync 1.2.0 или новее. Word создаёт рабочую копию DOCX с отключёнными макросами; новые версии сохраняются в DOCX, исходный файл остаётся в истории.</small>}
       {(state || statusError) && <small className="office-sync-state" role="status">{statusError || state}{status?.editor && !statusError ? ` · ${status.editor.display_name}` : ""}</small>}
       {status?.last_seen_at && <small>Последняя связь: {date(status.last_seen_at)}</small>}
       {status?.last_saved_at && <small>Последняя серверная синхронизация: {date(status.last_saved_at)}</small>}
@@ -150,12 +170,13 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
         {historyOpen && !history && !historyError && <small>Загрузка истории…</small>}
         {historyOpen && history?.map(item => <div className="office-sync-history" key={item.file_id}>
           <small>Редакция {item.revision} · {date(item.created_at)}{item.created_by_name ? ` · ${item.created_by_name}` : ""} · {(item.size / 1024).toFixed(1)} КБ</small>
-          <button type="button" onClick={() => void download(item.file_id, current.name)}>Скачать редакцию {item.revision}</button>
+          <button type="button" onClick={() => void download(item.file_id, item.filename || file.name)}>Скачать редакцию {item.revision}</button>
         </div>)}
       </details>
       </div>
     </>}
     {error && <small role="alert">{error}</small>}
     {manualSaved && <small role="status">{manualSaved}</small>}
+    {commandSent && <small role="status">{commandSent}</small>}
   </div>;
 }

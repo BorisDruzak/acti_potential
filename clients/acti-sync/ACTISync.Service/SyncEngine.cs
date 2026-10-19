@@ -48,6 +48,7 @@ public sealed partial class SyncEngine : IDisposable {
      var command=owner.Pending[request.CommandId];
      if(request.Action=="command_result") { Complete(owner,request.CommandId,request.Ok==true); return new(){Ok=true}; }
      if(request.Action=="command_start") {
+      if(sessions[command.SessionId].Finished) { Complete(owner,command.Id,false); return new(){Error="Сеанс завершён; откройте новую редакцию из ACTI."}; }
       if(command.Action is not ("open" or "reveal") || !owner.Started.Add(command.Id)) return new(){Error="Команда уже принята."};
       PersistAgent(owner); return new(){Ok=true,Session=SessionView.From(sessions[command.SessionId])};
      }
@@ -70,16 +71,19 @@ public sealed partial class SyncEngine : IDisposable {
      using var result = await http.PostAsJsonAsync(config.Api("exchange"), new { ticket=request.Ticket, client_version=Wire.Version }, Wire.Json, ct);
      await Ensure(result);
      var server = await result.Content.ReadFromJsonAsync<ServerSession>(Wire.Json, ct) ?? throw new IOException();
+     if(!SafeFiles.WordSourceFormat(server.SourceFormat)) throw new IOException("Формат Word не поддерживается.");
      if (!Guid.TryParse(server.SessionId,out _) || server.Token is null) throw new IOException("Недопустимый ответ сервера.");
      if(server.Agent is null) throw new IOException("Сервер не подтвердил подключение агента.");
      SaveAgent(sid,server.Agent);
      var prior = sessions.Values.FirstOrDefault(s=>s.Sid==sid && s.FileId==server.FileId && config.Matches(s.ServerOrigin) && !s.Finished);
-     var s = new SessionState { ConnectionId=server.Agent.ConnectionId,ServerOrigin=config.Origin.AbsoluteUri, SessionId=server.SessionId, FileId=server.FileId, Sid=sid, FileName=SafeFiles.FileName(server.Filename), ProtectedToken=Security.Protect(server.Token), AckHash=server.Sha256, Revision=server.Revision, ExpiresAt=server.ExpiresAt, LeaseExpiresAt=server.LeaseExpiresAt };
+     var s = new SessionState { SourceFormat=server.SourceFormat,ConnectionId=server.Agent.ConnectionId,ServerOrigin=config.Origin.AbsoluteUri, SessionId=server.SessionId, FileId=server.FileId, Sid=sid, FileName=SafeFiles.FileName(server.Filename), ProtectedToken=Security.Protect(server.Token), AckHash=server.Sha256, Revision=server.Revision, ExpiresAt=server.ExpiresAt, LeaseExpiresAt=server.LeaseExpiresAt };
      Security.DirectoryAcl(Path.Combine(root,"work",sid), traverse:true);
      var work = Path.Combine(root,"work",sid,s.SessionId); Security.DirectoryAcl(work,sid);
      s.WorkingPath=Path.Combine(work,s.FileName); Security.DirectoryAcl(Snapshots(s));
+     if(s.SourceFormat!="docx") { s.ConversionSourcePath=Path.Combine(work,"original."+s.SourceFormat); s.ConversionSourceSha256=server.Sha256; }
      if (prior is not null) {
       s.WorkingPath=prior.WorkingPath; s.Pending=prior.Pending; s.NextPending=prior.NextPending; s.Opened=prior.Opened; s.DocumentOpen=prior.DocumentOpen;
+      if(prior.ConversionSourcePath!=null) { s.ConversionSourcePath=prior.ConversionSourcePath; s.ConversionSourceSha256=prior.ConversionSourceSha256; }
       s.Status = prior.AckHash==server.Sha256 ? "editing" : "conflict";
       if(s.Status=="conflict") s.Error="На сервере уже другая редакция. Локальная копия сохранена; сохраните её отдельно для разрешения конфликта.";
       if(s.Pending!=null && s.Status!="conflict") s.Pending.ExpectedRevision=server.Revision;
@@ -115,15 +119,29 @@ public sealed partial class SyncEngine : IDisposable {
  }
  private static bool OwnerFilePresent(SessionState s) { SafeFiles.NoReparse(Path.GetDirectoryName(s.WorkingPath)!); return Directory.EnumerateFiles(Path.GetDirectoryName(s.WorkingPath)!,"~$*.docx").Any(); }
  private async Task Download(SessionState s,CancellationToken ct) {
+  // If a working copy is missing, durable unsent bytes take precedence over
+  // any server download or original conversion input.
+  if(!File.Exists(s.WorkingPath) && (s.NextPending ?? s.Pending) is { } queued) {
+   SafeFiles.NoReparse(queued.Path); using var snapshot=SafeFiles.OpenRead(queued.Path);
+   if(!SafeFiles.ValidDocx(queued.Path) || Convert.ToHexStringLower(await SHA256.HashDataAsync(snapshot,ct))!=queued.Hash) throw new IOException("Снимок очереди повреждён; исходные данные сохранены.");
+   SafeFiles.NoReparse(s.WorkingPath);File.Copy(queued.Path,s.WorkingPath,false);return;
+  }
+  var converting=s.SourceFormat!="docx";
+  var destination=converting ? s.ConversionSourcePath ?? throw new IOException() : s.WorkingPath;
+  if(converting && File.Exists(destination)) {
+   SafeFiles.NoReparse(destination); using var existing=SafeFiles.OpenRead(destination);
+   if(!SafeFiles.WordConversionInput(destination,s.SourceFormat) || Convert.ToHexStringLower(await SHA256.HashDataAsync(existing,ct))!=s.ConversionSourceSha256) throw new IOException("Исходный файл изменён; локальные данные сохранены.");
+   return;
+  }
   using var response=await Send(s,HttpMethod.Get,"download",null,ct); await Ensure(response);
   var temporary=Path.Combine(Snapshots(s),"initial.docx");
   using(var input=await response.Content.ReadAsStreamAsync(ct)) using(var output=new FileStream(temporary,FileMode.Create,FileAccess.Write,FileShare.None,81920,FileOptions.WriteThrough)) {
    var buffer=new byte[81920]; long total=0; int read; while((read=await input.ReadAsync(buffer,ct))!=0) { total+=read; if(total>Wire.MaxFileSize) throw new IOException("Файл больше 25 МиБ."); await output.WriteAsync(buffer.AsMemory(0,read),ct); } output.Flush(true);
   }
-  if(!SafeFiles.ValidDocx(temporary)) throw new IOException("Сервер вернул неполный DOCX.");
+  if(converting ? !SafeFiles.WordConversionInput(temporary,s.SourceFormat) : !SafeFiles.ValidDocx(temporary)) throw new IOException("Сервер вернул неподдерживаемый или неполный файл Word.");
   using(var f=File.OpenRead(temporary)) if(Convert.ToHexStringLower(await SHA256.HashDataAsync(f,ct))!=s.AckHash) throw new IOException("Контрольная сумма DOCX не совпадает.");
-  SafeFiles.NoReparse(s.WorkingPath);
-  if(!File.Exists(s.WorkingPath)) File.Copy(temporary,s.WorkingPath,false);
+  SafeFiles.NoReparse(destination);
+  if(!File.Exists(destination)) File.Copy(temporary,destination,false);
   File.Delete(temporary); s.Status="opening"; Persist(s);
  }
  private async Task<string?> Capture(SessionState s,CancellationToken ct) {
@@ -169,6 +187,7 @@ public sealed partial class SyncEngine : IDisposable {
      }
      if(observedHash is null && !s.Blocked) { s.Status=s.Opened ? "editing" : "opening"; s.Error=null; }
      if(s.Dirty && !s.Blocked) { s.Dirty=false; s.RetryAt=DateTimeOffset.MinValue; }
+     if(await FinishClosed(s,observedHash,ct)) continue;
      if(s.Blocked || s.RetryAt>DateTimeOffset.UtcNow) continue;
      if(!File.Exists(s.WorkingPath)) await Download(s,ct);
      if(s.ExpiresAt < DateTimeOffset.UtcNow.AddMinutes(3)) {
@@ -183,10 +202,11 @@ public sealed partial class SyncEngine : IDisposable {
       using var response=await http.SendAsync(request,ct); await Ensure(response);
       var ack=await response.Content.ReadFromJsonAsync<ServerSession>(Wire.Json,ct) ?? throw new IOException();
       if(ack.Sha256!=pending.Hash || ack.Revision < s.Revision) throw new IOException("Сервер не подтвердил содержимое.");
-      s.Revision=ack.Revision; s.AckHash=ack.Sha256; s.LastAck=ack.LastSavedAt ?? DateTimeOffset.UtcNow; s.LeaseExpiresAt=ack.LeaseExpiresAt;
+      s.SourceFormat="docx"; s.Revision=ack.Revision; s.AckHash=ack.Sha256; s.LastAck=ack.LastSavedAt ?? DateTimeOffset.UtcNow; s.LeaseExpiresAt=ack.LeaseExpiresAt;
       s.Pending=s.NextPending; s.NextPending=null; if(s.Pending!=null) s.Pending.ExpectedRevision=s.Revision;
       s.Status=s.Pending!=null ? "local_saved" : observedHash==pending.Hash ? "saved" : "editing"; s.Failures=0; s.Error=null; Persist(s); content.Dispose(); input.Dispose(); File.Delete(pending.Path);
      }
+     if(await FinishClosed(s,observedHash,ct)) continue;
      using var heartbeat=await Send(s,HttpMethod.Post,"heartbeat",JsonContent.Create(new{state=s.Opened ? s.Status is "saved" ? "editing" : s.Status : "opening",document_open=s.DocumentOpen},options:Wire.Json),ct); await Ensure(heartbeat);
      var alive=await heartbeat.Content.ReadFromJsonAsync<ServerSession>(Wire.Json,ct); if(alive!=null) s.LeaseExpiresAt=alive.LeaseExpiresAt;
      s.RetryAt=DateTimeOffset.UtcNow.AddSeconds(20); Persist(s);
@@ -201,6 +221,16 @@ public sealed partial class SyncEngine : IDisposable {
      Persist(s);
     } finally { gate.Release(); }
    }
+ }
+ private async Task<bool> FinishClosed(SessionState session,string? observedHash,CancellationToken ct) {
+  if(!session.Opened || session.DocumentOpen!=false || session.Blocked || session.Pending!=null || session.NextPending!=null || observedHash is null || observedHash!=session.AckHash) return false;
+  if(session.ConnectionId!=null && agents.TryGetValue(session.ConnectionId,out var owner)) lock(owner) {
+   if(owner.Pending.Values.Any(command=>command.SessionId==session.SessionId && command.Action=="open" && command.ExpiresAt>Clock() && !owner.Completed.ContainsKey(command.Id))) return false;
+  }
+  // Reuse the restrictive, rehashed manual-finish path under the existing gate.
+  // Word close alone never discards a pending/unacknowledged local save.
+  var result=await HandleLocked(session.Sid,new(){Action="finish",SessionId=session.SessionId},ct);
+  return result.Ok;
  }
  private HttpRequestMessage Request(SessionState s,HttpMethod method,string operation,HttpContent? content) { if(!config.Matches(s.ServerOrigin)) throw new UnauthorizedAccessException("Сервер сохранённого сеанса не совпадает с настройкой установки."); var request=new HttpRequestMessage(method,config.Api($"sessions/{Guid.Parse(s.SessionId):D}/{operation}")) { Content=content }; request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",Security.Unprotect(s.ProtectedToken)); return request; }
  private async Task<HttpResponseMessage> Send(SessionState s,HttpMethod method,string operation,HttpContent? content,CancellationToken ct) { using var request=Request(s,method,operation,content); return await http.SendAsync(request,ct); }
