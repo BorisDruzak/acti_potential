@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, apiRequest } from "../api/client";
+import { discoverLocalBridge, postLocalTicket } from "../engine/localOfficeSync";
 import { DocumentDialog } from "./DocumentDialog";
 import { officeSyncLabels, type OfficeSyncStatus } from "./OfficeSync";
 import "./office-sync.css";
@@ -22,7 +23,6 @@ const actionNames: Record<AgentAction, string> = {open: "Открыть в Word"
 const commandNames: Record<AgentCommand["state"], string> = {pending: "ожидает выполнения", succeeded: "выполнено", failed: "ошибка выполнения", expired: "время ожидания истекло"};
 const fresh = (value: string | null, now: number) => !!value && Number.isFinite(Date.parse(value)) && now - Date.parse(value) <= 35000 && now - Date.parse(value) >= -5000;
 const date = (value: string) => new Date(value).toLocaleString("ru-RU");
-export const validAgentConnectUri = (uri: string) => /^acti-sync:\/\/connect\?ticket=[A-Za-z0-9_-]{43}$/.test(uri);
 
 function useAgentStatus(owner: string) {
   const [snapshot, setSnapshot] = useState<Snapshot & {owner: string}>(() => ({...empty, owner}));
@@ -72,7 +72,6 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [requested, setRequested] = useState(false);
   const [heartbeatTick, setHeartbeatTick] = useState(0);
   const [notices, setNotices] = useState<Notice[]>([]);
   const observations = useRef<{receivedAt: number | null; documents: Map<string, AgentDocument>}>({receivedAt: null, documents: new Map()});
@@ -80,13 +79,14 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
   const now = Date.now();
   const lifecycle = useRef(0);
   const pending = useRef<AbortController | null>(null);
+  const attachment = useRef({identity: "", rounds: 0, ticketIssued: false});
   useEffect(() => {
-    lifecycle.current += 1; setOpen(false); setBusy(""); setError(""); setRequested(false); setNotices([]);
+    lifecycle.current += 1; setOpen(new URLSearchParams(window.location.search).get("sync") === "1"); setBusy(""); setError(""); setNotices([]);
     observations.current = {receivedAt: null, documents: new Map()};
     return () => {lifecycle.current += 1; pending.current?.abort();};
   }, [identity]);
   useEffect(() => {
-    if (denied) {pending.current?.abort(); setBusy(""); setError(""); setRequested(false); setNotices([]); observations.current = {receivedAt: null, documents: new Map()};}
+    if (denied) {pending.current?.abort(); setBusy(""); setError(""); setNotices([]); observations.current = {receivedAt: null, documents: new Map()};}
   }, [denied]);
   // A pending HTTP request must not keep an expired heartbeat looking online.
   useEffect(() => {
@@ -98,6 +98,43 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
     return () => clearTimeout(timer);
   }, [data, heartbeatTick]);
   const online = !statusError && !!data?.online && fresh(data.last_seen_at, now);
+  const hasSnapshot = !!data;
+  useEffect(() => {
+    if (attachment.current.identity !== identity || online) attachment.current = {identity, rounds: 0, ticketIssued: false};
+    if (!identity || !csrfToken || !canControl || denied || online || statusError || !hasSnapshot) return;
+    const episode = attachment.current;
+    if (episode.ticketIssued || episode.rounds >= 3) return;
+    const active = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function attach() {
+      if (active.signal.aborted || episode.ticketIssued || episode.rounds >= 3) return;
+      episode.rounds += 1;
+      const bridge = await discoverLocalBridge(active.signal);
+      if (active.signal.aborted) return;
+      if (!bridge) {
+        // Three bounded discovery rounds per offline episode. Never issue speculative tickets.
+        if (episode.rounds < 3) timer = setTimeout(() => void attach(), episode.rounds * 10000);
+        return;
+      }
+      try {
+        episode.ticketIssued = true;
+        const result = await apiRequest<{uri: string; expires_at: string}>("/office-sync/agent/connect", {
+          method: "POST", headers: {"X-CSRF-Token": csrfToken}, signal: active.signal,
+        });
+        active.signal.throwIfAborted();
+        await postLocalTicket(bridge, "connect", result.uri, result.expires_at, active.signal);
+        if (!active.signal.aborted) refresh();
+      } catch (failure) {
+        if (active.signal.aborted) return;
+        if (failure instanceof ApiError && [401, 403].includes(failure.status)) deny();
+        // A failed POST can already have consumed the ticket. Never repeat it or launch a URI.
+      }
+    }
+    const cancel = () => {active.abort(); clearTimeout(timer);};
+    window.addEventListener("acti:unauthorized", cancel);
+    void attach();
+    return () => {cancel(); window.removeEventListener("acti:unauthorized", cancel);};
+  }, [identity, csrfToken, canControl, denied, online, statusError, hasSnapshot, refresh, deny]);
   const connectionOnline = (id: string | null) => !statusError && !!id && !!data?.connections.some(item => item.connection_id === id && item.online && fresh(item.last_seen_at, now));
   const editingCount = data?.documents.filter(item => online && connectionOnline(item.connection_id) && fresh(item.last_seen_at, now) &&
     item.document_open === true && item.state !== "finished" && !!item.lease_expires_at && Date.parse(item.lease_expires_at) > now).length || 0;
@@ -140,25 +177,6 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
     const timer = setTimeout(() => setNotices(previous => previous.filter(item => item.expires > Date.now())), Math.max(0, Math.min(...notices.map(item => item.expires)) - Date.now()));
     return () => clearTimeout(timer);
   }, [notices]);
-  async function connect() {
-    if (busy || !canControl || denied) return;
-    const generation = lifecycle.current;
-    const active = new AbortController(); pending.current = active;
-    setBusy("connect"); setError("");
-    try {
-      const result = await apiRequest<{uri: string; expires_at: string}>("/office-sync/agent/connect", {
-        method: "POST", headers: {"X-CSRF-Token": csrfToken}, signal: active.signal,
-      });
-      if (active.signal.aborted || generation !== lifecycle.current) return;
-      if (!validAgentConnectUri(result.uri) || !(Date.parse(result.expires_at) > Date.now())) throw new Error("invalid_connect_uri");
-      const link = document.createElement("a"); link.href = result.uri; link.rel = "noreferrer"; link.click();
-      setRequested(true); refresh();
-    } catch (failure) {
-      if (active.signal.aborted || generation !== lifecycle.current) return;
-      if (failure instanceof ApiError && [401, 403].includes(failure.status)) deny();
-      else setError("Не удалось подключить агент. Проверьте установку ACTI Sync и повторите действие.");
-    } finally {if (!active.signal.aborted && generation === lifecycle.current) setBusy("");}
-  }
   async function command(item: AgentDocument, action: AgentAction) {
     if (busy || denied || !canControl || !item.can_control || !item.session_id || !connectionOnline(item.connection_id)) return;
     const generation = lifecycle.current;
@@ -194,10 +212,8 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
         {data?.last_seen_at && <small>Последняя связь агента: {date(data.last_seen_at)}</small>}
         {statusError && <p role="alert">{statusError}</p>}
         <div className="button-row">
-          {canControl && <button type="button" disabled={!!busy || denied} onClick={() => void connect()}>{busy === "connect" ? "Подключаем…" : "Подключить агент"}</button>}
           <button type="button" disabled={denied} onClick={refresh}>Обновить состояние</button>
         </div>
-        {requested && !online && <small role="status">Ожидаем подтверждение связи от агента. Подтвердите открытие программы в браузере.</small>}
       </div>
       <p className="office-sync-help">ACTI Sync работает в фоне. Установите один MSI через администратора или GPO. Редактируйте документ в Word и сохраняйте через Ctrl+S; управление сеансами доступно здесь. «Сохранено в ACTI» появляется после подтверждения сервера.</p>
       <h3>Документы и сеансы</h3>

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.2.3',
+    [string]$Version = '1.3.0',
+    [string]$SourceSha = '',
     [string]$OutputDirectory = '',
     [string]$DotNet = 'dotnet',
     [string]$Wix = '',
@@ -19,6 +20,9 @@ function Run-Native([string]$Program, [string[]]$Arguments) {
 }
 Push-Location $clientRoot
 try {
+    if (!$SourceSha) { $SourceSha = (& git rev-parse HEAD).Trim() }
+    if ($SourceSha -cnotmatch '^[0-9a-f]{40}$') { throw 'SourceSha must be a canonical Git SHA.' }
+    if ($Version -notmatch '^1\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$' -or ([version]$Version).Minor -gt 255 -or ([version]$Version).Build -gt 65535) { throw 'Invalid ACTI Sync release version.' }
     if ((& $DotNet --version).Trim() -ne '10.0.402') { throw 'Install the pinned .NET SDK 10.0.402.' }
     if (!$Wix) {
         $toolDirectory = Join-Path $OutputDirectory 'tools'
@@ -30,7 +34,8 @@ try {
     if (!((& $Wix --version).Trim().StartsWith('6.0.2'))) { throw 'WiX 6.0.2 required.' }
     Run-Native $Wix @('extension', 'add', '-g', 'WixToolset.Util.wixext/6.0.2')
     Run-Native $DotNet @('run', '--project', 'ACTISync.Tests', '-c', 'Release')
-    foreach ($component in @('Service', 'User')) {
+    Run-Native $DotNet @('run', '--project', 'ACTISync.Updater.Tests', '-c', 'Release')
+    foreach ($component in @('Service', 'User', 'Updater')) {
         $destination = Join-Path $OutputDirectory $component
         Run-Native $DotNet @('publish', "ACTISync.$component/ACTISync.$component.csproj", '-c', 'Release',
             '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true',
@@ -43,7 +48,7 @@ try {
     }
     if ($SignCertificateThumbprint) {
         $certificate = Get-Item -LiteralPath "Cert:/CurrentUser/My/$SignCertificateThumbprint"
-        foreach ($executable in @(Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'; Join-Path $OutputDirectory 'User/ACTISync.User.exe')) {
+        foreach ($executable in @(Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'; Join-Path $OutputDirectory 'User/ACTISync.User.exe'; Join-Path $OutputDirectory 'Updater/ACTISync.Updater.exe')) {
             $signParameters = @{FilePath=$executable; Certificate=$certificate; HashAlgorithm='SHA256'}
             if ($TimestampUrl) { $signParameters.TimestampServer = $TimestampUrl }
             $result = Set-AuthenticodeSignature @signParameters
@@ -53,17 +58,19 @@ try {
     $msi = Join-Path $OutputDirectory "ACTISync-$Version-win-x64.msi"
     Run-Native $Wix @('build', (Join-Path $PSScriptRoot 'ACTISync.wxs'), '-arch', 'x64',
         '-ext', 'WixToolset.Util.wixext/6.0.2', '-d', "Version=$Version",
+        '-d', "SourceSha=$SourceSha",
         '-d', "ServiceDir=$(Join-Path $OutputDirectory 'Service')",
-        '-d', "UserDir=$(Join-Path $OutputDirectory 'User')", '-o', $msi)
+        '-d', "UserDir=$(Join-Path $OutputDirectory 'User')",
+        '-d', "UpdaterDir=$(Join-Path $OutputDirectory 'Updater')", '-o', $msi)
     if ($SignCertificateThumbprint) {
         $signParameters.FilePath = $msi
         if ((Set-AuthenticodeSignature @signParameters).Status -ne 'Valid') { throw 'MSI signing failed.' }
     }
-    $files = @($msi, (Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'), (Join-Path $OutputDirectory 'User/ACTISync.User.exe'))
+    $files = @($msi, (Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'), (Join-Path $OutputDirectory 'User/ACTISync.User.exe'), (Join-Path $OutputDirectory 'Updater/ACTISync.Updater.exe'))
     $manifest = foreach ($file in $files) {
         $item = Get-Item -LiteralPath $file
         [ordered]@{name=$item.Name; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(); signature=(Get-AuthenticodeSignature -LiteralPath $file).Status.ToString()}
     }
     $manifest | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $OutputDirectory 'manifest.json')
-    Write-Output "Single installer (includes service and user component): $msi"
+    Write-Output "Single installer (includes sync service, user component and dedicated updater): $msi"
 } finally { Pop-Location }

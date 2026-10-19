@@ -25,6 +25,7 @@ from app.registry import (
     file_api,
     office_api,
     office_sync_api,
+    office_sync_distribution,
     selection_api,
 )
 from app.relations import api as relations_api
@@ -70,6 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(oidc.public, prefix="/api/v1")
     app.include_router(office_api.public, prefix="/api/v1")
     app.include_router(office_sync_api.client_router, prefix="/api/v1")
+    app.include_router(office_sync_distribution.router, prefix="/api/v1")
     protected = APIRouter(dependencies=[Depends(current_actor)])
     for router in (
         auth.protected,

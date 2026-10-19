@@ -6,17 +6,26 @@ using System.Text.Json;
 namespace ACTISync.User;
 
 // This STA loop dispatches protocol requests and native Word/Explorer operations.
-// It creates no Form, notification icon, taskbar entry or dialog.
+// It creates only a tray icon; document management remains in the web UI.
 internal sealed class HeadlessContext : ApplicationContext {
  private readonly CancellationTokenSource cancellation=new();
  private readonly System.Windows.Forms.Timer timer=new(){Interval=4000};
  private readonly SynchronizationContext dispatch;
  private readonly HashSet<string> executing=[];
  private readonly HashSet<string> opening=[];
+ private readonly LoopbackBridge bridge;
+ private readonly UpdateControl updates;
+ private readonly AgentTray tray;
+ private volatile bool maintenance;
+ private int activeOperations;
  private bool pulsing;
  internal HeadlessContext(string ownPipe,IpcRequest? invocation) {
   SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
   dispatch=SynchronizationContext.Current!;
+  var origin=ClientConfig.Load().Origin;
+  tray=new(origin);
+  bridge=new(origin,request=>OnUi(()=>Invoke(request)),()=>!maintenance);
+  updates=new(()=>OnUi(PrepareUpdate),()=>dispatch.Post(_=>ExitThread(),null));
   timer.Tick+=async (_,_)=>await Pulse(); timer.Start();
   _=Listen(ownPipe);
   dispatch.Post(async _=> { await Pulse(); if(invocation!=null) await Invoke(invocation); },null);
@@ -38,18 +47,41 @@ internal sealed class HeadlessContext : ApplicationContext {
    catch(Exception e) when(e is IOException or JsonException or ArgumentException) { }
   }
  }
- private static async Task Invoke(IpcRequest request) {
-  try { var result=await ServiceClient.Send(request); if(request.Action=="launch" && result.Ok && result.Session is {Status:not "conflict"} session && !await OpenWord(session)) await ServiceClient.Send(new(){Action="open_failed",SessionId=session.SessionId}); }
+ private Task<T> OnUi<T>(Func<Task<T>> action) {
+  var result=new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+  dispatch.Post(async _=>{try {result.TrySetResult(await action());} catch(Exception e) {result.TrySetException(e);}},null);
+  return result.Task;
+ }
+ private async Task<IpcResponse> Invoke(IpcRequest request) {
+  if(maintenance) return new(){Error="Агент обновляется."};
+  activeOperations++;
+  try { var result=await ServiceClient.Send(request); if(request.Action=="launch" && result.Ok && result.Session is {Status:not "conflict"} session) _=OpenLaunched(session); return result; }
+  catch { return new(){Error="Связь со службой недоступна."}; }
+  finally { activeOperations--; }
+ }
+ private async Task OpenLaunched(SessionView session) {
+  activeOperations++;
+  try {if(!await OpenWord(session)) await ServiceClient.Send(new(){Action="open_failed",SessionId=session.SessionId});}
   catch { }
+  finally {activeOperations--;}
+ }
+ private async Task<bool> PrepareUpdate() {
+  maintenance=true; tray.Refresh(false,true);
+  var deadline=DateTimeOffset.UtcNow.AddSeconds(150);
+  while((activeOperations!=0 || WordSourceConversion.IsBusy) && DateTimeOffset.UtcNow<deadline) await Task.Delay(200);
+  if(activeOperations!=0 || WordSourceConversion.IsBusy) {maintenance=false;return false;}
+  return true;
  }
  private async Task Pulse() {
   if(pulsing) return; pulsing=true;
   try {
    var response=await ServiceClient.Send(new(){Action="pulse"});
-   foreach(var command in response.Commands) if(executing.Add(command.Id)) _=Execute(command);
-  } catch { } finally { pulsing=false; }
+   tray.Refresh(response.AgentOnline,maintenance);
+   if(!maintenance) foreach(var command in response.Commands) if(executing.Add(command.Id)) _=Execute(command);
+  } catch { tray.Refresh(false,maintenance); } finally { pulsing=false; }
  }
  private async Task Execute(AgentCommand command) {
+  activeOperations++;
   try {
    var request=new IpcRequest {Action=command.Action,SessionId=command.SessionId,CommandId=command.Id};
    if(command.Action is "open" or "reveal") {
@@ -69,7 +101,7 @@ internal sealed class HeadlessContext : ApplicationContext {
     } catch { }
     await ServiceClient.Send(new(){Action="command_result",SessionId=command.SessionId,CommandId=command.Id,Ok=ok});
    } else if(command.Action is "retry" or "finish") await ServiceClient.Send(request);
-  } catch { } finally { executing.Remove(command.Id); }
+  } catch { } finally { executing.Remove(command.Id); activeOperations--; }
  }
  private static string? WordPath() {
   foreach(var view in new[]{RegistryView.Registry64,RegistryView.Registry32}) {
@@ -97,5 +129,5 @@ internal sealed class HeadlessContext : ApplicationContext {
   } catch { }
   return false;
  }
- protected override void Dispose(bool disposing) { if(disposing) { timer.Dispose(); cancellation.Cancel(); cancellation.Dispose(); } base.Dispose(disposing); }
+ protected override void Dispose(bool disposing) { if(disposing) { timer.Dispose(); bridge.Dispose(); updates.Dispose(); tray.Dispose(); cancellation.Cancel(); cancellation.Dispose(); } base.Dispose(disposing); }
 }

@@ -29,7 +29,7 @@ import { DocumentResults } from "../components/DocumentResults";
 import { DocumentDialog } from "../components/DocumentDialog";
 import { DocumentContextMenu } from "../components/DocumentContextMenu";
 import { DocumentFieldFilters, parseFieldFilters, serializeFieldFilters } from "../components/DocumentFieldFilters";
-import { FileActions } from "../components/OfficeSync";
+import { FileActions, FileRevisionHistory, isOfficeSyncSource } from "../components/OfficeSync";
 import { OriginalActions } from "../components/OriginalActions";
 import { useDocumentSelection } from "../engine/useDocumentSelection";
 import { useDocumentCollaboration } from "../engine/useDocumentCollaboration";
@@ -306,11 +306,10 @@ function DocumentCard({
       {(!!card.files?.length || canUpload) && <section className="document-original-panel" aria-label="Оригинал документа">
         <div className="document-original-heading">
           <svg className="document-original-icon" width="20" height="24" viewBox="0 0 20 24" fill="none" aria-hidden="true"><path d="M3 1h9l5 5v16H3V1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M12 1v6h5M6 12h8M6 16h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          <div title={card.files?.length === 1 ? `${card.files[0].name} · Версия ${card.files[0].version}` : undefined}><strong>Оригинал документа</strong><small>{card.files?.length === 1 ? `${card.files[0].name} · Версия ${card.files[0].version}` : card.files?.length ? `Всего файлов и версий: ${card.files.length}` : "Файлы пока не добавлены"}</small></div>
+          <div><strong>Оригинал документа</strong>{!card.files?.length && <small>Файлы пока не добавлены</small>}</div>
         </div>
         <div className="document-header-actions">
           <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>
-          {canUpload && <button type="button" className="original-upload" onClick={() => setTab("files")}>Добавить файл</button>}
         </div>
       </section>}
       </div>
@@ -460,10 +459,6 @@ function DocumentCard({
               <div className="file-line" key={file.id}>
                 <span>
                   <strong>{file.name}</strong>
-                  {!file.name.toLowerCase().endsWith(".docx") && <small>
-                    {(file.size / 1024).toFixed(1)} КБ ·{" "}
-                    {new Date(file.created_at).toLocaleString("ru-RU")}
-                  </small>}
                 </span>
                 {card.permissions.includes("download") && <FileActions file={file} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>}
               </div>
@@ -476,6 +471,10 @@ function DocumentCard({
       )}
       {tab === "history" && (
         <section className="panel">
+          {card.permissions.includes("download") && card.files?.some(file => isOfficeSyncSource(file.name)) && <>
+            <h2>История файлов</h2>
+            {card.files.filter(file => isOfficeSyncSource(file.name)).map(file => <FileRevisionHistory key={file.id} file={file} mode={readOnly ? "viewer" : "editor"}/>)}
+          </>}
           <h2>История реквизитов</h2>
           <Feedback {...history} />
           {history.data?.map((item) => (

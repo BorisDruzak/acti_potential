@@ -6,15 +6,21 @@ namespace ACTISync.Core;
 // Called by the interactive component only. The LocalService process never
 // instantiates Word. A separate STA keeps its own message loop responsive.
 public static class WordSourceConversion {
- public static async Task ConvertAsync(SessionView session) {
+ private static int running;
+ public static bool IsBusy=>Volatile.Read(ref running)!=0;
+ public static Task ConvertAsync(SessionView session)=>RunAsync(cancel=>Convert(session,cancel),TimeSpan.FromSeconds(120));
+ internal static async Task RunAsync(Action<CancellationToken> action,TimeSpan timeout) {
   using var cancel=new CancellationTokenSource();
+  var token=cancel.Token;
   var completion=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
   var thread=new Thread(()=> {
-   try { Convert(session,cancel.Token); completion.TrySetResult(); }
+   try { action(token); completion.TrySetResult(); }
    catch(Exception error) { completion.TrySetException(error); }
+   finally { Interlocked.Decrement(ref running); }
   }) { IsBackground=true,Name="ACTI Word conversion" };
-  thread.SetApartmentState(ApartmentState.STA); thread.Start();
-  try { await completion.Task.WaitAsync(TimeSpan.FromSeconds(120)); }
+  thread.SetApartmentState(ApartmentState.STA); Interlocked.Increment(ref running);
+  try { thread.Start(); } catch { Interlocked.Decrement(ref running); throw; }
+  try { await completion.Task.WaitAsync(timeout); }
   finally { cancel.Cancel(); }
  }
  private static void Convert(SessionView session,CancellationToken cancel) {

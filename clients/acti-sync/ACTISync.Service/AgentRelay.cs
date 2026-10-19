@@ -11,6 +11,7 @@ namespace ACTISync.Service;
 public sealed partial class SyncEngine {
  private readonly ConcurrentDictionary<string,AgentState> agents=[];
  private readonly ConcurrentDictionary<string,DateTimeOffset> pulses=[];
+ private readonly ConcurrentDictionary<string,DateTimeOffset> agentContacts=[];
  internal Func<DateTimeOffset> Clock { get; set; }=()=>DateTimeOffset.UtcNow;
  private string AgentPath(string id)=>Path.Combine(root,"agents",Guid.Parse(id).ToString("D")+".json");
  private void PersistAgent(AgentState agent)=>DurableJson.Write(AgentPath(agent.ConnectionId),agent);
@@ -46,7 +47,7 @@ public sealed partial class SyncEngine {
   pulses[sid]=Clock();
   var commands=new List<AgentCommand>();
   foreach(var agent in agents.Values.Where(a=>a.Sid==sid && config.Matches(a.ServerOrigin))) lock(agent) commands.AddRange(agent.Pending.Values.Where(c=>c.ExpiresAt>Clock() && !agent.Started.Contains(c.Id) && !agent.Completed.ContainsKey(c.Id)));
-  return new(){Ok=true,Commands=commands};
+  return new(){Ok=true,Commands=commands,AgentOnline=agents.Values.Any(a=>a.Sid==sid && config.Matches(a.ServerOrigin) && agentContacts.TryGetValue(a.ConnectionId,out var seen) && Clock()>=seen && Clock()-seen<=TimeSpan.FromSeconds(35))};
  }
  private AgentState? FindCommand(string sid,string id,string? sessionId) {
   if(sessionId is null || !sessions.TryGetValue(sessionId,out var session) || session.Sid!=sid || session.ConnectionId is null || !agents.TryGetValue(session.ConnectionId,out var agent) || agent.Sid!=sid || !config.Matches(agent.ServerOrigin)) return null;
@@ -75,6 +76,7 @@ public sealed partial class SyncEngine {
     if(!pulses.TryGetValue(agent.Sid,out pulse) || !AgentPresence.IsFresh(pulse,Clock())) continue;
     using var response=await SendAgent(agent,protectedToken,"heartbeat",new{command_results=results,client_version=Wire.Version},ct); await Ensure(response);
     var heartbeat=await response.Content.ReadFromJsonAsync<AgentHeartbeat>(Wire.Json,ct) ?? throw new IOException();
+    agentContacts[agent.ConnectionId]=Clock();
     lock(agent) {
      // Connect/launch may rotate this credential while HTTP is in flight.
      if(!agents.TryGetValue(agent.ConnectionId,out var current) || !ReferenceEquals(current,agent)) continue;

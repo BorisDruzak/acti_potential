@@ -1,8 +1,8 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiRequest, saveDownload } from "../api/client";
 import type { FileVersion } from "../engine/schema";
 import { useOfficeSyncStatus } from "../engine/useOfficeSyncStatus";
-import { OfficeOpen } from "./OfficeOpen";
+import { discoverLocalBridge, postLocalTicket } from "../engine/localOfficeSync";
 import "./office-sync.css";
 
 export type OfficeSyncStatus = {
@@ -19,9 +19,6 @@ export const officeSyncLabels: Record<OfficeSyncStatus["state"], string> = {
   syncing: "Синхронизируется", saved: "Сохранено в ACTI", offline: "Нет связи",
   conflict: "Конфликт: требуется действие", error: "Ошибка ACTI Sync", finished: "Сеанс завершён",
 };
-function date(value: string) {return new Date(value).toLocaleString("ru-RU");}
-
-// The protocol carries only a short-lived one-use ticket, never an origin or credentials.
 export function validSyncUri(uri: string): boolean {
   return /^acti-sync:\/\/launch\?ticket=[A-Za-z0-9_-]{43}$/.test(uri);
 }
@@ -30,153 +27,89 @@ export const isOfficeSyncSource = (name: string) => /\.(doc|docx|docm|dot|dotx|d
 export function FileActions({file, mode, csrfToken, sync = true, showDownload = true, compact = false}: {
   file: FileVersion; mode: "editor" | "viewer"; csrfToken: string; sync?: boolean; showDownload?: boolean; compact?: boolean;
 }) {
-  const convertsToDocx = !file.name.toLowerCase().endsWith(".docx");
   const enabled = sync && isOfficeSyncSource(file.name);
   const {status, error: statusError, refresh} = useOfficeSyncStatus(file.id, mode, enabled);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [requested, setRequested] = useState(0);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState<BinaryRevision[] | null>(null);
-  const [historyError, setHistoryError] = useState("");
-  const [manualSaved, setManualSaved] = useState("");
-  const [commandSent, setCommandSent] = useState("");
-  const versionInput = useRef<HTMLInputElement>(null);
-  const versionInputId = useId();
-  const lifecycle = useRef(0);
+  const pending = useRef<AbortController | null>(null);
   useEffect(() => {
-    lifecycle.current += 1;
-    setError(""); setRequested(0); setBusy(false);
-    setHistoryOpen(false); setHistory(null); setHistoryError("");
-    setManualSaved(""); setCommandSent("");
-    return () => {lifecycle.current += 1;};
-  }, [file.id, mode, enabled]);
-  useEffect(() => {
-    if (!historyOpen || !enabled) return;
-    const abort = new AbortController();
-    setHistoryError("");
-    apiRequest<{items: BinaryRevision[]}>(`/office-sync/files/${file.id}/history?mode=${mode}`, {signal: abort.signal})
-      .then(result => {if (!abort.signal.aborted) setHistory(result.items);})
-      .catch(() => {if (!abort.signal.aborted) setHistoryError("Не удалось загрузить историю версий.");});
-    return () => abort.abort();
-  }, [file.id, mode, enabled, historyOpen, status?.revision]);
-
-  async function launch() {
-    if (busy || mode !== "editor" || !status?.can_edit || statusError) return;
-    const generation = lifecycle.current;
-    setBusy(true); setError("");
-    try {
-      const result = await apiRequest<{uri: string; session_id: string; expires_at: string}>("/office-sync/launch", {
-        method: "POST", headers: {"X-CSRF-Token": csrfToken}, body: JSON.stringify({file_id: file.id}),
-      });
-      if (generation !== lifecycle.current) return;
-      if (!validSyncUri(result.uri)) throw new Error("ACTI не выдал допустимую ссылку запуска. Повторите действие.");
-      const link = document.createElement("a");
-      link.href = result.uri; link.rel = "noreferrer"; link.click();
-      // Opening a protocol is not proof of an installed client, Word, or a server commit.
-      setRequested(Date.now()); refresh();
-    } catch (failure) {
-      if (generation === lifecycle.current) setError(failure instanceof Error ? failure.message : "Не удалось запустить ACTI Sync.");
-    } finally {if (generation === lifecycle.current) setBusy(false);}
-  }
+    setError(""); setBusy(false);
+    const cancel = () => pending.current?.abort();
+    window.addEventListener("acti:unauthorized", cancel);
+    return () => {cancel(); window.removeEventListener("acti:unauthorized", cancel);};
+  }, [file.id, mode, enabled, csrfToken]);
   const canReopen = mode === "editor" && !!status?.can_reopen && !!status.session_id && !statusError && status.state !== "finished" &&
     !!status.last_seen_at && Date.now() - Date.parse(status.last_seen_at) <= 35000 && Date.now() - Date.parse(status.last_seen_at) >= -5000 &&
     !!status.lease_expires_at && Date.parse(status.lease_expires_at) > Date.now();
-  async function reopen() {
-    if (busy || !canReopen || !status?.session_id) return;
-    const generation = lifecycle.current;
-    setBusy(true); setError(""); setCommandSent("");
+  async function edit() {
+    if (pending.current && !pending.current.signal.aborted || busy || mode !== "editor" || statusError || !status?.can_edit && !canReopen) return;
+    const active = new AbortController(); pending.current = active;
+    setBusy(true); setError("");
     try {
-      await apiRequest("/office-sync/agent/commands", {method: "POST", headers: {"X-CSRF-Token": csrfToken},
-        body: JSON.stringify({session_id: status.session_id, action: "open"})});
-      if (generation !== lifecycle.current) return;
-      setCommandSent("Команда открытия отправлена. Ожидаем состояние Word от агента."); refresh();
-    } catch (failure) {
-      if (generation === lifecycle.current) {setError(failure instanceof Error ? failure.message : "Не удалось открыть рабочую копию."); refresh();}
-    } finally {if (generation === lifecycle.current) setBusy(false);}
+      if (canReopen) {
+        await apiRequest("/office-sync/agent/commands", {method: "POST", headers: {"X-CSRF-Token": csrfToken},
+          body: JSON.stringify({session_id: status.session_id, action: "open"}), signal: active.signal});
+      } else {
+        const bridge = await discoverLocalBridge(active.signal);
+        active.signal.throwIfAborted();
+        const result = await apiRequest<{uri: string; expires_at: string}>("/office-sync/launch", {
+          method: "POST", headers: {"X-CSRF-Token": csrfToken}, body: JSON.stringify({file_id: file.id}), signal: active.signal,
+        });
+        active.signal.throwIfAborted();
+        if (!validSyncUri(result.uri) || !(Date.parse(result.expires_at) > Date.now())) throw new Error("invalid_launch_ticket");
+        if (bridge) await postLocalTicket(bridge, "launch", result.uri, result.expires_at, active.signal);
+        else {
+          // This path is reachable only from the user's edit click, never from discovery.
+          const link = document.createElement("a"); link.href = result.uri; link.rel = "noreferrer"; link.click();
+        }
+      }
+      if (!active.signal.aborted) refresh();
+    } catch {
+      if (!active.signal.aborted) {setError("Не удалось открыть документ. Проверьте состояние в панели ACTI Sync и повторите действие."); refresh();}
+    } finally {
+      if (!active.signal.aborted) setBusy(false);
+      if (pending.current === active) pending.current = null;
+    }
   }
-  async function download(id: string, name: string) {
+  async function download() {
     setError("");
-    try {await saveDownload(id, name, mode);} catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Не удалось скачать файл.");
-    }
+    try {await saveDownload(status?.current_file_id || file.current_file_id || file.id, status?.filename || file.name, mode);}
+    catch {setError("Не удалось скачать файл. Повторите действие.");}
   }
-  async function uploadVersion(selected: File) {
-    if (busy || !status?.can_edit || mode !== "editor" || statusError) return;
-    const generation = lifecycle.current;
-    setError(""); setManualSaved("");
-    if (!selected.name.toLowerCase().endsWith(".docx") || !selected.size || selected.size > 25 * 1024 * 1024) {
-      setError("Выберите непустой DOCX размером не более 25 МиБ."); return;
-    }
-    setBusy(true);
-    try {
-      const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await selected.arrayBuffer())), byte => byte.toString(16).padStart(2, "0")).join("");
-      if (generation !== lifecycle.current) return;
-      const receipt = await apiRequest<{revision: number; sha256: string}>(`/office-sync/files/${file.id}/content`, {
-        method: "PUT", body: selected, headers: {"Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "X-CSRF-Token": csrfToken, "If-Match": `"${status.revision}"`, "Idempotency-Key": crypto.randomUUID(), "X-Content-SHA256": sha256},
-      });
-      if (generation !== lifecycle.current) return;
-      if (receipt.sha256 !== sha256 || !Number.isInteger(receipt.revision)) throw new Error("Подтверждение содержимого не получено. Проверьте актуальную редакцию перед повторной загрузкой.");
-      setManualSaved(`Редакция ${receipt.revision} сохранена в ACTI`); refresh();
-    } catch (failure) {
-      if (generation === lifecycle.current) {setError(failure instanceof Error ? failure.message : "Не удалось загрузить новую версию."); refresh();}
-    } finally {if (generation === lifecycle.current) setBusy(false);}
-  }
-  const current = {...file, id: status?.current_file_id || file.current_file_id || file.id, name: status?.filename || file.name};
-  const lost = !!status?.session_id && status.state !== "finished" && status.state !== "opening" &&
-    (!status.last_seen_at || Date.now() - Date.parse(status.last_seen_at) > 35000 ||
-      !!status.lease_expires_at && Date.parse(status.lease_expires_at) <= Date.now());
-  const unopened = !!requested && Date.now() - requested > 30000 && !status?.last_seen_at;
-  const state = statusError ? "" : unopened ? "ACTI Sync не подключился. Проверьте установку и запуск программы." : lost ? "Нет связи — сохранение в ACTI не подтверждено" :
-    status?.state === "saved" && !status.last_saved_at ? "Состояние сохранения неизвестно" : status ? officeSyncLabels[status.state] || "" : "";
   return <div className={`office-sync-actions${compact ? " office-sync-actions--compact" : ""}`}>
     <div className="office-sync-buttons">
-      {enabled && mode === "editor" && status?.can_edit && <button type="button" className="primary" disabled={busy || !!statusError} onClick={() => void launch()}>Редактировать в Word</button>}
-      {enabled && canReopen && <button type="button" className="primary" disabled={busy} onClick={() => void reopen()}>Открыть в Word</button>}
-      {enabled && mode === "editor" && status?.can_edit && <>
-        <button type="button" disabled={busy || !!statusError} onClick={() => versionInput.current?.click()}>Новая версия</button>
-        <input ref={versionInput} id={versionInputId} aria-label={`Новая версия оригинала ${file.name}`} type="file" accept=".docx" hidden onChange={event => {
-          const selected = event.target.files?.[0]; event.target.value = "";
-          if (selected) void uploadVersion(selected);
-        }}/>
-      </>}
-      <OfficeOpen file={current} mode={mode} csrfToken={csrfToken}/>
-      {showDownload && <button type="button" onClick={() => void download(current.id, current.name)}>Скачать</button>}
+      {enabled && mode === "editor" && (status?.can_edit || canReopen) && <button type="button" className="primary" disabled={busy || !!statusError} onClick={() => void edit()}>Редактировать в Word</button>}
+      {showDownload && <button type="button" onClick={() => void download()}>Скачать</button>}
     </div>
-    {!enabled && <small>Версия {file.binary_revision || file.version}</small>}
-    {enabled && <>
-      <div className="office-sync-metadata">
-      {status && <small>Актуальная редакция содержимого: {status.revision}</small>}
-      {mode === "editor" && status?.can_edit && <small>Сохранение создаёт новую версию этого оригинала. Предыдущие версии и аудит сохраняются.</small>}
-      {mode === "editor" && (status?.can_edit || canReopen) && convertsToDocx && <small>Нужен ACTI Sync 1.2.0 или новее. Word создаёт рабочую копию DOCX с отключёнными макросами; новые версии сохраняются в DOCX, исходный файл остаётся в истории.</small>}
-      {(state || statusError) && <small className="office-sync-state" role="status">{statusError || state}{status?.editor && !statusError ? ` · ${status.editor.display_name}` : ""}</small>}
-      {status?.last_seen_at && <small>Последняя связь: {date(status.last_seen_at)}</small>}
-      {status?.last_saved_at && <small>Последняя серверная синхронизация: {date(status.last_saved_at)}</small>}
-      {typeof status?.document_open === "boolean" && <small>{lost || statusError ? "Последнее известное состояние: " : ""}{status.document_open ? "Открыт в Word" : "Закрыт в Word"}</small>}
-      {status?.session_id && status.document_open == null && <small>Состояние Word неизвестно</small>}
-      {status?.opened_at && <small>Открыт: {date(status.opened_at)}</small>}
-      {status?.closed_at && <small>Закрыт: {date(status.closed_at)}</small>}
-      {mode === "editor" && status?.reason && !status.can_edit && <small>{status.reason}</small>}
-      </div>
-      {(!!requested || status?.state === "opening" || state === "Ошибка ACTI Sync" || lost) && (compact
-        ? <small className="office-sync-help" role="status">Word не открылся? Проверьте установку и запуск ACTI Sync — инструкция ниже.</small>
-        : <p className="office-sync-help" role="status">Подтвердите открытие программы в браузере. Если Word не открылся, установите один MSI ACTI Sync через администратора / GPO и проверьте наличие Word 2021. Состояние агента и команды «Повторить отправку», «Открыть папку» доступны в панели ACTI Sync вверху страницы. Для просмотра используйте Word, LibreOffice или скачайте файл.</p>)}
-      <div className="office-sync-more">
-      <details className="office-sync-help"><summary>Как редактировать в Word</summary><p>Нужны ACTI Sync и Microsoft Word 2021 на Windows. Один MSI устанавливает агент целиком; его предоставляет администратор, в том числе через GPO. Агент запускается автоматически при входе в Windows и работает в фоне. Новую сессию ACTI подключите кнопкой «Подключить агент» в панели ACTI Sync или первым нажатием «Редактировать в Word»; далее связь поддерживается автоматически. Подтвердите запрос браузера на запуск ACTI Sync. Сохраняйте в Word через Ctrl+S; «Сохранено в ACTI» появляется только после подтверждения сервера. Изменения опубликованных и импортированных документов также создают новую версию того же оригинала с сохранением истории и аудита. При потере связи локальная копия сохраняется; повторите отправку из панели после восстановления связи.</p></details>
-      <details onToggle={event => setHistoryOpen(event.currentTarget.open)}>
-        <summary>История версий</summary>
-        {historyError && <small role="alert">{historyError}</small>}
-        {historyOpen && !history && !historyError && <small>Загрузка истории…</small>}
-        {historyOpen && history?.map(item => <div className="office-sync-history" key={item.file_id}>
-          <small>Редакция {item.revision} · {date(item.created_at)}{item.created_by_name ? ` · ${item.created_by_name}` : ""} · {(item.size / 1024).toFixed(1)} КБ</small>
-          <button type="button" onClick={() => void download(item.file_id, item.filename || file.name)}>Скачать редакцию {item.revision}</button>
-        </div>)}
-      </details>
-      </div>
-    </>}
     {error && <small role="alert">{error}</small>}
-    {manualSaved && <small role="status">{manualSaved}</small>}
-    {commandSent && <small role="status">{commandSent}</small>}
   </div>;
+}
+
+/** Version downloads live with document audit, rather than in each action row. */
+export function FileRevisionHistory({file, mode}: {file: FileVersion; mode: "editor" | "viewer"}) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<BinaryRevision[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setItems(null); setError("");
+    if (!open) return;
+    const active = new AbortController();
+    apiRequest<{items: BinaryRevision[]}>(`/office-sync/files/${file.id}/history?mode=${mode}`, {signal: active.signal})
+      .then(result => {if (!active.signal.aborted) setItems(result.items);})
+      .catch(() => {if (!active.signal.aborted) setError("Не удалось загрузить историю версий.");});
+    return () => active.abort();
+  }, [file.id, mode, open]);
+  async function download(item: BinaryRevision) {
+    try {await saveDownload(item.file_id, item.filename || file.name, mode);}
+    catch {setError("Не удалось скачать редакцию.");}
+  }
+  return <details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>{file.name}</summary>
+    {open && !items && !error && <small>Загрузка истории…</small>}
+    {open && items?.map(item => <div className="office-sync-history" key={item.file_id}>
+      <small>Редакция {item.revision} · {new Date(item.created_at).toLocaleString("ru-RU")}{item.created_by_name ? ` · ${item.created_by_name}` : ""}</small>
+      <button type="button" onClick={() => void download(item)}>Скачать редакцию {item.revision}</button>
+    </div>)}
+    {error && <small role="alert">{error}</small>}
+  </details>;
 }
