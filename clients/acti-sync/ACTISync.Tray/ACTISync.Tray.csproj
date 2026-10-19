@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><OutputType>WinExe</OutputType><UseWindowsForms>true</UseWindowsForms><AssemblyName>ACTISync.Tray</AssemblyName></PropertyGroup>
+ <ItemGroup>
+  <ProjectReference Include="../ACTISync.Core/ACTISync.Core.csproj" />
+  <Compile Include="../ACTISync.User/AgentTray.cs" Link="AgentTray.cs" />
+  <Compile Include="../ACTISync.User/ServiceClient.cs" Link="ServiceClient.cs" />
+  <Compile Include="../ACTISync.User/UpdateControl.cs" Link="UpdateControl.cs" />
+ </ItemGroup>
+</Project>

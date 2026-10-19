@@ -14,6 +14,7 @@ internal static class AgentChecks {
   var now=DateTimeOffset.UtcNow; var config=new ClientConfig(new Uri("https://example.com/"));
   using var server=new RelayServer();
   Check(AgentPresence.IsFresh(now,now.AddSeconds(15)) && !AgentPresence.IsFresh(now,now.AddSeconds(15.001)) && !AgentPresence.IsFresh(null,now),"user presence ends after 15 seconds and never exists without pulse");
+  await ReadOnlyPresence(sid,other);
   try {
    string session;
    using(var engine=new SyncEngine(root,config,new HttpClient(server,false)){Clock=()=>now}) {
@@ -79,6 +80,40 @@ internal static class AgentChecks {
    }
    Console.WriteLine("ALL HEADLESS AGENT CHECKS PASSED");
   } finally { Directory.Delete(root,true); }
+ }
+ private static async Task ReadOnlyPresence(string sid,string other) {
+  var root=Path.Combine(Path.GetTempPath(),"ACTISync-tray-presence-"+Guid.NewGuid().ToString("N"));
+  var now=DateTimeOffset.UtcNow;
+  using var server=new RelayServer();
+  try {
+   using var engine=new SyncEngine(root,new ClientConfig(new Uri("https://example.com/")),new HttpClient(server,false)){Clock=()=>now};
+   engine.Initialize();
+   var absent=await engine.Handle(sid,new(){Action="presence"},default);
+   Check(absent.Ok && !absent.AgentOnline && absent.Commands.Count==0 && absent.Sessions.Count==0 && absent.Session is null,"tray presence returns only connectivity when no native worker is present");
+   await engine.Handle(sid,new(){Action="connect",Ticket=new string('c',43)},default);
+   var before=server.Requests;
+   await engine.Handle(sid,new(){Action="presence"},default); await engine.AgentTick(default);
+   Check(server.Requests==before,"tray presence cannot pulse the native worker or renew its connection");
+   await engine.Handle(sid,new(){Action="pulse"},default); await engine.AgentTick(default);
+   Check((await engine.Handle(sid,new(){Action="presence"},default)).AgentOnline && !(await engine.Handle(other,new(){Action="presence"},default)).AgentOnline,"tray presence observes cached connectivity only for the caller SID");
+   var launch=await engine.Handle(sid,new(){Action="launch",Ticket=new string('l',43)},default);
+   var command=new AgentCommand{Id=Guid.NewGuid().ToString(),SessionId=launch.Session!.SessionId,Action="open",ExpiresAt=now.AddMinutes(2)};
+   server.Commands=[command]; await engine.Handle(sid,new(){Action="pulse"},default); await engine.AgentTick(default);
+   var agentPath=Path.Combine(root,"agents",server.ConnectionId+".json");
+   var sessionPath=Path.Combine(root,"state",launch.Session.SessionId+".json");
+   var agentBytes=File.ReadAllBytes(agentPath); var sessionBytes=File.ReadAllBytes(sessionPath);
+   before=server.Requests;
+   for(var i=0;i<4;i++) {
+    now=now.AddSeconds(16);
+    var presence=await engine.Handle(sid,new(){Action="presence",CommandId=command.Id,SessionId=command.SessionId,Ok=true,Ticket=new string('x',43)},default);
+    Check(presence.Ok && presence.Commands.Count==0 && presence.Sessions.Count==0 && presence.Session is null,"tray presence never exposes document paths or queued commands");
+    await engine.AgentTick(default);
+   }
+   Check(server.Requests==before && !(await engine.Handle(sid,new(){Action="presence"},default)).AgentOnline,"repeated tray presence cannot keep a stopped native worker online");
+   Check(File.ReadAllBytes(agentPath).SequenceEqual(agentBytes) && File.ReadAllBytes(sessionPath).SequenceEqual(sessionBytes),"tray presence never writes tokens, command receipts, sessions or leases");
+   var native=await engine.Handle(sid,new(){Action="pulse"},default);
+   Check(native.Commands.Single().Id==command.Id,"read-only tray presence leaves the native worker command unconsumed");
+  } finally {Directory.Delete(root,true);}
  }
  private sealed class RelayServer : HttpMessageHandler {
   public string ConnectionId=Guid.NewGuid().ToString(),Token="test-agent-connection-token";

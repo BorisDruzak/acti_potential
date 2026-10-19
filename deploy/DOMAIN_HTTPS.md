@@ -69,3 +69,18 @@ certificates, managed client configuration, issuer mappings and container
 configuration. On failure restore those inputs together and verify the previous
 strict HTTPS endpoint. Domain certificate renewal belongs to its issuing CA;
 `renew-tls.py` continues to manage only the original local certificate.
+
+## Keep domain security headers current
+
+The root-owned domain server is a separate nginx virtual host. Updating the
+container's default server does not update its copied headers. When changing
+security headers in deploy/nginx.conf, apply the identical reviewed change to
+every active domain virtual host before verifying the canonical origin.
+
+ACTI Sync needs connect-src to allow only the sixteen fixed HTTP loopback
+origins at 127.0.0.1 ports 43127 through 43142, in addition to self. Preserve
+all other CSP directives. Verify the actual canonical /work response rather
+than only the image's default configuration: an older restrictive CSP also
+blocks automatic discovery. Run nginx -t, reload with the exact previous
+configuration available for rollback, then exercise browser discovery over
+strict HTTPS. Never use a wildcard or disable CSP/TLS to make it connect.

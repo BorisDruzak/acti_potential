@@ -11,7 +11,7 @@ internal sealed class AgentTray : IDisposable {
  private readonly string url;
  internal AgentTray(Uri origin) {
   url=new Uri(origin,"/work?sync=1").AbsoluteUri;
-  // A distinct ACTI mark; the user component creates no management window.
+  // A distinct ACTI mark; the desktop tray creates no management window.
   using var bitmap=new Bitmap(32,32); using(var graphics=Graphics.FromImage(bitmap)) {
    graphics.Clear(Color.Transparent); using var background=new SolidBrush(Color.FromArgb(19,116,94)); graphics.FillEllipse(background,1,1,30,30);
    using var font=new Font(FontFamily.GenericSansSerif,20,FontStyle.Bold,GraphicsUnit.Pixel); using var brush=new SolidBrush(Color.White); graphics.DrawString("A",font,brush,6,3);

@@ -37,6 +37,7 @@ public sealed partial class SyncEngine : IDisposable {
   watchers.Add(w);
  }
  public async Task<IpcResponse> Handle(string sid, IpcRequest request, CancellationToken ct) {
+  if(request.Action=="presence") return new(){Ok=true,AgentOnline=AgentOnline(sid)};
   if(request.Action=="pulse") return Pulse(sid);
   if(NativeDispatchPaused() && request.Action is "launch" or "command_start")return new(){Error="Агент обновляется. Повторите действие позднее."};
   await gate.WaitAsync(ct);

@@ -444,9 +444,7 @@ function DocumentCard({
                   event.target.value = "";
                 }}
               />
-              <small>
-                Добавляет отдельное вложение. Изменения Word сохраняются в истории выбранного оригинала.
-              </small>
+
               {hasUnsavedChanges && (
                 <small role="status">
                   Сохраните или отмените изменения карточки перед загрузкой файла.

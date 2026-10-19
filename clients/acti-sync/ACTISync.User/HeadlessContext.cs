@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace ACTISync.User;
 
 // This STA loop dispatches protocol requests and native Word/Explorer operations.
-// It creates only a tray icon; document management remains in the web UI.
+// The separate desktop tray owns its icon; this native worker creates no UI.
 internal sealed class HeadlessContext : ApplicationContext {
  private readonly CancellationTokenSource cancellation=new();
  private readonly System.Windows.Forms.Timer timer=new(){Interval=4000};
@@ -15,7 +15,6 @@ internal sealed class HeadlessContext : ApplicationContext {
  private readonly HashSet<string> opening=[];
  private readonly LoopbackBridge bridge;
  private readonly UpdateControl updates;
- private readonly AgentTray tray;
  private volatile bool maintenance;
  private int activeOperations;
  private bool pulsing;
@@ -23,7 +22,6 @@ internal sealed class HeadlessContext : ApplicationContext {
   SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
   dispatch=SynchronizationContext.Current!;
   var origin=ClientConfig.Load().Origin;
-  tray=new(origin);
   bridge=new(origin,request=>OnUi(()=>Invoke(request)),()=>!maintenance);
   updates=new(()=>OnUi(PrepareUpdate),()=>dispatch.Post(_=>ExitThread(),null));
   timer.Tick+=async (_,_)=>await Pulse(); timer.Start();
@@ -66,7 +64,7 @@ internal sealed class HeadlessContext : ApplicationContext {
   finally {activeOperations--;}
  }
  private async Task<bool> PrepareUpdate() {
-  maintenance=true; tray.Refresh(false,true);
+  maintenance=true;
   var deadline=DateTimeOffset.UtcNow.AddSeconds(150);
   while((activeOperations!=0 || WordSourceConversion.IsBusy) && DateTimeOffset.UtcNow<deadline) await Task.Delay(200);
   if(activeOperations!=0 || WordSourceConversion.IsBusy) {maintenance=false;return false;}
@@ -76,9 +74,8 @@ internal sealed class HeadlessContext : ApplicationContext {
   if(pulsing) return; pulsing=true;
   try {
    var response=await ServiceClient.Send(new(){Action="pulse"});
-   tray.Refresh(response.AgentOnline,maintenance);
    if(!maintenance) foreach(var command in response.Commands) if(executing.Add(command.Id)) _=Execute(command);
-  } catch { tray.Refresh(false,maintenance); } finally { pulsing=false; }
+  } catch { } finally { pulsing=false; }
  }
  private async Task Execute(AgentCommand command) {
   activeOperations++;
@@ -129,5 +126,5 @@ internal sealed class HeadlessContext : ApplicationContext {
   } catch { }
   return false;
  }
- protected override void Dispose(bool disposing) { if(disposing) { timer.Dispose(); bridge.Dispose(); updates.Dispose(); tray.Dispose(); cancellation.Cancel(); cancellation.Dispose(); } base.Dispose(disposing); }
+ protected override void Dispose(bool disposing) { if(disposing) { timer.Dispose(); bridge.Dispose(); updates.Dispose(); cancellation.Cancel(); cancellation.Dispose(); } base.Dispose(disposing); }
 }

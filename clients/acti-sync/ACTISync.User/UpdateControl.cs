@@ -11,10 +11,14 @@ internal sealed class UpdateControl : IDisposable {
  private readonly CancellationTokenSource stop=new();
  private readonly Func<Task<bool>> drain;
  private readonly Action exit;
- internal UpdateControl(Func<Task<bool>> drain,Action exit) { this.drain=drain; this.exit=exit; _=Listen(); }
+ private readonly string component;
+ internal UpdateControl(Func<Task<bool>> drain,Action exit,string component="User") {
+  if(component is not ("User" or "Tray")) throw new ArgumentOutOfRangeException(nameof(component));
+  this.drain=drain; this.exit=exit; this.component=component; _=Listen();
+ }
  private async Task Listen() {
   using var own=WindowsIdentity.GetCurrent(); var sid=own.User ?? throw new UnauthorizedAccessException();
-  var name=$"ACTISync.Update.User.{sid.Value}.{System.Diagnostics.Process.GetCurrentProcess().SessionId}";
+  var name=$"ACTISync.Update.{component}.{sid.Value}.{System.Diagnostics.Process.GetCurrentProcess().SessionId}";
   var acl=new PipeSecurity(); acl.SetAccessRuleProtection(true,false); acl.SetOwner(sid);
   acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkSid,null),PipeAccessRights.FullControl,AccessControlType.Deny));
   acl.AddAccessRule(new PipeAccessRule(sid,PipeAccessRights.FullControl,AccessControlType.Allow));

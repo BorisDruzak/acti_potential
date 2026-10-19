@@ -15,6 +15,7 @@ namespace ACTISync.Updater;
 internal static class LegacySessionExit {
  private static string PipeName(string sid,int session)=>$"ACTISync.Update.Legacy.{sid}.{session}";
  internal static async Task Request(UserProcess target,CancellationToken ct) {
+  WindowsSessions.RequireLegacyUser(target);
   SecureStore.RequireSystem();
   using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);deadline.CancelAfter(TimeSpan.FromSeconds(30));ct=deadline.Token;
   var acl=new PipeSecurity();acl.SetAccessRuleProtection(true,false);acl.SetOwner(new SecurityIdentifier(WellKnownSidType.LocalSystemSid,null));
@@ -28,7 +29,7 @@ internal static class LegacySessionExit {
    if(GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out var pid) && IsExpectedHelper(pid,helper.Id,started))break;
    pipe.Disconnect();
   }
-  await Send(pipe,target,ct);using var response=JsonDocument.Parse(await Read(pipe,ct));var root=response.RootElement;
+  await Send(pipe,WireTarget(target),ct);using var response=JsonDocument.Parse(await Read(pipe,ct));var root=response.RootElement;
   ReleaseTrust.Exact(root,"ok","native_error");if(root.GetProperty("ok").ValueKind!=JsonValueKind.True){if(root.GetProperty("native_error").TryGetInt32(out var error) && error>0)throw new Win32Exception(error);throw new IOException("Legacy session helper deferred exit.");}
   await helper.WaitForExitAsync(ct);if(helper.ExitCode!=0)throw new IOException("Legacy session helper failed.");
  }
@@ -50,6 +51,7 @@ internal static class LegacySessionExit {
   var target=JsonSerializer.Deserialize<UserProcess>(bytes,Wire.Json)??throw new InvalidDataException();
   if(target.Pid<=0 || target.Started<=0 || target.ThreadId==0 || target.Sid!=sid || target.SessionId!=session || session<=0)throw new InvalidDataException("Legacy exit target does not belong to this session.");return target;
  }
+ internal static object WireTarget(UserProcess target){WindowsSessions.RequireLegacyUser(target);return new{target.Pid,target.Started,target.Sid,target.SessionId,target.ThreadId};}
  internal static void PostVerifiedQuit(int pid,uint threadId,Func<bool>? stillExpected=null) {
   var thread=OpenThread(0x0800|0x00100000,false,threadId);if(thread==IntPtr.Zero)throw new Win32Exception();
   try {

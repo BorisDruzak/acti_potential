@@ -13,13 +13,15 @@ namespace ACTISync.Updater;
 internal static class WindowsSessions {
  internal static List<UserProcess> Snapshot() {
   var results=new List<UserProcess>();
-  foreach(var process in Process.GetProcessesByName("ACTISync.User")) using(process) {
+  foreach(var role in new[]{"User","Tray"})foreach(var process in Process.GetProcessesByName("ACTISync."+role)) using(process) {
    try { var identity=Identify(process); if(identity!=null) results.Add(identity); } catch(Exception e) when(e is Win32Exception or InvalidOperationException) { }
   }
   return results;
  }
  private static UserProcess? Identify(Process process) {
-  if(!string.Equals(process.MainModule?.FileName,SecureStore.UserExe,StringComparison.OrdinalIgnoreCase) || process.SessionId==0) return null;
+  var path=process.MainModule?.FileName;
+  var role=string.Equals(path,SecureStore.UserExe,StringComparison.OrdinalIgnoreCase)?"User":string.Equals(path,SecureStore.TrayExe,StringComparison.OrdinalIgnoreCase)?"Tray":null;
+  if(role==null || process.SessionId==0)return null;
   // Process.Handle requests full access. An unelevated session helper can read
   // the old user's identity while correctly lacking termination/write rights.
   using var query=OpenProcess(0x1000,false,process.Id);if(query.IsInvalid)throw new Win32Exception();
@@ -27,15 +29,16 @@ internal static class WindowsSessions {
   using(token) { using var identity=new WindowsIdentity(token.DangerousGetHandle()); var sid=identity.User?.Value; if(sid is null || identity.IsSystem) return null;
    // Main thread is the earliest-created thread; never post to another process.
    var thread=process.Threads.Cast<ProcessThread>().OrderBy(t=>t.StartTime).First();
-   return new(process.Id,process.StartTime.ToUniversalTime().Ticks,sid,process.SessionId,(uint)thread.Id);
+   return new(process.Id,process.StartTime.ToUniversalTime().Ticks,sid,process.SessionId,(uint)thread.Id,role);
   }
  }
  internal static bool StillRunning(UserProcess user) {
-  try {using var process=Process.GetProcessById(user.Pid); var actual=Identify(process);return actual!=null && actual.Pid==user.Pid && actual.Started==user.Started && actual.Sid==user.Sid && actual.SessionId==user.SessionId;}catch(Exception e) when(e is ArgumentException or InvalidOperationException or Win32Exception){return false;}
+  UserRoles.Require(user.Component);
+  try {using var process=Process.GetProcessById(user.Pid); var actual=Identify(process);return actual!=null && actual.Pid==user.Pid && actual.Started==user.Started && actual.Sid==user.Sid && actual.SessionId==user.SessionId && actual.Component==user.Component;}catch(Exception e) when(e is ArgumentException or InvalidOperationException or Win32Exception){return false;}
  }
  internal static async Task<bool> Prepare(UserProcess user,CancellationToken ct) {
   if(!StillRunning(user)) return true;
-  using var pipe=new NamedPipeClientStream(".",$"ACTISync.Update.User.{user.Sid}.{user.SessionId}",PipeDirection.InOut,PipeOptions.Asynchronous,TokenImpersonationLevel.Identification);
+  using var pipe=new NamedPipeClientStream(".",$"ACTISync.Update.{user.Component}.{user.Sid}.{user.SessionId}",PipeDirection.InOut,PipeOptions.Asynchronous,TokenImpersonationLevel.Identification);
   try {
    await pipe.ConnectAsync(5000,ct);
    if(!GetNamedPipeServerProcessId(pipe.SafePipeHandle,out var pid) || pid!=user.Pid || !StillRunning(user)) throw new IOException("Unexpected update pipe server.");
@@ -49,12 +52,14 @@ internal static class WindowsSessions {
   } catch(TimeoutException){return false;}
  }
  internal static async Task LegacyExit(UserProcess user,CancellationToken ct) {
+  RequireLegacyUser(user);
   if(!StillRunning(user))return;
   await LegacySessionExit.Request(user,ct);
   for(var i=0;i<40 && StillRunning(user);i++)await Task.Delay(250,ct);
   if(StillRunning(user))throw new IOException("Legacy user component did not exit; update deferred.");
  }
  internal static Process StartLegacyHelper(UserProcess user) {
+  RequireLegacyUser(user);
   if(!WTSQueryUserToken((uint)user.SessionId,out var raw))throw new Win32Exception();
   using var token=new SafeAccessTokenHandle(raw);using var identity=new WindowsIdentity(token.DangerousGetHandle());if(identity.User?.Value!=user.Sid || identity.IsSystem)throw new UnauthorizedAccessException("Legacy session identity changed.");
   using var medium=MediumToken(token);using var actual=new WindowsIdentity(medium.DangerousGetHandle());
@@ -73,28 +78,46 @@ internal static class WindowsSessions {
   }finally{DestroyEnvironmentBlock(environment);}
  }
  internal static Process PinProcess(int pid) {var process=Process.GetProcessById(pid);try{_=process.Handle;return process;}catch{process.Dispose();throw;}}
- internal static bool Resume(UserProcess user) {
-  if(Snapshot().Any(p=>p.SessionId==user.SessionId && p.Sid==user.Sid)) return true;
+ internal static void RequireLegacyUser(UserProcess user){if(UserRoles.Require(user.Component)!="User")throw new InvalidDataException("Legacy exit is restricted to the native User component.");}
+ internal static bool Resume(UserProcess user)=>ResumeAll([user]);
+ private static bool ResumeComponent(UserProcess user) {
+  UserRoles.Require(user.Component);
+  if(Snapshot().Any(p=>p.SessionId==user.SessionId && p.Sid==user.Sid && p.Component==user.Component)) return true;
   if(!WTSQueryUserToken((uint)user.SessionId,out var raw))return ResumeDecision(user.Sid,null,SessionHasUser(user.SessionId))=="complete";
   using var token=new SafeAccessTokenHandle(raw);using var identity=new WindowsIdentity(token.DangerousGetHandle());
   // A session ID can be reused after logoff. Completing that old resume entry
   // must never launch in the replacement user's session or block other users.
-  if(ResumeDecision(user.Sid,identity.User?.Value,true)=="complete")return true;if(identity.IsSystem)return false;
+  if(ResumeDecision(user.Sid,identity.User?.Value,true)=="complete")return true;if(identity.IsSystem || TokenDword(token,12)!=user.SessionId)return false;
+  if(user.Component=="Tray") {
+   // Use exactly the original WTS user token. Never select a linked/elevated
+   // token, add privileges, show UAC, or pass commands/paths to this component.
+   if(!AllowedToken(user.Component,user.Sid,identity.User?.Value,user.SessionId,TokenDword(token,12),identity.IsSystem,TokenIntegrity(token)))return false;
+   return LaunchComponent(user,token);
+  }
   // With UAC disabled WTS can return a full administrator token. Always derive
   // a LUA token, drop privileges/admin grants, and explicitly require Medium.
   using var medium=MediumToken(token);
-  using var mediumIdentity=new WindowsIdentity(medium.DangerousGetHandle());if(mediumIdentity.User?.Value!=user.Sid || TokenIntegrity(medium)!=0x2000 || TokenDword(medium,12)!=user.SessionId)return false;
-  if(!CreateEnvironmentBlock(out var environment,medium,false))throw new Win32Exception();
+  using var mediumIdentity=new WindowsIdentity(medium.DangerousGetHandle());if(!AllowedToken(user.Component,user.Sid,mediumIdentity.User?.Value,user.SessionId,TokenDword(medium,12),mediumIdentity.IsSystem,TokenIntegrity(medium)))return false;
+  return LaunchComponent(user,medium);
+ }
+ private static bool LaunchComponent(UserProcess user,SafeAccessTokenHandle token) {
+  var executable=UserRoles.PathFor(user.Component);
+  if(!CreateEnvironmentBlock(out var environment,token,false))throw new Win32Exception();
   try {
-   SafeFiles.NoReparse(SecureStore.UserExe);
+   SafeFiles.NoReparse(executable);
    var startup=new StartupInfo{Size=Marshal.SizeOf<StartupInfo>(),Desktop=@"winsta0\default"};
-   if(!CreateProcessAsUser(medium,SecureStore.UserExe,new StringBuilder('"'+SecureStore.UserExe+'"'),IntPtr.Zero,IntPtr.Zero,false,0x00000400|0x08000000,environment,SecureStore.InstalledDirectory,ref startup,out var created))throw new Win32Exception();
+   if(!CreateProcessAsUser(token,executable,new StringBuilder('"'+executable+'"'),IntPtr.Zero,IntPtr.Zero,false,0x00000400|0x08000000,environment,SecureStore.InstalledDirectory,ref startup,out var created))throw new Win32Exception();
    CloseHandle(created.Thread);CloseHandle(created.Process);return true;
   } finally {DestroyEnvironmentBlock(environment);}
  }
  internal static string ResumeDecision(string expectedSid,string? actualSid,bool? sessionHasUser)=>actualSid!=null?(actualSid==expectedSid?"launch":"complete"):sessionHasUser==false?"complete":"defer";
+ internal static bool AllowedToken(string component,string expectedSid,string? actualSid,int expectedSession,int actualSession,bool system,int integrity)=>UserRoles.Require(component)=="User"? !system && expectedSid==actualSid && expectedSession>0 && expectedSession==actualSession && integrity==0x2000:!system && expectedSid==actualSid && expectedSession>0 && expectedSession==actualSession && integrity>=0x2000 && integrity<0x4000;
+ internal static List<UserProcess> ResumePlan(IEnumerable<UserProcess> users) {
+  var planned=new List<UserProcess>();foreach(var user in users){UserRoles.Require(user.Component);planned.Add(user);if(user.Component=="User")planned.Add(user with{Component="Tray"});}
+  return planned.DistinctBy(p=>(p.Component,p.Sid,p.SessionId)).ToList();
+ }
  internal static bool ResumeAll(IEnumerable<UserProcess> users,Func<UserProcess,bool>? resume=null) {
-  var all=true;foreach(var user in users)try{if(!(resume??Resume)(user))all=false;}catch(Exception error){all=false;try{SecureStore.Failure("user_resume",error);}catch{}}
+  var all=true;foreach(var user in ResumePlan(users))try{if(!(resume??ResumeComponent)(user))all=false;}catch(Exception error){all=false;try{SecureStore.Failure("user_resume",error);}catch{}}
   return all;
  }
  private static bool? SessionHasUser(int session) {
