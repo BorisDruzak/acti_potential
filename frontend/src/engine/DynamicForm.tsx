@@ -39,6 +39,7 @@ type Props = {
   conditionFields?: Field[];
   displayMode?: "editor" | "viewer";
   navigationPlacement?: "side";
+  sectionIcons?: Record<string, ReactNode>;
   compactRegistration?: boolean;
   sectionContent?: Record<string, ReactNode>;
   fieldContent?: Record<string, ReactNode | ((id: string) => ReactNode)>;
@@ -560,11 +561,14 @@ function FieldControl({
 
 export function DynamicForm({ schema, values, onChange, ...props }: Props) {
   const navigationId = useId();
+  const [activeSection, setActiveSection] = useState<string | null>(null);
   const currentValues = useRef(values);
   currentValues.current = values;
   const conditionFields = props.conditionFields || schema.sections.flatMap((section) => section.fields);
   const hasNavigation = !props.prefix && schema.sections.length > 2;
   const sideNavigation = hasNavigation && props.navigationPlacement === "side";
+  const navigationSections = schema.sections.filter(section => props.sectionContent?.[section.key] || section.fields.some(field => canRead(field, props.mode, props.roles, props.conditionValues || values, props.displayMode, conditionFields)));
+  const currentSection = navigationSections.some(section => section.key === activeSection) ? activeSection : navigationSections[0]?.key;
   const sections = schema.sections.map((section) => {
     const visible = section.fields.filter((field) =>
       canRead(
@@ -615,8 +619,8 @@ export function DynamicForm({ schema, values, onChange, ...props }: Props) {
     <div className={`dynamic-form${sideNavigation ? " dynamic-form-side-navigation" : ""}`}>
       {hasNavigation && (
         <nav className="form-navigation" aria-label="Разделы формы">
-          {schema.sections.filter(section => props.sectionContent?.[section.key] || section.fields.some(field => canRead(field, props.mode, props.roles, props.conditionValues || values, props.displayMode, conditionFields))).map(section => (
-            <a key={section.key} href={`#${navigationId}-${section.key}`}>{displayConfigText(section.title)}</a>
+          {navigationSections.map(section => (
+            <a key={section.key} href={`#${navigationId}-${section.key}`} aria-current={currentSection === section.key ? "location" : undefined} onClick={() => setActiveSection(section.key)}>{props.sectionIcons?.[section.key]}{displayConfigText(section.title)}</a>
           ))}
         </nav>
       )}
