@@ -3,6 +3,7 @@
            UpgradeCode="46C46CCD-DB5A-4A73-942C-4B3E8FDF8B0D" Scope="perMachine" InstallerVersion="500">
     <MajorUpgrade DowngradeErrorMessage="A newer ACTI Sync is already installed." Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Property Id="ACTISOURCESHA" Value="$(var.SourceSha)" />
     <Property Id="SERVERORIGIN" Secure="yes" />
     <Property Id="EXISTINGSERVERORIGIN" Secure="yes">
       <RegistrySearch Id="ExistingOrigin" Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="ServerOrigin" Type="raw" Bitness="always64" />
@@ -11,6 +12,11 @@
                  Sequence="both" Condition="NOT SERVERORIGIN AND EXISTINGSERVERORIGIN" />
     <Launch Condition="Installed OR (SERVERORIGIN AND (SERVERORIGIN &gt;&lt; &quot;https://&quot;))"
             Message="Supply SERVERORIGIN=https://your-acti-server (a trusted HTTPS origin)." />
+    <CustomAction Id="CleanupUpdaterPolicy" FileRef="UpdaterExe" ExeCommand="--uninstall-cleanup"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="CleanupUpdaterPolicy" After="StopServices" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="ACTIDIR" Name="ACTI">
         <Directory Id="INSTALLFOLDER" Name="Sync">
@@ -24,6 +30,16 @@
             </ServiceInstall>
             <ServiceControl Id="ControlService" Name="ACTISync" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
           </Component>
+          <Component Id="Updater" Guid="676216F2-49E7-4351-8FF7-E306C393D3ED" Bitness="always64">
+            <File Id="UpdaterExe" Source="$(var.UpdaterDir)\ACTISync.Updater.exe" KeyPath="yes" />
+            <ServiceInstall Id="InstallUpdater" Name="ACTISyncUpdater" DisplayName="ACTI Sync Automatic Updates"
+                Description="Installs only verified ACTI Sync releases and resumes existing interactive sessions."
+                Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem">
+              <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart"
+                  ThirdFailureActionType="restart" RestartServiceDelayInSeconds="30" ResetPeriodInDays="1" />
+            </ServiceInstall>
+            <ServiceControl Id="ControlUpdater" Name="ACTISyncUpdater" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+          </Component>
           <Component Id="User" Guid="5E755634-82E1-4597-BFDE-3B4FBF68A5A4" Bitness="always64">
             <File Id="UserExe" Source="$(var.UserDir)\ACTISync.User.exe" KeyPath="yes" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run" Name="ACTISync" Value="&quot;[#UserExe]&quot;" Type="string" />
@@ -33,6 +49,8 @@
           </Component>
           <Component Id="Configuration" Guid="F8996799-7DFC-47E3-AAC5-7F957C771B81" Bitness="always64">
             <RegistryValue Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="ServerOrigin" Value="[SERVERORIGIN]" Type="string" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="InstalledVersion" Value="$(var.Version)" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="InstalledSourceSha" Value="$(var.SourceSha)" Type="string" />
           </Component>
         </Directory>
       </Directory>
@@ -50,7 +68,7 @@
       </Directory>
     </StandardDirectory>
     <Feature Id="Product" Title="ACTI Sync" Level="1">
-      <ComponentRef Id="Service" /><ComponentRef Id="User" />
+      <ComponentRef Id="Service" /><ComponentRef Id="User" /><ComponentRef Id="Updater" />
       <ComponentRef Id="Configuration" /><ComponentRef Id="DataDirectory" />
     </Feature>
   </Package>

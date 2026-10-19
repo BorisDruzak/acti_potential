@@ -107,6 +107,7 @@ public sealed class SessionView {
  public static SessionView From(SessionState s) => new() { SourceFormat=s.SourceFormat,ConversionSourcePath=s.ConversionSourcePath,ConversionSourceSha256=s.ConversionSourceSha256,DocumentOpen=s.DocumentOpen, SessionId=s.SessionId, FileName=s.FileName, WorkingPath=s.WorkingPath, Status=s.Status, Error=s.Error, Revision=s.Revision, LastAck=s.LastAck, HasPending=s.Pending!=null || s.NextPending!=null };
 }
 public sealed class IpcResponse {
+ public bool AgentOnline { get; set; }
  public List<AgentCommand> Commands { get; set; } = [];
  public bool Ok { get; set; }
  public string? Error { get; set; }

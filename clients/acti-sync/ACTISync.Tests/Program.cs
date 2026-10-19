@@ -54,6 +54,7 @@ try {
  Console.WriteLine("ALL WINDOWS CORE CHECKS PASSED");
 } finally { Directory.Delete(root, true); }
 await UserPipeChecks.Run();
+await BrowserBridgeChecks.Run();
 await EngineChecks.Run();
 await AgentChecks.Run();
 internal static class NativeLinks {

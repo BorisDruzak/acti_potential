@@ -19,9 +19,9 @@ internal static class ServiceClient {
   while(await reader.ReadAsync(buffer.AsMemory(),timeout.Token)!=0 && buffer[0]!='\n') { result.Append(buffer[0]); if(result.Length>1024*1024) throw new IOException(); }
   return JsonSerializer.Deserialize<IpcResponse>(result.ToString(),Wire.Json) ?? throw new IOException();
  }
- private static uint ServicePid() {
+ internal static uint ServicePid(string name="ACTISync") {
   var manager=OpenSCManager(null,null,1); if(manager==IntPtr.Zero) throw new Win32Exception();
-  try { var service=OpenService(manager,"ACTISync",4); if(service==IntPtr.Zero) throw new Win32Exception(); try { if(!QueryServiceStatusEx(service,0,out var status,Marshal.SizeOf<ServiceStatus>(),out _)) throw new Win32Exception(); return status.ProcessId; } finally { CloseServiceHandle(service); } } finally { CloseServiceHandle(manager); }
+  try { var service=OpenService(manager,name,4); if(service==IntPtr.Zero) throw new Win32Exception(); try { if(!QueryServiceStatusEx(service,0,out var status,Marshal.SizeOf<ServiceStatus>(),out _)) throw new Win32Exception(); return status.ProcessId; } finally { CloseServiceHandle(service); } } finally { CloseServiceHandle(manager); }
  }
  [StructLayout(LayoutKind.Sequential)] private struct ServiceStatus { public uint ServiceType,CurrentState,ControlsAccepted,Win32ExitCode,ServiceSpecificExitCode,CheckPoint,WaitHint,ProcessId,ServiceFlags; }
  [DllImport("kernel32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] private static extern bool GetNamedPipeServerProcessId(IntPtr pipe,out uint pid);

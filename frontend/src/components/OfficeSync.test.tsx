@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { FileActions, validSyncUri, type OfficeSyncStatus } from "./OfficeSync";
+import { FileActions, FileRevisionHistory, validSyncUri, type OfficeSyncStatus } from "./OfficeSync";
 import { apiRequest, saveDownload } from "../api/client";
 import { DynamicForm } from "../engine/DynamicForm";
 import type { FileVersion } from "../engine/schema";
@@ -14,21 +14,29 @@ const base: OfficeSyncStatus = {
   can_edit: true, reason: null, state: "idle", session_id: null, last_seen_at: null,
   last_saved_at: null, lease_expires_at: null, editor: null,
 };
-beforeEach(() => {request.mockReset(); vi.mocked(saveDownload).mockReset(); request.mockResolvedValue(base);});
+beforeEach(() => {request.mockReset(); vi.mocked(saveDownload).mockReset(); request.mockResolvedValue(base); vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("unavailable")));});
 afterEach(() => {cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers();});
 const show = (mode: "editor" | "viewer" = "editor", sync = true) => render(<FileActions file={file} mode={mode} csrfToken="csrf" sync={sync}/>);
+
+it("shows only two compact actions with no guides, manual version upload or viewing applications", async () => {
+  show(); await screen.findByRole("button", {name: "Редактировать в Word"});
+  expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual(["Редактировать в Word", "Скачать"]);
+  expect(document.querySelector("details")).toBeNull();
+  expect(document.querySelector('input[type="file"]')).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
+});
 
 it("requires server capability, and readers never get a write action", async () => {
   request.mockResolvedValue({...base, can_edit: false, reason: "Нет права загрузки"});
   const {unmount} = show();
-  await screen.findByText("Нет права загрузки");
+  await act(async () => {});
   expect(screen.queryByRole("button", {name: "Редактировать в Word"})).toBeNull();
   unmount();
   request.mockResolvedValue(base);
   show("viewer");
   await waitFor(() => expect(request).toHaveBeenCalledWith(expect.stringContaining("mode=viewer"), expect.anything()));
   expect(screen.queryByRole("button", {name: "Редактировать в Word"})).toBeNull();
-  expect(screen.getByRole("button", {name: "Открыть в Word (просмотр)"})).toBeTruthy();
+  expect(screen.queryByRole("button", {name: "Открыть в Word (просмотр)"})).toBeNull();
 });
 
 it("launches only an exact one-use-ticket protocol, preserves CSRF, and does not invent editing or ACK", async () => {
@@ -37,10 +45,10 @@ it("launches only an exact one-use-ticket protocol, preserves CSRF, and does not
   show();
   fireEvent.click(await screen.findByRole("button", {name: "Редактировать в Word"}));
   await waitFor(() => expect(click).toHaveBeenCalledOnce());
-  expect(request).toHaveBeenCalledWith("/office-sync/launch", {method: "POST", headers: {"X-CSRF-Token": "csrf"}, body: JSON.stringify({file_id: file.id})});
+  expect(request).toHaveBeenCalledWith("/office-sync/launch", expect.objectContaining({method: "POST", headers: {"X-CSRF-Token": "csrf"}, body: JSON.stringify({file_id: file.id})}));
   expect(screen.queryByText("Редактируется")).toBeNull();
   expect(screen.queryByText("Сохранено в ACTI")).toBeNull();
-  expect(screen.getByText(/Если Word не открылся/)).toBeTruthy();
+  expect(document.querySelector("details")).toBeNull();
   expect(document.body.textContent).not.toContain("a".repeat(43));
 });
 
@@ -66,58 +74,32 @@ it("rejects arbitrary URLs without handing them to a native handler", async () =
   request.mockImplementation(async path => path === "/office-sync/launch" ? {uri: "https://example.com/secret"} : base);
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   show(); fireEvent.click(await screen.findByRole("button", {name: "Редактировать в Word"}));
-  expect((await screen.findByRole("alert")).textContent).toContain("допустимую ссылку");
+  await screen.findByRole("alert");
   expect(click).not.toHaveBeenCalled();
   expect(validSyncUri("acti-sync://launch?ticket=" + "a".repeat(43) + "&origin=https://example.com")).toBe(false);
 });
 
-it("shows an installation/start fallback after a launch receives no client contact", async () => {
-  vi.useFakeTimers();
-  let launched = false;
-  request.mockImplementation(async path => {
-    if (path === "/office-sync/launch") {
-      launched = true;
-      return {uri: "acti-sync://launch?ticket=" + "b".repeat(43), session_id: "missing-client", expires_at: "2099-01-01"};
-    }
-    return launched ? {...base, can_edit: false, state: "opening", session_id: "missing-client", lease_expires_at: new Date(Date.now() + 60000).toISOString()} : base;
-  });
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-  show(); await act(async () => {});
-  await act(async () => {fireEvent.click(screen.getByRole("button", {name: "Редактировать в Word"}));});
-  await act(async () => {await vi.advanceTimersByTimeAsync(35000);});
-  expect(screen.getByText("ACTI Sync не подключился. Проверьте установку и запуск программы.")).toBeTruthy();
-  expect(screen.getByRole("button", {name: "Открыть в Word (просмотр)"})).toBeTruthy();
-  expect(screen.queryByText("Редактируется")).toBeNull();
+it("uses the discovered bridge and never replays an ambiguously accepted launch through the protocol", async () => {
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.endsWith("/v1/launch")) throw new TypeError("lost after acceptance");
+    if (url === "http://127.0.0.1:43127/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: "z".repeat(43)}));
+    throw new TypeError("unavailable");
+  }); vi.stubGlobal("fetch", fetcher);
+  request.mockImplementation(async path => path === "/office-sync/launch" ? {uri: "acti-sync://launch?ticket=" + "b".repeat(43), expires_at: "2099-01-01"} : base);
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {}); show();
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать в Word"})); await screen.findByRole("alert");
+  expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:43127/v1/launch", expect.objectContaining({credentials: "omit", body: JSON.stringify({ticket: "b".repeat(43), challenge: "z".repeat(43)})}));
+  expect(click).not.toHaveBeenCalled();
 });
 
-it("does not present an old ACK as current after the lease/client contact expires", async () => {
-  request.mockResolvedValue({...base, state: "saved", session_id: "session", last_saved_at: "2026-01-01T00:00:00Z", last_seen_at: "2026-01-01T00:00:00Z", lease_expires_at: "2026-01-01T00:01:00Z"});
-  show();
-  await screen.findByText("Нет связи — сохранение в ACTI не подтверждено");
-  expect(screen.queryByText("Сохранено в ACTI")).toBeNull();
-  expect(screen.getByText(/Последняя связь:/)).toBeTruthy();
-});
-
-it("keeps Word open/closed observation independent of the server save ACK", async () => {
-  const now = new Date().toISOString();
-  request.mockResolvedValue({...base, state: "saved", session_id: "session", document_open: false, opened_at: now, closed_at: now, last_saved_at: now, last_seen_at: now, lease_expires_at: new Date(Date.now() + 60000).toISOString()});
-  show();
-  await screen.findByText("Закрыт в Word");
-  expect(screen.getByText("Сохранено в ACTI")).toBeTruthy();
-  expect(screen.getByText(/Открыт:/)).toBeTruthy(); expect(screen.getByText(/Закрыт:/)).toBeTruthy();
-});
-
-it("shows a fresh server commit ACK, then removes it when contact with the API fails", async () => {
-  vi.useFakeTimers();
-  request.mockResolvedValue({...base, state: "saved", session_id: "session", last_saved_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), lease_expires_at: new Date(Date.now() + 120000).toISOString()});
-  show();
-  await act(async () => {});
-  expect(screen.getByText("Сохранено в ACTI")).toBeTruthy();
-  request.mockRejectedValue(new Error("unreachable"));
-  await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
-  expect(screen.queryByText("Сохранено в ACTI")).toBeNull();
-  expect(screen.getByText("Нет связи с ACTI. Состояние сохранения неизвестно.")).toBeTruthy();
-  expect((screen.getByRole("button", {name: "Редактировать в Word"}) as HTMLButtonElement).disabled).toBe(true);
+it("drops and aborts a pending launch after switching files", async () => {
+  let resolve!: (value: unknown) => void;
+  request.mockImplementation(async path => path === "/office-sync/launch" ? new Promise(done => {resolve = done;}) : base);
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {}); const view = show();
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать в Word"})); await waitFor(() => expect(resolve).toBeTypeOf("function"));
+  const signal = request.mock.calls.find(([path]) => path === "/office-sync/launch")?.[1]?.signal;
+  view.rerender(<FileActions file={{...file, id: "another"}} mode="editor" csrfToken="csrf"/>); expect(signal?.aborted).toBe(true);
+  await act(async () => {resolve({uri: "acti-sync://launch?ticket=" + "d".repeat(43), expires_at: "2099-01-01"});}); expect(click).not.toHaveBeenCalled();
 });
 
 it("shares polling between the card header and its dynamic file field", async () => {
@@ -131,11 +113,11 @@ it("shares polling between the card header and its dynamic file field", async ()
 
 it("keeps one current original and downloads history using immutable byte IDs", async () => {
   request.mockImplementation(async path => path.includes("/history") ? {items: [{file_id: "immutable-old", revision: 1, size: 1024, created_at: "2026-01-01", created_by_name: "Редактор"}]} : base);
-  show();
+  render(<><FileActions file={file} mode="editor" csrfToken="csrf"/><FileRevisionHistory file={file} mode="editor"/></>);
   await screen.findByRole("button", {name: "Редактировать в Word"});
   fireEvent.click(screen.getByRole("button", {name: "Скачать"}));
   expect(saveDownload).toHaveBeenCalledWith("bytes-3", "letter.docx", "editor");
-  const history = screen.getByText("История версий").closest("details")!;
+  const history = screen.getByText("letter.docx").closest("details")!;
   history.open = true; fireEvent(history, new Event("toggle"));
   fireEvent.click(await screen.findByRole("button", {name: "Скачать редакцию 1"}));
   expect(saveDownload).toHaveBeenLastCalledWith("immutable-old", "letter.docx", "editor");
@@ -168,7 +150,7 @@ it("retains unsaved DynamicForm values while the file status updates", async () 
   await act(async () => {});
   request.mockResolvedValue({...base, state: "conflict"});
   await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
-  expect(screen.getByText("Конфликт: требуется действие")).toBeTruthy();
+  expect(screen.queryByText("Конфликт: требуется действие")).toBeNull();
   expect((screen.getByRole("textbox", {name: "Название"}) as HTMLInputElement).value).toBe("Несохранённый черновик");
 });
 
@@ -176,33 +158,6 @@ it("never launches or polls historical metadata revisions", () => {
   show("editor", false);
   expect(request).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", {name: "Редактировать в Word"})).toBeNull();
-});
-
-it("uploads a new binary version only to the explicitly selected original with CAS/hash and a server receipt", async () => {
-  const digest = new Uint8Array(32).fill(0xab).buffer;
-  vi.stubGlobal("crypto", {subtle: {digest: vi.fn().mockResolvedValue(digest)}, randomUUID: () => "idempotency-key"});
-  request.mockImplementation(async path => path.endsWith("/content") ? {revision: 4, sha256: "ab".repeat(32)} : base);
-  show();
-  await screen.findByRole("button", {name: "Новая версия"});
-  const selected = new File(["docx-content"], "different-name.docx");
-  Object.defineProperty(selected, "arrayBuffer", {value: async () => new Uint8Array([1, 2, 3]).buffer});
-  fireEvent.change(screen.getByLabelText("Новая версия оригинала letter.docx"), {target: {files: [selected]}});
-  await screen.findByText("Редакция 4 сохранена в ACTI");
-  expect(request).toHaveBeenCalledWith("/office-sync/files/logical-file/content", {
-    method: "PUT", body: selected, headers: {"Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "X-CSRF-Token": "csrf", "If-Match": '"3"', "Idempotency-Key": "idempotency-key", "X-Content-SHA256": "ab".repeat(32)},
-  });
-});
-
-it("does not claim success for a mismatching binary receipt", async () => {
-  vi.stubGlobal("crypto", {subtle: {digest: vi.fn().mockResolvedValue(new Uint8Array(32).buffer)}, randomUUID: () => "idempotency-key"});
-  request.mockImplementation(async path => path.endsWith("/content") ? {revision: 4, sha256: "different"} : base);
-  show(); await screen.findByRole("button", {name: "Новая версия"});
-  const selected = new File(["docx-content"], "letter.docx");
-  Object.defineProperty(selected, "arrayBuffer", {value: async () => new ArrayBuffer(1)});
-  fireEvent.change(screen.getByLabelText("Новая версия оригинала letter.docx"), {target: {files: [selected]}});
-  expect((await screen.findByRole("alert")).textContent).toContain("Подтверждение содержимого не получено");
-  expect(screen.queryByText("Редакция 4 сохранена в ACTI")).toBeNull();
 });
 
 it("offers legacy DOC editing through the stable original with CSRF and preserves each history filename", async () => {
@@ -216,13 +171,13 @@ it("offers legacy DOC editing through the stable original with CSRF and preserve
     return {...base, filename: "published-original.docx", current_file_id: "immutable-docx", revision: 2};
   });
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-  render(<FileActions file={legacy} mode="editor" csrfToken="legacy-csrf"/>);
+  render(<><FileActions file={legacy} mode="editor" csrfToken="legacy-csrf"/><FileRevisionHistory file={legacy} mode="editor"/></>);
   fireEvent.click(await screen.findByRole("button", {name: "Редактировать в Word"}));
   await waitFor(() => expect(click).toHaveBeenCalledOnce());
-  expect(request).toHaveBeenCalledWith("/office-sync/launch", {method: "POST", headers: {"X-CSRF-Token": "legacy-csrf"}, body: JSON.stringify({file_id: "logical-file"})});
+  expect(request).toHaveBeenCalledWith("/office-sync/launch", expect.objectContaining({method: "POST", headers: {"X-CSRF-Token": "legacy-csrf"}, body: JSON.stringify({file_id: "logical-file"})}));
   fireEvent.click(screen.getByRole("button", {name: "Скачать"}));
   expect(saveDownload).toHaveBeenLastCalledWith("immutable-docx", "published-original.docx", "editor");
-  const history = screen.getByText("История версий").closest("details")!;
+  const history = screen.getByText("published-original.DOC").closest("details")!;
   history.open = true; fireEvent(history, new Event("toggle"));
   fireEvent.click(await screen.findByRole("button", {name: "Скачать редакцию 1"}));
   expect(saveDownload).toHaveBeenLastCalledWith("immutable-doc", "published-original.DOC", "editor");
@@ -230,28 +185,11 @@ it("offers legacy DOC editing through the stable original with CSRF and preserve
   expect(saveDownload).toHaveBeenLastCalledWith("immutable-docx", "published-original.docx", "editor");
 });
 
-it("accepts a manual DOCX version of a legacy DOC while retaining its stable original ID", async () => {
-  vi.stubGlobal("crypto", {subtle: {digest: vi.fn().mockResolvedValue(new Uint8Array(32).buffer)}, randomUUID: () => "legacy-upload"});
-  request.mockImplementation(async path => path.endsWith("/content") ? {revision: 2, sha256: "00".repeat(32)} : {...base, filename: "legacy.doc", revision: 1});
-  render(<FileActions file={{...file, name: "legacy.doc", mime: "application/msword"}} mode="editor" csrfToken="csrf"/>);
-  await screen.findByRole("button", {name: "Новая версия"});
-  const input = screen.getByLabelText("Новая версия оригинала legacy.doc");
-  expect(input.getAttribute("accept")).toBe(".docx");
-  const selected = new File(["converted-content"], "legacy.docx");
-  Object.defineProperty(selected, "arrayBuffer", {value: async () => new ArrayBuffer(1)});
-  fireEvent.change(input, {target: {files: [selected]}});
-  await screen.findByText("Редакция 2 сохранена в ACTI");
-  expect(request).toHaveBeenCalledWith("/office-sync/files/logical-file/content", {
-    method: "PUT", body: selected, headers: {"Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "X-CSRF-Token": "csrf", "If-Match": '"1"', "Idempotency-Key": "legacy-upload", "X-Content-SHA256": "00".repeat(32)},
-  });
-});
-
 it("keeps server-denied legacy DOC files and readers without editing actions", async () => {
   request.mockResolvedValue({...base, filename: "legacy.doc", can_edit: false, reason: "Нет права загрузки"});
   const legacy = {...file, name: "legacy.doc", mime: "application/msword"};
   const view = render(<FileActions file={legacy} mode="editor" csrfToken="csrf"/>);
-  await screen.findByText("Нет права загрузки");
+  await act(async () => {});
   expect(screen.queryByRole("button", {name: "Редактировать в Word"})).toBeNull();
   expect(screen.queryByRole("button", {name: "Новая версия"})).toBeNull();
   view.unmount(); request.mockResolvedValue({...base, filename: "legacy.doc"});
@@ -293,9 +231,9 @@ it("keeps an own active session reopen action after saving without starting anot
     last_seen_at: now, last_saved_at: now, lease_expires_at: new Date(Date.now() + 60000).toISOString()});
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   show();
-  fireEvent.click(await screen.findByRole("button", {name: "Открыть в Word"}));
-  await screen.findByText("Команда открытия отправлена. Ожидаем состояние Word от агента.");
-  expect(request).toHaveBeenCalledWith("/office-sync/agent/commands", {method: "POST", headers: {"X-CSRF-Token": "csrf"}, body: JSON.stringify({session_id: "own-session", action: "open"})});
+  fireEvent.click(await screen.findByRole("button", {name: "Редактировать в Word"}));
+  await waitFor(() => expect(request.mock.calls.some(([path]) => path.endsWith("/commands"))).toBe(true));
+  expect(request).toHaveBeenCalledWith("/office-sync/agent/commands", expect.objectContaining({method: "POST", headers: {"X-CSRF-Token": "csrf"}, body: JSON.stringify({session_id: "own-session", action: "open"})}));
   expect(request.mock.calls.some(([path]) => path === "/office-sync/launch")).toBe(false);
   expect(click).not.toHaveBeenCalled();
   expect(screen.queryByText("Открыт в Word")).toBeNull();
@@ -303,12 +241,12 @@ it("keeps an own active session reopen action after saving without starting anot
 
 it("never reopens another browser's lease, a stale own session, or a viewer session", async () => {
   request.mockResolvedValue({...base, can_edit: false, can_reopen: false, state: "saved", session_id: "other-session", last_seen_at: new Date().toISOString(), lease_expires_at: new Date(Date.now() + 60000).toISOString()});
-  const first = show(); await screen.findByText("Актуальная редакция содержимого: 3");
-  expect(screen.queryByRole("button", {name: "Открыть в Word"})).toBeNull(); first.unmount();
+  const first = show(); await act(async () => {});
+  expect(screen.queryByRole("button", {name: "Редактировать в Word"})).toBeNull(); first.unmount();
   request.mockResolvedValue({...base, can_edit: false, can_reopen: true, session_id: "stale", last_seen_at: "2020-01-01", lease_expires_at: "2020-01-02"});
-  const second = show(); await screen.findByText("Актуальная редакция содержимого: 3");
-  expect(screen.queryByRole("button", {name: "Открыть в Word"})).toBeNull(); second.unmount();
+  const second = show(); await act(async () => {});
+  expect(screen.queryByRole("button", {name: "Редактировать в Word"})).toBeNull(); second.unmount();
   request.mockResolvedValue({...base, can_edit: false, can_reopen: true, session_id: "own", last_seen_at: new Date().toISOString(), lease_expires_at: new Date(Date.now() + 60000).toISOString()});
-  show("viewer"); await screen.findByText("Актуальная редакция содержимого: 3");
-  expect(screen.queryByRole("button", {name: "Открыть в Word"})).toBeNull();
+  show("viewer"); await act(async () => {});
+  expect(screen.queryByRole("button", {name: "Редактировать в Word"})).toBeNull();
 });

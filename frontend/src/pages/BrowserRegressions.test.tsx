@@ -56,7 +56,7 @@ it("protects unsaved card edits from a separate file upload", async () => {
   await openCard();
   expect(screen.queryByRole("button", {name: "Загрузить новую версию"})).toBeNull();
   fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Несохранённый текст" } });
-  fireEvent.click(screen.getByRole("button", { name: "Добавить файл" }));
+  fireEvent.click(screen.getByRole("button", { name: "Файлы и версии" }));
   expect((screen.getByLabelText(/Добавить файл/) as HTMLInputElement).disabled).toBe(true);
   expect(screen.getByText(/Сохраните или отмените изменения карточки/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Карточка" }));

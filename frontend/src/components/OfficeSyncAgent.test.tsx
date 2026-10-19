@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError, apiRequest } from "../api/client";
-import { OfficeSyncAgent, validAgentConnectUri, type AgentStatus } from "./OfficeSyncAgent";
+import { OfficeSyncAgent, type AgentStatus } from "./OfficeSyncAgent";
 
 vi.mock("../api/client", async original => ({...await original<typeof import("../api/client")>(), apiRequest: vi.fn()}));
 const request = vi.mocked(apiRequest);
@@ -14,8 +14,76 @@ const withDocument = (): AgentStatus => ({...connected(), documents: [{file_id: 
   document_id: "document", document_title: "Письмо", document_open: false, opened_at: "2026-10-19T08:00:00Z", closed_at: "2026-10-19T08:30:00Z", connection_id: "agent", command: null}]});
 const show = (canControl = true) => render(<><input aria-label="Черновик" defaultValue=""/><OfficeSyncAgent owner="user" csrfToken="csrf" canControl={canControl}/></>);
 const openPanel = () => fireEvent.click(screen.getByRole("button", {name: /ACTI Sync:/}));
-beforeEach(() => {request.mockReset(); request.mockImplementation(async () => empty());});
-afterEach(() => {cleanup(); vi.restoreAllMocks(); vi.useRealTimers();});
+
+it("automatically attaches an offline browser through the discovered local bridge without a connect button or protocol prompt", async () => {
+  const nonce = "u".repeat(43);
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.endsWith("/v1/connect")) return new Response('{"ok":true}');
+    if (url === "http://127.0.0.1:43130/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: nonce}));
+    throw new TypeError("unavailable");
+  }); vi.stubGlobal("fetch", fetcher);
+  request.mockImplementation(async path => path.endsWith("/connect") ? {uri: "acti-sync://connect?ticket=" + "a".repeat(43), expires_at: "2099-01-01"} : empty());
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  show();
+  await waitFor(() => expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:43130/v1/connect", expect.objectContaining({credentials: "omit", body: JSON.stringify({ticket: "a".repeat(43), challenge: nonce})})));
+  expect(request.mock.calls.filter(([path]) => path.endsWith("/connect"))).toHaveLength(1);
+  expect(request).toHaveBeenCalledWith("/office-sync/agent/connect", expect.objectContaining({method: "POST", headers: {"X-CSRF-Token": "csrf"}}));
+  openPanel(); expect(screen.queryByRole("button", {name: "Подключить агент"})).toBeNull();
+  expect(screen.queryByRole("button", {name: "ACTI Sync: на связи"})).toBeNull(); expect(click).not.toHaveBeenCalled();
+});
+
+it("does not issue connect tickets for an absent agent, an online browser, or a reader", async () => {
+  const view = show(); await act(async () => {});
+  expect(request.mock.calls.some(([path]) => path.endsWith("/connect"))).toBe(false); view.unmount();
+  request.mockResolvedValue(connected()); const online = show(); await act(async () => {}); expect(fetch).toHaveBeenCalledTimes(16); online.unmount();
+  request.mockResolvedValue(empty()); show(false); await act(async () => {}); expect(fetch).toHaveBeenCalledTimes(16);
+});
+
+it("cancels local discovery and a late connect ticket on browser session expiry", async () => {
+  let resolve!: (value: unknown) => void;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "http://127.0.0.1:43127/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: "x".repeat(43)}));
+    throw new TypeError("unavailable");
+  }));
+  request.mockImplementation(async path => path.endsWith("/connect") ? new Promise(done => {resolve = done;}) : empty());
+  show(); await waitFor(() => expect(resolve).toBeTypeOf("function"));
+  const signal = request.mock.calls.find(([path]) => path.endsWith("/connect"))?.[1]?.signal;
+  act(() => {window.dispatchEvent(new Event("acti:unauthorized"));}); expect(signal?.aborted).toBe(true);
+  await act(async () => {resolve({uri: "acti-sync://connect?ticket=" + "b".repeat(43), expires_at: "2099-01-01"});});
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/v1/connect"))).toBe(false);
+});
+
+it("opens the existing global panel from the tray query", async () => {
+  window.history.replaceState({}, "", "/documents?sync=1"); show();
+  expect(await screen.findByRole("dialog", {name: "ACTI Sync"})).toBeTruthy();
+});
+
+it("bounds discovery retries and never loops connect tickets while the heartbeat remains offline", async () => {
+  vi.useFakeTimers(); show(); await act(async () => {});
+  await act(async () => {await vi.advanceTimersByTimeAsync(120000);});
+  expect(fetch).toHaveBeenCalledTimes(48);
+  expect(request.mock.calls.some(([path]) => path.endsWith("/connect"))).toBe(false);
+});
+
+it("does not issue another connect ticket after an ambiguous POST or a transient server status error", async () => {
+  vi.useFakeTimers(); let unavailable = false;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "http://127.0.0.1:43127/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: "q".repeat(43)}));
+    throw new TypeError("unavailable");
+  }));
+  request.mockImplementation(async path => {
+    if (path.endsWith("/connect")) return {uri: "acti-sync://connect?ticket=" + "e".repeat(43), expires_at: "2099-01-01"};
+    if (unavailable) throw new Error("network");
+    return empty();
+  });
+  show(); await act(async () => {});
+  expect(request.mock.calls.filter(([path]) => path.endsWith("/connect"))).toHaveLength(1);
+  unavailable = true; await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
+  unavailable = false; await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
+  expect(request.mock.calls.filter(([path]) => path.endsWith("/connect"))).toHaveLength(1);
+});
+beforeEach(() => {request.mockReset(); request.mockImplementation(async () => empty()); vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("unavailable")));});
+afterEach(() => {cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); window.history.replaceState({}, "", "/");});
 
 it("shows agent presence without documents, and keeps the browser form when the panel opens and closes", async () => {
   request.mockResolvedValue(connected()); show();
@@ -27,28 +95,6 @@ it("shows agent presence without documents, and keeps the browser form when the 
   expect(within(panel).getByText("Открытых сеансов редактирования нет.")).toBeTruthy();
   fireEvent.click(within(panel).getByRole("button", {name: "Закрыть"}));
   expect((screen.getByLabelText("Черновик") as HTMLInputElement).value).toBe("Несохранённое");
-});
-
-it("connects with CSRF and one native launch after a real click, but awaits heartbeat before online", async () => {
-  request.mockImplementation(async path => path.endsWith("/connect") ? {uri: "acti-sync://connect?ticket=" + "a".repeat(43), expires_at: "2099-01-01"} : empty());
-  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-  show(); openPanel();
-  expect(click).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", {name: "Подключить агент"}));
-  await waitFor(() => expect(click).toHaveBeenCalledOnce());
-  expect(request).toHaveBeenCalledWith("/office-sync/agent/connect", expect.objectContaining({method: "POST", headers: {"X-CSRF-Token": "csrf"}}));
-  expect(screen.queryByRole("button", {name: "ACTI Sync: на связи"})).toBeNull();
-  expect(screen.getByText(/Ожидаем подтверждение связи/)).toBeTruthy();
-  expect(document.body.textContent).not.toContain("a".repeat(43));
-});
-
-it("rejects a foreign protocol or extra URL parameters before native launch", async () => {
-  request.mockImplementation(async path => path.endsWith("/connect") ? {uri: "acti-sync://connect?ticket=" + "a".repeat(43) + "&path=secret"} : empty());
-  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-  show(); openPanel(); fireEvent.click(screen.getByRole("button", {name: "Подключить агент"}));
-  await screen.findByRole("alert"); expect(click).not.toHaveBeenCalled();
-  expect(validAgentConnectUri("acti-sync://launch?ticket=" + "a".repeat(43))).toBe(false);
-  expect(validAgentConnectUri("https://example.com")).toBe(false);
 });
 
 it("separates closed Word, server ACK and presence; commands do not depend on the launch lease capability", async () => {
@@ -130,18 +176,6 @@ it("shows historical Word state and ACK time without a current saved or online c
   expect(screen.getByText("Последнее известное состояние: закрыт в Word")).toBeTruthy();
   expect(screen.getByText(/Последняя серверная синхронизация:/)).toBeTruthy();
   expect((screen.getByRole("button", {name: "Повторить отправку"}) as HTMLButtonElement).disabled).toBe(true);
-});
-
-it("stops and clears immediately on browser session expiry and drops late connect results after logout", async () => {
-  let resolve!: (value: unknown) => void;
-  request.mockImplementation(async path => path.endsWith("/connect") ? new Promise(done => {resolve = done;}) : withDocument());
-  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-  show(); await screen.findByRole("button", {name: "ACTI Sync: на связи"}); openPanel();
-  fireEvent.click(screen.getByRole("button", {name: "Подключить агент"}));
-  act(() => {window.dispatchEvent(new Event("acti:unauthorized"));});
-  expect(screen.queryByText("letter.docx")).toBeNull();
-  await act(async () => {resolve({uri: "acti-sync://connect?ticket=" + "b".repeat(43), expires_at: "2099-01-01"});});
-  expect(click).not.toHaveBeenCalled();
 });
 
 it("resets and aborts polling when the browser identity changes", async () => {

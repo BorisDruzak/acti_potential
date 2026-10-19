@@ -1,12 +1,19 @@
-# ACTI Sync v1 (Issue #21)
+# ACTI Sync v1 (Issue #21), current implementation 1.3.0
+
+Version **1.3.0** implements automatic browser connection, a tray icon and signed
+in-place updates. The architecture below describes the implementation; the
+verification section records earlier releases separately. Native acceptance of
+the 1.3.0 bootstrap, automatic upgrade and preservation of an unsaved Word document
+must be recorded after those operations actually pass.
 
 ## Model and compatibility
 
 Migration `0020_office_sync` adds logical originals, binary revisions, edit sessions
 and idempotent save receipts. Every existing file gets its own logical original
 with the same ID; it does not merge names, rewrite stored bytes or rewrite schema
-values. A new ordinary upload still creates a separate attachment. The per-file
-**Новая версия** action explicitly targets one logical original.
+values. A new ordinary upload still creates a separate attachment. The targeted
+manual revision API addresses one logical original; the current document UI
+exposes **Редактировать в Word** and **Скачать** according to permissions.
 
 Current projections expose the stable `id`, immutable `current_file_id` and
 `binary_revision`. Existing `/files/{id}/download` links remain immutable. Binary
@@ -59,7 +66,7 @@ the newly uncommitted object. A save response is produced after commit.
 
 ## Windows application
 
-Agent **1.2.0** supports DOC, DOCX, DOCM, DOT, DOTX, DOTM, RTF and ODT inputs.
+Agent **1.3.0** retains support for DOC, DOCX, DOCM, DOT, DOTX, DOTM, RTF and ODT inputs.
 DOCX follows the existing editing path; other inputs are verified private
 conversion sources. The interactive component creates a separate Word COM
 instance on a background STA, opens the source read-only, sets
@@ -77,8 +84,12 @@ the existing new-version upload still requires a validated macro-free DOCX.
 Older agents remain compatible with DOCX but cannot consume conversion tickets;
 upgrade to 1.2 before editing another input format.
 
-The browser retains an **Открыть в Word** action for its own authorized active
-session. It queues a scoped `open` command instead of acquiring another lease.
+The browser uses **Редактировать в Word** for a new edit or its own authorized
+active session. The latter queues a scoped `open` command instead of acquiring
+another lease. Both document locations align the filename and the same two
+permission-dependent actions; viewer launches, manual version upload and local
+guidance/status controls are removed from this compact document row. History,
+audit and useful synchronization/recovery controls remain available separately.
 The ACTI Sync trigger shows a pencil and count only for fresh, actually observed
 open Word documents with a live connection and lease. Notifications report
 observed open/close, local save, synchronization and new server acknowledgements;
@@ -90,10 +101,12 @@ Word API references: [AutomationSecurity](https://learn.microsoft.com/en-us/offi
 
 `ACTISync.Service.exe` runs as **NT AUTHORITY\LocalService**. It never launches
 Word or displays a window. `ACTISync.User.exe` runs in the interactive Windows
-session and opens the managed local DOCX in installed Word. Both processes work
-in the background: there is no agent window, taskbar entry, tray icon or modal
-agent dialog. The user's subsequent instruction supersedes the issue's original
-tray requirement. Document states and recovery actions live in the browser.
+session and opens the managed local DOCX in installed Word. It has an ACTI tray
+icon showing connection/update state; opening the icon leads to the ACTI browser
+panel. There is no separate document-management window or Windows save
+notification. `ACTISync.Updater.exe` is a separate **LocalSystem** service with
+the narrow responsibility of verifying and installing trusted releases. The
+synchronization service keeps its existing identity and document authority.
 
 The MSI pins `HKLM\SOFTWARE\ACTI\Sync\ServerOrigin` to an HTTPS origin. Neither
 the protocol URI nor IPC can supply an arbitrary server or file path. Standard
@@ -156,11 +169,25 @@ never file reading or writing. They are bound to the originating interactive
 browser session, stored with DPAPI and revoked by logout, account blocking or
 expiry. The configured origin remains fixed by the MSI.
 
-The service starts automatically and the user component starts at Windows
-sign-in. Pairing a new ACTI browser authentication session requires **Подключить
-агент** or the first **Редактировать в Word** launch; subsequent presence and
-token renewal are automatic while that session remains authorized. Closing a
-browser tab does not log out; explicit logout revokes the pairing.
+The services start automatically and the user component starts at Windows
+sign-in. After browser authentication, bounded discovery probes loopback ports
+43127..43142 and automatically pairs a running agent when needed; there is no
+separate **Подключить агент** button. Discovery and connection use one active
+attempt, stop on logout/unmount and retry within bounds. Editing uses the same
+bridge; an external-protocol fallback requires the user's edit gesture. Closing
+a browser tab does not log out; explicit logout revokes the pairing.
+
+The user-owned HTTP bridge binds only to the first available `127.0.0.1` port in
+that range. It admits the exact installed HTTPS origin, limits HTTP/body sizes,
+does not use cookies, and restricts CORS/private-network access to that origin.
+The TCP owner process must have the component's Windows SID and session; lookup
+failure rejects the request. `GET /v1/status` returns `{version, challenge}`.
+The random challenge expires after 45 seconds and is consumed once.
+`POST /v1/connect` and `/v1/launch` accept only `{ticket, challenge}` and forward
+the existing ticket operation through the SCM-verified service pipe. They cannot
+supply paths, commands or origins. Update drain makes the bridge unavailable.
+The updater maintains only its exact-origin Chrome/Edge loopback-policy entries,
+records ownership for cleanup and preserves unrelated administrator policy.
 
 The user component pulses its authenticated named pipe; the service reports
 presence only while that pulse is recent. This distinguishes a running service
@@ -176,19 +203,22 @@ connection credentials.
 ## Build and deployment
 
 Use Windows x64, pinned .NET SDK **10.0.402** and WiX **6.0.2**. Dependencies are
-pinned in the project files. The build script runs the Windows checks, publishes
-both self-contained single-file EXEs and builds a per-machine MSI:
+pinned in the project files. The build script runs the Windows and updater
+checks, publishes three self-contained single-file EXEs and builds one
+per-machine MSI:
 
 ```powershell
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.2.3-win-x64.msi`.
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.0-win-x64.msi`.
 The stable MSI UpgradeCode identifies one machine-wide installation: newer MSI
 versions replace the previous product at the same installation path. Working
 copies, queue, protected credentials and configured server origin survive upgrades.
-New builds are distributed by the administrator/MSI or GPO; the agent does not
-download and install releases by itself.
+Initial installation remains an administrator/MSI or GPO operation. The installed
+updater checks the public signed feed at startup and every five minutes, downloads
+a newer trusted MSI and performs the in-place upgrade. An ordinary user IPC
+request cannot select an MSI, executable, origin or privileged action.
 From 1.2.3 every authenticated agent heartbeat reports `client_version`, including
 recovered connections established by an older installation. The browser therefore
 shows the installed running service version after an upgrade without a new
@@ -198,20 +228,55 @@ Version 1.2.2 also permits validated reopening while Word retains its writable
 file handle. This read-only check still validates the actual final path, rejects
 reparse points/hard links and checks the macro-free DOCX package. It neither
 acknowledges a save nor releases a lease; finish keeps restrictive file sharing.
-It embeds both components and needs no separate EXE or .NET runtime installation.
+The MSI embeds all three components and needs no separate EXE or .NET runtime installation.
 Internal build outputs include
-`Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`, and `manifest.json` with
-SHA256, size and signature status. The `ACTI Sync` GitHub workflow publishes only
-the MSI in its downloadable installer artifact for the exact commit.
+`Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`,
+`Updater/ACTISync.Updater.exe` and `manifest.json` with SHA256, size and signature
+status. The `ACTI Sync` workflow keeps one MSI in its downloadable installer
+artifact for the exact source commit. On main, a separate publication job runs
+only after the API, web and Windows jobs succeed; it signs and publishes the MSI
+and `acti-sync-release.json` as an immutable GitHub release.
+
+The public `GET /api/v1/office-sync/distribution/latest` endpoint exposes only a
+verified release envelope. Its exact fields are base64 `payload` and `signature`;
+RSA3072 PKCS#1 v1.5/SHA256 authenticates the decoded raw UTF-8 payload bytes. The
+public trust key is pinned in the backend and embedded into the updater. The
+private key stays outside the checkout and in an Actions secret, never in an
+artifact or log. Release payload fields are `schema`=1, `product`="ACTISync",
+`version`, `source_sha`, `filename`, `sha256`, `size`, `release_tag`, `published_at`.
+Version is `1.minor.build`, with MSI limits minor <=255 and build <=65535;
+MSIs are at most 512 MiB. Filename, tag and download URL are constructed for
+`BorisDruzak/acti_potential`; callers cannot supply a download origin. The MSI's
+embedded source revision must match the signed source revision.
+
+The feed refreshes at most every ten minutes per API process, backs off failures
+for five minutes, and retains an unchanged verified last-good release for at most
+24 hours after a failed refresh. Cold/expired failure returns 503 with
+`Retry-After: 300`. It rejects a lower version or changed payload at the same
+version. The updater independently verifies the signature, product, version,
+source/filename/tag identity, download size/digest and installed-package identity;
+it rejects tampering, broken TLS and downgrades. Publication retries preserve an
+existing identical signed manifest/MSI and refuse changed immutable content.
+
+Before installation the updater authenticates to each running user component's
+update pipe using its SCM service PID. The user component stops accepting new
+launches, drains native work/conversion and exits only after readiness. A durable
+protected ProgramData transaction and helper own MSI installation, including
+replacement of the updater itself. Previously running components resume under
+their original SID/session with the logged-in user's token. Interrupted work
+retains installation/resume receipts; an uncertain MSI is not blindly launched a
+second time. Bootstrap handles a pre-1.3 component with process identity checks
+and bounded conversion drain. These paths never close/quit/kill Word, finish its
+document leases, remove working copies or discard pending snapshots.
 
 The installer registers automatic service startup/recovery, the protocol handler
 and user startup at sign-in. Initial install requires machine administrator/GPO;
 normal background operation, protocol and Word use the user's existing rights:
 
 ```powershell
-msiexec /i ACTISync-1.1.1-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
-msiexec /i ACTISync-1.1.1-win-x64.msi /qn /norestart /l*v upgrade.log
-msiexec /x ACTISync-1.1.1-win-x64.msi /qn /norestart /l*v uninstall.log
+msiexec /i ACTISync-1.3.0-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
+msiexec /i ACTISync-1.3.0-win-x64.msi /qn /norestart /l*v upgrade.log
+msiexec /x ACTISync-1.3.0-win-x64.msi /qn /norestart /l*v uninstall.log
 ```
 
 An upgrade reuses the configured origin unless explicitly changed.
@@ -219,7 +284,7 @@ An explicit `SERVERORIGIN` takes precedence over the existing registry value;
 the stored value is a fallback only. Service automatic startup and the per-machine
 HKLM Run entry for the background user component are installed by default, with
 no separate autostart step. The user component starts at Windows sign-in.
-Stop the background user component before a managed upgrade; leave Word documents intact.
+The automatic updater drains/restarts the user component and leaves Word documents intact.
 Uninstall/upgrade stop the service and deliberately
 preserve managed data, including unsubmitted working copies and pending state.
 Reinstall against the same origin restores state; if authorization/lease expired,
@@ -234,13 +299,15 @@ available signing certificate in CurrentUser\My, pass
 The script signs EXEs before packaging and then signs/verifies the MSI. Deploy
 under existing AppLocker/Defender/GPO policy; no policy bypass is supplied.
 
-Backend deployment requires the additive migration before exposing the UI. This
-PR does not authorize production migration or fleet deployment. Reboot, Office
-2021 edition/bitness acceptance and rollout readiness must be distinguished from
-automated tests and from testing another installed Word edition.
+The original backend foundation requires additive migrations 0020/0021 before
+exposing its UI. The 1.3.0 automation change adds no database migration and does
+not change dependencies or existing document authorization. Deployment and real
+automatic-update acceptance must be recorded separately from source tests and
+artifact publication. Reboot, Office 2021 edition/bitness acceptance and fleet
+readiness remain distinct from testing another installed Word edition.
 
 
-## Verification on 2026-10-19
+## Historical verification on 2026-10-19 (before 1.3.0 automation)
 
 A disposable ACTI database/object directory and loopback HTTPS endpoint were used;
 production services and legacy sources were not migrated or modified. The local

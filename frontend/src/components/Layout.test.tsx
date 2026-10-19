@@ -52,7 +52,7 @@ it.each(["admin", "work", "view"] as const)("makes agent status available in %s 
   await act(async () => {});
   fireEvent.click(screen.getByRole("button", {name: "ACTI Sync: нет связи"}));
   const panel = screen.getByRole("dialog", {name: "ACTI Sync"});
-  expect(!!within(panel).queryByRole("button", {name: "Подключить агент"})).toBe(space !== "view");
+  expect(within(panel).queryByRole("button", {name: "Подключить агент"})).toBeNull();
   fireEvent.click(within(panel).getByRole("button", {name: "Закрыть"}));
   expect((screen.getByLabelText("Черновик карточки") as HTMLInputElement).value).toBe("Несохранённое");
 });

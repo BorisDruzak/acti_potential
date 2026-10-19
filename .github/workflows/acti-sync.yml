@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: acti-sync-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
 jobs:
   windows:
     runs-on: windows-2025
@@ -21,7 +21,7 @@ jobs:
           dotnet-version: '10.0.402'
       - name: Test and build single MSI with embedded service and user component
         shell: pwsh
-        run: ./clients/acti-sync/packaging/build.ps1
+        run: ./clients/acti-sync/packaging/build.ps1 -SourceSha '${{ github.event.pull_request.head.sha || github.sha }}'
       - uses: actions/upload-artifact@v4
         with:
           name: ACTISync-installer-win-x64-${{ github.event.pull_request.head.sha || github.sha }}
@@ -42,7 +42,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run test -- --run src/components/OfficeSyncAgent.test.tsx src/components/OfficeSync.test.tsx src/components/OfficeOpen.test.tsx src/components/OriginalActions.test.tsx src/components/Layout.test.tsx src/engine/FormChanges.test.tsx src/pages/BrowserRegressions.test.tsx src/pages/DocumentsLayout.test.tsx src/pages/Workspaces.test.tsx
+      - run: npm run test -- --run --maxWorkers=2
       - run: npm run build
   api:
     runs-on: ubuntu-latest
@@ -72,5 +72,29 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen
-      - run: uv run pytest -q tests/test_office_agent.py tests/test_office_sync.py tests/test_office_open.py tests/test_documents.py tests/test_search_quality_v2.py tests/test_task005_content.py
+      - run: uv run pytest -q tests/test_office_agent.py tests/test_office_sync.py tests/test_office_sync_distribution.py tests/test_office_open.py tests/test_documents.py tests/test_search_quality_v2.py tests/test_task005_content.py
       - run: uv run ruff check app tests
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [windows, web, api]
+    runs-on: windows-2025
+    permissions:
+      contents: write
+    # A newer main build must never cancel an in-progress release transaction.
+    concurrency:
+      group: acti-sync-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ACTISync-installer-win-x64-${{ github.sha }}
+          path: release-artifact
+      - name: Sign and publish immutable ACTI Sync release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTI_SYNC_RELEASE_SIGNING_KEY: ${{ secrets.ACTI_SYNC_RELEASE_SIGNING_KEY }}
+        run: ./clients/acti-sync/packaging/publish-release.ps1 -ArtifactDirectory ./release-artifact -SourceSha '${{ github.sha }}'
