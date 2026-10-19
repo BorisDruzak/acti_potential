@@ -1,4 +1,17 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { FileTextIcon } from "@phosphor-icons/react/dist/csr/FileText";
+import { FloppyDiskIcon } from "@phosphor-icons/react/dist/csr/FloppyDisk";
+import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowCounterClockwise";
+import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle";
+import { CircleIcon } from "@phosphor-icons/react/dist/csr/Circle";
+import { UsersIcon } from "@phosphor-icons/react/dist/csr/Users";
+import { StackIcon } from "@phosphor-icons/react/dist/csr/Stack";
+import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/dist/csr/ClockCounterClockwise";
+import { ListBulletsIcon } from "@phosphor-icons/react/dist/csr/ListBullets";
+import { MegaphoneSimpleIcon } from "@phosphor-icons/react/dist/csr/MegaphoneSimple";
+import { CheckSquareIcon } from "@phosphor-icons/react/dist/csr/CheckSquare";
+import { FolderIcon } from "@phosphor-icons/react/dist/csr/Folder";
+import { PaperclipIcon } from "@phosphor-icons/react/dist/csr/Paperclip";
 import { ApiError, apiRequest, apiUpload, encodeFile, saveExport, saveSelectedExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
@@ -181,6 +194,8 @@ function DocumentCard({
     return () => {observer?.disconnect(); window.removeEventListener("resize", measure);};
   }, [hasCollaboration]);
   const remoteChange = hasUnsavedChanges ? collaboration.remote : null;
+  const collaborationUpdate = collaboration.state ? `Последнее изменение: ${collaboration.state.updated_by?.display_name || "Автор неизвестен"} · ${new Date(collaboration.state.updated_at).toLocaleString("ru-RU")}` : "";
+  const collaborationParticipants = collaboration.state?.participants.map(person => `${person.display_name}${person.editing ? " (редактирует)" : " (просматривает)"}`).join(", ");
   const blocked = conflict || !!remoteChange || collaboration.unavailable;
   useEffect(() => {onDirtyChange?.(hasUnsavedChanges);}, [hasUnsavedChanges, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
@@ -262,7 +277,7 @@ function DocumentCard({
       <div className="toolbar document-card-heading">
         <div>
           <div className="document-card-summary"><span className="eyebrow">{registryName} · {card.reg_number ? `№ ${card.reg_number}` : "БЕЗ НОМЕРА"}</span>
-          <span className={`document-state ${cardState}`}>{cardState === "published" ? "Опубликован" : "Черновик"}</span></div>
+          </div>
           <h1 title={card.title}>{card.title || "Документ"}</h1>
         </div>
         <button onClick={onClose}>К списку</button>
@@ -270,6 +285,16 @@ function DocumentCard({
       </div>
       <div className="document-card-dock" ref={dock}>
       <div className="document-actions-strip" role="group" aria-label="Действия с документом">
+          <div className="document-original-summary">
+            <FileTextIcon className="document-original-icon" size={26} aria-hidden="true"/>
+            <div>
+              <div className="document-original-caption">
+                <span>{card.files?.length > 1 ? `Оригиналы документа · ${card.files.length}` : "Оригинал документа"}</span>
+                <span className={`document-state ${cardState}`} aria-label={`Состояние карточки: ${cardState === "published" ? "Опубликован" : "Черновик"}`}>{cardState === "published" ? "Опубликован" : "Черновик"}</span>
+              </div>
+              <strong title={card.files?.map(file => file.name).join(", ")}>{card.files?.length ? card.files.length === 1 ? card.files[0].name : "Несколько файлов" : "Файлы пока не добавлены"}</strong>
+            </div>
+          </div>
           {canEdit && (
             <div className="button-row document-save-actions">
               {canEdit ? (
@@ -281,6 +306,7 @@ function DocumentCard({
                     className="primary"
                     disabled={!hasUnsavedChanges || action.busy || blocked || participantCreation.busy || registrationNumber.busy}
                   >
+                    <FloppyDiskIcon size={17} aria-hidden="true"/>
                     Сохранить карточку
                   </button>
                   {cardState !== "published" && <button type="submit" form={formId} onClick={() => setTab("card")} className="primary" data-action="publish"
@@ -296,20 +322,27 @@ function DocumentCard({
                       setPendingFiles({});
                     }}
                   >
+                    <ArrowCounterClockwiseIcon size={17} aria-hidden="true"/>
                     Отмена изменений
                   </button>
-                  <span className={`document-save-status${hasUnsavedChanges ? " unsaved" : ""}`} aria-live="polite">{hasUnsavedChanges ? "Есть несохранённые изменения" : "Все изменения сохранены"}</span>
                 </>
               ) : null}
             </div>
           )}
-      {(!!card.files?.length || canUpload) && <section className="document-original-panel" aria-label="Оригинал документа">
-        <div className="document-original-heading">
-          <svg className="document-original-icon" width="20" height="24" viewBox="0 0 20 24" fill="none" aria-hidden="true"><path d="M3 1h9l5 5v16H3V1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M12 1v6h5M6 12h8M6 16h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          <div><strong>Оригинал документа</strong>{!card.files?.length && <small>Файлы пока не добавлены</small>}</div>
+      {canEdit && <span className={`document-save-status${hasUnsavedChanges ? " unsaved" : ""}`} aria-live="polite">
+        {hasUnsavedChanges ? <CircleIcon size={17} aria-hidden="true"/> : <CheckCircleIcon size={19} weight="duotone" aria-hidden="true"/>}
+        {hasUnsavedChanges ? "Есть несохранённые изменения" : "Все изменения сохранены"}
+      </span>}
+      {collaboration.state && <div className="document-collaboration" aria-label="Совместная работа">
+        <UsersIcon size={21} aria-hidden="true"/>
+        <div>
+          <p title={collaborationUpdate}>{collaborationUpdate}</p>
+          {collaborationParticipants && <p title={`Сейчас в карточке: ${collaborationParticipants}`}>Сейчас в карточке: {collaborationParticipants}</p>}
         </div>
+      </div>}
+      {(!!card.files?.length || canUpload) && <section className="document-original-panel" aria-label="Оригинал документа">
         <div className="document-header-actions">
-          <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>
+          <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken} hideSingleName/>
         </div>
       </section>}
       </div>
@@ -318,26 +351,25 @@ function DocumentCard({
           className={tab === "card" ? "active" : ""}
           onClick={() => setTab("card")}
         >
+          <FileTextIcon size={18} aria-hidden="true"/>
           Карточка
         </button>
         <button
           className={tab === "files" ? "active" : ""}
           onClick={() => setTab("files")}
         >
+          <StackIcon size={18} aria-hidden="true"/>
           Файлы и версии
         </button>
         <button
           className={tab === "history" ? "active" : ""}
           onClick={() => setTab("history")}
         >
+          <ClockCounterClockwiseIcon size={18} aria-hidden="true"/>
           История изменений
         </button>
-        <button className={tab === "content" ? "active" : ""} onClick={() => setTab("content")}>Содержание</button>
+        <button className={tab === "content" ? "active" : ""} onClick={() => setTab("content")}><ListBulletsIcon size={18} aria-hidden="true"/>Содержание</button>
       </div>
-      {collaboration.state && <div className="document-collaboration" aria-label="Совместная работа">
-        <p>Последнее изменение: {collaboration.state.updated_by?.display_name || "Автор неизвестен"} · {new Date(collaboration.state.updated_at).toLocaleString("ru-RU")}</p>
-        {collaboration.state.participants.length > 0 && <p>Сейчас в карточке: {collaboration.state.participants.map(person => `${person.display_name}${person.editing ? " (редактирует)" : " (просматривает)"}`).join(", ")}</p>}
-      </div>}
       </div>
       <Feedback {...action} />
       {collaboration.unavailable && <div className="error" role="alert">Документ удалён или доступ к нему изменён. Обновите список документов.</div>}
@@ -374,6 +406,14 @@ function DocumentCard({
         >
           <fieldset className="document-fields" disabled={action.busy}>
           <DynamicForm
+            sectionIcons={{
+              ...(mainKey ? {[mainKey]: <ListBulletsIcon size={17} aria-hidden="true"/>} : {}),
+              ...(publicationKey ? {[publicationKey]: <MegaphoneSimpleIcon size={17} aria-hidden="true"/>} : {}),
+              control: <CheckSquareIcon size={17} aria-hidden="true"/>,
+              filing: <FolderIcon size={17} aria-hidden="true"/>,
+              people: <UsersIcon size={17} aria-hidden="true"/>,
+              files: <PaperclipIcon size={17} aria-hidden="true"/>,
+            }}
             sectionContent={{...(mainKey ? {[mainKey]: lifecycle} : {}), ...(publicationKey ? {[publicationKey]: publication} : {})}}
             navigationPlacement="side"
             compactRegistration

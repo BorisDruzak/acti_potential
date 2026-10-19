@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { MicrosoftWordLogoIcon } from "@phosphor-icons/react/dist/csr/MicrosoftWordLogo";
+import { DownloadSimpleIcon } from "@phosphor-icons/react/dist/csr/DownloadSimple";
 import { apiRequest, saveDownload } from "../api/client";
 import type { FileVersion } from "../engine/schema";
 import { useOfficeSyncStatus } from "../engine/useOfficeSyncStatus";
@@ -78,8 +80,8 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
   }
   return <div className={`office-sync-actions${compact ? " office-sync-actions--compact" : ""}`}>
     <div className="office-sync-buttons">
-      {enabled && mode === "editor" && (status?.can_edit || canReopen) && <button type="button" className="primary" disabled={busy || !!statusError} onClick={() => void edit()}>Редактировать в Word</button>}
-      {showDownload && <button type="button" onClick={() => void download()}>Скачать</button>}
+      {enabled && mode === "editor" && (status?.can_edit || canReopen) && <button type="button" className="primary" disabled={busy || !!statusError} onClick={() => void edit()}>{compact && <MicrosoftWordLogoIcon size={19} aria-hidden="true"/>}Редактировать в Word</button>}
+      {showDownload && <button type="button" onClick={() => void download()}>{compact && <DownloadSimpleIcon size={18} aria-hidden="true"/>}Скачать</button>}
     </div>
     {error && <small role="alert">{error}</small>}
   </div>;
