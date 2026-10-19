@@ -2,7 +2,12 @@ using ACTISync.Updater;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Reflection.PortableExecutable;
 
+// Session helpers must not initialize a console: Windows terminal handoff can
+// block a restricted Medium token in CSRSS before managed authentication runs.
+using(var apphost=File.OpenRead(Path.Combine(AppContext.BaseDirectory,"ACTISync.Updater.exe")))using(var pe=new PEReader(apphost))if(pe.PEHeaders.PEHeader?.Subsystem!=Subsystem.WindowsGui)throw new Exception("Updater apphost must use Windows GUI subsystem for restricted session helpers");
+Console.WriteLine("PASS updater apphost uses Windows GUI subsystem before any managed helper authentication");
 using var key=RSA.Create(3072);
 var fields=new Dictionary<string,object>{["schema"]=1,["product"]="ACTISync",["version"]="1.3.1",["source_sha"]=new string('a',40),["filename"]="ACTISync-1.3.1-win-x64.msi",["sha256"]=new string('b',64),["size"]=1024,["release_tag"]="acti-sync-v1.3.1-aaaaaaaaaaaa",["published_at"]="2026-10-19T00:00:00Z"};
 string Envelope(Dictionary<string,object> values) { var payload=JsonSerializer.SerializeToUtf8Bytes(values); return JsonSerializer.Serialize(new{payload=Convert.ToBase64String(payload),signature=Convert.ToBase64String(key.SignData(payload,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1))}); }

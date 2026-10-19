@@ -215,7 +215,6 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
           <button type="button" disabled={denied} onClick={refresh}>Обновить состояние</button>
         </div>
       </div>
-      <p className="office-sync-help">ACTI Sync работает в фоне. Установите один MSI через администратора или GPO. Редактируйте документ в Word и сохраняйте через Ctrl+S; управление сеансами доступно здесь. «Сохранено в ACTI» появляется после подтверждения сервера.</p>
       <h3>Документы и сеансы</h3>
       {data && !data.documents.length && <p className="office-sync-help">Открытых сеансов редактирования нет.</p>}
       <ul className="office-agent-documents">

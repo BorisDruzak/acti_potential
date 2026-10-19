@@ -92,6 +92,7 @@ it("shows agent presence without documents, and keeps the browser form when the 
   openPanel();
   const panel = screen.getByRole("dialog", {name: "ACTI Sync"});
   expect(within(panel).getByText("Версия агента: 1.1.0")).toBeTruthy();
+  expect(panel.textContent).not.toMatch(/Установите|MSI|GPO|Ctrl\+S/);
   expect(within(panel).getByText("Открытых сеансов редактирования нет.")).toBeTruthy();
   fireEvent.click(within(panel).getByRole("button", {name: "Закрыть"}));
   expect((screen.getByLabelText("Черновик") as HTMLInputElement).value).toBe("Несохранённое");
