@@ -29,6 +29,7 @@ internal static class AgentChecks {
     Check(server.Heartbeats==0,"another Windows SID pulse cannot mark connection online");
     await engine.Handle(sid,new(){Action="pulse"},default); await engine.AgentTick(default);
     Check(server.Heartbeats==1 && server.Renews==1,"live user pulse permits heartbeat and scoped connection renewal");
+    Check(server.LastClientVersion==Wire.Version,"existing connection reports installed version on every heartbeat");
     now=now.AddSeconds(16); await engine.AgentTick(default); Check(server.Heartbeats==1,"dead user component stops connection heartbeats");
     var launch=await engine.Handle(sid,new(){Action="launch",Ticket=new string('l',43)},default); session=launch.Session!.SessionId;
     var command=new AgentCommand{Id=Guid.NewGuid().ToString(),SessionId=session,Action="reveal",ExpiresAt=now.AddSeconds(60)}; server.Commands=[command];
@@ -60,6 +61,7 @@ internal static class AgentChecks {
     var pulse=await recovered.Handle(sid,new(){Action="pulse"},default);
     Check(pulse.Commands.Count==0 && !DurableJson.Read<AgentState>(persistedPath)!.Pending.ContainsKey(oldCommand.Id),"restart prunes expired commands and preserves native receipt without reopening Word");
     await recovered.AgentTick(default);
+    Check(server.LastClientVersion==Wire.Version,"recovered connection reports current installed version without reconnect");
     Check(server.Results.Any(r=>!r.Ok && r.Id==server.Commands.Single().Id),"uncertain native action reports failure after service restart");
    }
    before=server.Requests;
@@ -74,6 +76,7 @@ internal static class AgentChecks {
   public string ConnectionId=Guid.NewGuid().ToString(),Token="test-agent-connection-token";
   private readonly string session=Guid.NewGuid().ToString(); private readonly byte[] document=EngineChecks.Document("initial");
   public int Requests,Heartbeats,Renews; public List<AgentCommand> Commands=[]; public List<CommandResult> Results=[];
+  public string? LastClientVersion;
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) {
    Requests++; var path=request.RequestUri!.AbsolutePath;
    object Credentials(bool shortLife=false)=>new{connection_id=ConnectionId,token=Token,expires_at=DateTimeOffset.UtcNow.AddMinutes(shortLife ? 1 : 15)};
@@ -84,6 +87,7 @@ internal static class AgentChecks {
     Check(request.Headers.Authorization?.Parameter==Token,"presence relay uses only connection bearer");
     if(path.EndsWith("/renew")) { Renews++; Token="rotated-agent-connection-token"; return Json(Credentials()); }
     Heartbeats++; var body=await request.Content!.ReadFromJsonAsync<JsonElement>(Wire.Json,ct);
+    LastClientVersion=body.TryGetProperty("client_version",out var version) ? version.GetString() : null;
     Results.AddRange(JsonSerializer.Deserialize<List<CommandResult>>(body.GetProperty("command_results"),Wire.Json)!);
     return Json(new{commands=Commands});
    }
