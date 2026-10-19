@@ -10,6 +10,8 @@ internal static class EngineChecks {
  private static void Check(bool condition,string message) { if(!condition) throw new Exception(message); Console.WriteLine("PASS "+message); }
  internal static byte[] Document(string text) { using var memory=new MemoryStream(); using(var zip=new ZipArchive(memory,ZipArchiveMode.Create,true)) { using(var writer=new StreamWriter(zip.CreateEntry("[Content_Types].xml").Open())) writer.Write("<Types />"); using(var writer=new StreamWriter(zip.CreateEntry("word/document.xml").Open())) writer.Write(text); } return memory.ToArray(); }
  internal static async Task Run() {
+  await LegacyDoc();
+  await ClosedWord();
   var root=Path.Combine(Path.GetTempPath(),"ACTISync-engine-"+Guid.NewGuid().ToString("N"));
   var server=new Server(); var config=new ClientConfig(new Uri("https://example.com/")); var sid=WindowsIdentity.GetCurrent().User!.Value;
   try {
@@ -69,22 +71,81 @@ internal static class EngineChecks {
    Console.WriteLine("ALL SERVICE RECOVERY CHECKS PASSED");
   } finally { Directory.Delete(root,true); server.Dispose(); }
  }
- private sealed class Server : HttpMessageHandler {
+ private static async Task LegacyDoc() {
+  var root=Path.Combine(Path.GetTempPath(),"ACTISync-doc-"+Guid.NewGuid().ToString("N"));
+  using var server=new Server(true); var sid=WindowsIdentity.GetCurrent().User!.Value;
+  var config=new ClientConfig(new Uri("https://example.com/")); string id,path;
+  try {
+   using(var engine=new SyncEngine(root,config,new HttpClient(server,false))) {
+    engine.Initialize(); var launched=await engine.Handle(sid,new(){Action="launch",Ticket=new string('d',43)},default);
+    Check(launched.Ok && launched.Session?.Status=="opening","legacy DOC is downloaded as an immutable conversion input");
+    id=launched.Session!.SessionId; path=launched.Session.WorkingPath;
+    Check(path.EndsWith("test.docx") && !File.Exists(path),"DOC bytes never masquerade as DOCX or enter snapshot queue");
+    var source=Path.Combine(Path.GetDirectoryName(path)!,"original.doc");
+    Check(File.ReadAllBytes(source).SequenceEqual(server.Initial),"private DOC source bytes match server checksum");
+    await engine.Tick(default); Check(server.SaveRequests==0,"waiting for Word conversion never uploads DOC bytes");
+   }
+   using(var restarted=new SyncEngine(root,config,new HttpClient(server,false))) {
+    restarted.Initialize();
+    Check((await restarted.Handle(sid,new(),default)).Sessions.Single().SessionId==id,"pending DOC conversion survives service restart");
+    File.WriteAllBytes(path,Document("Word conversion output"));
+    File.WriteAllText(Path.Combine(Path.GetDirectoryName(path)!,"~$test.docx"),"owner");
+    await restarted.Handle(sid,new(){Action="opened",SessionId=id},default);
+    await restarted.Tick(default);
+    var state=DurableJson.Read<SessionState>(Path.Combine(root,"state",id+".json"))!;
+    Check(server.SaveRequests==1 && state.Revision==2 && state.LastAck!=null,"converted DOCX uses existing CAS and acknowledged durable save path");
+    Check(state.SourceFormat=="docx","acknowledged conversion switches future downloads to current DOCX, never the old source");
+    Check(File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(path)!,"original.doc")).SequenceEqual(server.Initial),"DOC source is preserved after successful DOCX acknowledgement");
+   }
+   var recoveredState=DurableJson.Read<SessionState>(Path.Combine(root,"state",id+".json"))!;
+   recoveredState.RetryAt=DateTimeOffset.MinValue;DurableJson.Write(Path.Combine(root,"state",id+".json"),recoveredState);File.Delete(path);
+   using(var afterAck=new SyncEngine(root,config,new HttpClient(server,false))) {
+    afterAck.Initialize();await afterAck.Tick(default);
+    Check(SafeFiles.ValidDocx(path) && Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)))==recoveredState.AckHash,"missing working copy after ACK downloads the current server DOCX instead of reconverting old DOC");
+   }
+  } finally { if(Directory.Exists(root)) Directory.Delete(root,true); }
+ }
+ private static async Task ClosedWord() {
+  var root=Path.Combine(Path.GetTempPath(),"ACTISync-close-"+Guid.NewGuid().ToString("N"));
+  using var server=new Server(); var sid=WindowsIdentity.GetCurrent().User!.Value;
+  try {
+   using var engine=new SyncEngine(root,new ClientConfig(new Uri("https://example.com/")),new HttpClient(server,false));
+   engine.Initialize(); var launch=await engine.Handle(sid,new(){Action="launch",Ticket=new string('e',43)},default);
+   var view=launch.Session!;var owner=Path.Combine(Path.GetDirectoryName(view.WorkingPath)!,"~$test.docx");
+   File.WriteAllText(owner,"owner");await engine.Handle(sid,new(){Action="opened",SessionId=view.SessionId},default);await engine.Tick(default);
+   File.Delete(owner);await engine.Tick(default);
+   var state=DurableJson.Read<SessionState>(Path.Combine(root,"state",view.SessionId+".json"))!;
+   Check(state.Finished && state.DocumentOpen==false && server.Finishes==1 && server.SaveRequests==0,"closing unchanged Word releases lease automatically without a binary revision");
+   var again=await engine.Handle(sid,new(){Action="launch",Ticket=new string('f',43)},default);
+   File.WriteAllText(owner,"owner");await engine.Handle(sid,new(){Action="opened",SessionId=again.Session!.SessionId},default);
+   File.WriteAllBytes(again.Session.WorkingPath,Document("save while disconnected, then close"));server.SaveStatus=HttpStatusCode.ServiceUnavailable;
+   await engine.Tick(default);File.Delete(owner);await engine.Tick(default);
+   state=DurableJson.Read<SessionState>(Path.Combine(root,"state",view.SessionId+".json"))!;
+   Check(!state.Finished && state.Pending!=null && server.Finishes==1,"closing Word with pending bytes retains lease and durable queue");
+   server.SaveStatus=HttpStatusCode.OK;await engine.Handle(sid,new(){Action="retry",SessionId=view.SessionId},default);await engine.Tick(default);
+   state=DurableJson.Read<SessionState>(Path.Combine(root,"state",view.SessionId+".json"))!;
+   Check(state.Finished && state.Pending==null && state.Revision==2 && server.Finishes==2,"closed document finishes only after queued bytes receive server ACK");
+  } finally { if(Directory.Exists(root))Directory.Delete(root,true); }
+ }
+ private sealed class Server(bool legacy=false) : HttpMessageHandler {
   public const string Token="test-scoped-credential-never-plaintext";
-  private readonly string id=Guid.NewGuid().ToString(); private readonly byte[] initial=Document("server initial");
-  private int revision=1; public int Requests,SaveRequests,Heartbeats; public bool? LastDocumentOpen; public List<string> Keys=[]; public HttpStatusCode SaveStatus=HttpStatusCode.OK;
+  private readonly string id=Guid.NewGuid().ToString(); private readonly byte[] initial=legacy ? [0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1,..new byte[504]] : Document("server initial");
+  internal byte[] Initial=>initial;
+  private byte[]? currentBytes;
+  private int revision=1; public int Requests,SaveRequests,Heartbeats,Finishes; public bool? LastDocumentOpen; public List<string> Keys=[]; public HttpStatusCode SaveStatus=HttpStatusCode.OK;
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) {
    Requests++;
    var operation=request.RequestUri!.Segments.Last();
-   object Session(string hash)=>new { agent=new{connection_id=Guid.NewGuid().ToString(),token=Token,expires_at=DateTimeOffset.UtcNow.AddMinutes(15)},session_id=id,token=Token,file_id="old-stable-file-id",filename="test.docx",revision,sha256=hash,expires_at=DateTimeOffset.UtcNow.AddMinutes(15),lease_expires_at=DateTimeOffset.UtcNow.AddSeconds(90),last_saved_at=DateTimeOffset.UtcNow,state="saved" };
+   object Session(string hash)=>new { agent=new{connection_id=Guid.NewGuid().ToString(),token=Token,expires_at=DateTimeOffset.UtcNow.AddMinutes(15)},session_id=id,token=Token,file_id="old-stable-file-id",filename="test.docx",source_format=legacy && revision==1 ? "doc" : "docx",revision,sha256=hash,expires_at=DateTimeOffset.UtcNow.AddMinutes(15),lease_expires_at=DateTimeOffset.UtcNow.AddSeconds(90),last_saved_at=DateTimeOffset.UtcNow,state="saved" };
    if(operation=="exchange") return new(HttpStatusCode.OK){Content=JsonContent.Create(Session(Convert.ToHexStringLower(SHA256.HashData(initial))),options:Wire.Json)};
    if(request.Headers.Authorization?.Parameter!=Token) throw new Exception("scoped token absent");
-   if(operation=="download") return new(HttpStatusCode.OK){Content=new ByteArrayContent(initial)};
+   if(operation=="download") return new(HttpStatusCode.OK){Content=new ByteArrayContent(currentBytes ?? initial)};
+   if(operation=="finish") Finishes++;
    if(operation=="heartbeat") { Heartbeats++; var body=await request.Content!.ReadFromJsonAsync<System.Text.Json.JsonElement>(Wire.Json,ct); if(body.TryGetProperty("document_open",out var open) && open.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False) LastDocumentOpen=open.GetBoolean(); }
    if(operation=="save") {
     SaveRequests++; Keys.Add(request.Headers.GetValues("Idempotency-Key").Single()); Check(request.Headers.GetValues("If-Match").Single()==$"\"{revision}\"","save carries strong expected revision");
     if(SaveStatus!=HttpStatusCode.OK) return new(SaveStatus);
-    var bytes=await request.Content!.ReadAsByteArrayAsync(ct); var hash=Convert.ToHexStringLower(SHA256.HashData(bytes)); Check(request.Headers.GetValues("X-Content-SHA256").Single()==hash,"upload checksum matches snapshot bytes"); revision++;
+    var bytes=await request.Content!.ReadAsByteArrayAsync(ct); var hash=Convert.ToHexStringLower(SHA256.HashData(bytes)); Check(request.Headers.GetValues("X-Content-SHA256").Single()==hash,"upload checksum matches snapshot bytes"); currentBytes=bytes; revision++;
     return new(HttpStatusCode.OK){Content=JsonContent.Create(Session(hash),options:Wire.Json)};
    }
    return new(HttpStatusCode.OK){Content=JsonContent.Create(Session(""),options:Wire.Json)};

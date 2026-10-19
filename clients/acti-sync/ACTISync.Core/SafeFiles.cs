@@ -18,6 +18,22 @@ public static class DurableJson {
  public static T? Read<T>(string path) => JsonSerializer.Deserialize<T>(File.ReadAllBytes(path), Wire.Json);
 }
 public static class SafeFiles {
+ public static bool WordSourceFormat(string format) => format is "doc" or "docx" or "docm" or "dot" or "dotx" or "dotm" or "rtf" or "odt";
+ // This recognizes conversion inputs, not executable/trusted documents. Only
+ // isolated Word with AutomationSecurity=ForceDisable may open these sources.
+ public static bool WordConversionInput(string path,string format) {
+  if(!WordSourceFormat(format) || format=="docx") return false;
+  try {
+   using var stream=OpenRead(path); if(stream.Length<5 || stream.Length>Wire.MaxFileSize) return false;
+   Span<byte> header=stackalloc byte[8]; var count=stream.Read(header); stream.Position=0;
+   if(format is "doc" or "dot") return stream.Length>=512 && count==8 && header.SequenceEqual(new byte[]{0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1}) || count>=5 && header[..5].SequenceEqual("{\\rtf"u8);
+   if(format=="rtf") return count>=5 && header[..5].SequenceEqual("{\\rtf"u8);
+   using var zip=new ZipArchive(stream,ZipArchiveMode.Read);
+   if(zip.Entries.Count>10000 || zip.Entries.Sum(e=>e.Length)>200L*1024*1024) return false;
+   if(format=="odt") { var mime=zip.GetEntry("mimetype"); if(mime is null || mime.Length>100) return false; using var reader=new StreamReader(mime.Open()); return reader.ReadToEnd()=="application/vnd.oasis.opendocument.text"; }
+   return zip.GetEntry("[Content_Types].xml")!=null && zip.GetEntry("word/document.xml")!=null;
+  } catch(Exception e) when(e is IOException or InvalidDataException or UnauthorizedAccessException) { return false; }
+ }
  // Validate the actual object even when Word needs write/delete sharing. Snapshot
  // callers revalidate both this handle and the current target after copying.
  // Finish keeps the default restrictive sharing through the server commit.
@@ -56,7 +72,7 @@ public static class SafeFiles {
    if (stream.Length < 1 || stream.Length > Wire.MaxFileSize) return false;
    using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
    var content = zip.GetEntry("[Content_Types].xml"); var document = zip.GetEntry("word/document.xml");
-   if (content is null || document is null || zip.Entries.Count > 10000) return false;
+   if (content is null || document is null || zip.Entries.Count > 10000 || zip.Entries.Any(e=>e.FullName.EndsWith("vbaProject.bin",StringComparison.OrdinalIgnoreCase))) return false;
    // Read entries fully: a complete ZIP directory alone does not guarantee complete compressed data.
    long total = 0; var buffer = new byte[8192];
    foreach (var entry in zip.Entries) { total += entry.Length; if (total > 250L * 1024 * 1024) return false; using var input = entry.Open(); while (input.Read(buffer) != 0) { } }

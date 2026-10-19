@@ -55,6 +55,16 @@ Actor = Annotated[object, Depends(current_actor)]
 LEASE_SECONDS = 90
 TOKEN_SECONDS = 900
 MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+SOURCE_MIMES = {
+    "doc": "application/msword",
+    "docx": MIME,
+    "docm": "application/vnd.ms-word.document.macroEnabled.12",
+    "dot": "application/msword",
+    "dotx": "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+    "dotm": "application/vnd.ms-word.template.macroEnabled.12",
+    "rtf": "application/rtf",
+    "odt": "application/vnd.oasis.opendocument.text",
+}
 
 
 class Input(BaseModel):
@@ -112,8 +122,8 @@ def authorized(session, actor, file_id, *, write=False, lock=False, mode=None):
             or actor.scoped_registry_ids is not None
         ):
             fail(403, "interactive_session_required", "Нужна действующая пользовательская сессия")
-        if PurePath(anchor.name).suffix.lower() != ".docx":
-            fail(422, "office_format", "Редактирование поддерживает только DOCX")
+        if PurePath(anchor.name).suffix.lower().removeprefix(".") not in SOURCE_MIMES:
+            fail(422, "office_format", "Редактирование поддерживает DOC, DOCX, DOCM, DOT, DOTX, DOTM, RTF и ODT")
         if anchor.field_key:
             field, parent, index = resolve_file_field(schema, anchor.field_key, values)
             if not field or not field_writable(field, actor):
@@ -149,12 +159,22 @@ def current_file(session, anchor, original):
     return session.get(DocumentFile, original.current_file_id) if original else anchor
 
 
+def source_format(file):
+    return PurePath(file.name).suffix.lower().removeprefix(".")
+
+
+def docx_filename(name):
+    # Replace the extension, never append it or interpret the name as a storage path.
+    return name.rsplit(".", 1)[0] + ".docx"
+
+
 def status_payload(session, row, original):
     file = session.get(DocumentFile, original.current_file_id)
     return {
         "session_id": row.id,
         "file_id": original.id,
-        "filename": file.name,
+        "filename": docx_filename(file.name) if source_format(file) != "docx" else file.name,
+        "source_format": source_format(file),
         "revision": original.revision,
         "sha256": file.sha256,
         "expires_at": row.expires_at,
@@ -292,6 +312,10 @@ def exchange(data: Exchange, request: Request, session: Db):
         or row.lease_expires_at <= now
     ):
         fail(409, "sync_ticket_consumed", "Ссылка запуска истекла или уже использована")
+    if source_format(session.get(DocumentFile, original.current_file_id)) != "docx" and tuple(
+        int(part) for part in data.client_version.split(".")
+    ) < (1, 2, 0):
+        fail(422, "client_upgrade_required", "Для преобразования в DOCX обновите ACTI Sync до 1.2.0")
     row.exchanged_at, row.last_seen_at = now, now
     row.lease_expires_at, row.state = now + timedelta(seconds=LEASE_SECONDS), "opening"
     token = secrets.token_urlsafe(32)
@@ -343,7 +367,7 @@ def stream_original(request, session, file, revision):
 
     return StreamingResponse(
         chunks(),
-        media_type=MIME,
+        media_type=SOURCE_MIMES.get(source_format(file), "application/octet-stream"),
         headers={
             "Content-Disposition": "attachment; filename*=UTF-8''" + quote(file.name, safe=""),
             "Content-Length": str(file.size),
@@ -444,9 +468,10 @@ def commit_save(source, expected, key, digest, identity, request, session, conte
             "Оригинал изменён. Локальная копия сохранена; требуется действие",
         )
     current = current_file(session, anchor, original)
-    if current.sha256 != digest:
+    if current.sha256 != digest or source_format(current) != "docx":
         source.seek(0)
         validate_docx(source)
+    if current.sha256 != digest:
         stored = storage.put(uuid4().hex, source)
 
         def cleanup(_session):
@@ -460,7 +485,7 @@ def commit_save(source, expected, key, digest, identity, request, session, conte
             document_id=anchor.document_id,
             version_id=anchor.version_id,
             field_key=anchor.field_key,
-            name=anchor.name,
+            name=docx_filename(current.name) if source_format(current) != "docx" else current.name,
             size=stored.size,
             mime=MIME,
             sha256=stored.sha256,
@@ -486,6 +511,15 @@ def commit_save(source, expected, key, digest, identity, request, session, conte
                 "original_id": str(original.id),
                 "file_id": str(file.id),
                 "version": original.revision,
+                **(
+                    {
+                        "previous_file_id": str(current.id),
+                        "from_format": source_format(current),
+                        "to_format": "docx",
+                    }
+                    if source_format(current) != "docx"
+                    else {}
+                ),
             },
         )
     row.state, row.last_saved_at, row.last_seen_at = "saved", now, now
@@ -578,7 +612,8 @@ def current_download(
 
 @router.get("/files/{file_id}/status")
 def file_status(
-    file_id: UUID, session: Db, actor: Actor, mode: Literal["editor", "viewer"] | None = None
+    file_id: UUID, request: Request, session: Db, actor: Actor,
+    mode: Literal["editor", "viewer"] | None = None,
 ):
     _, anchor, original = authorized(session, actor, file_id, mode=mode)
     reason = "Открыт режим просмотра" if mode == "viewer" else None
@@ -600,7 +635,17 @@ def file_status(
         )
         .limit(1)
     )
-    return browser_file_payload(session, actor, anchor, original, row, reason, now)
+    payload = browser_file_payload(session, actor, anchor, original, row, reason, now)
+    auth = browser_auth(session, request)
+    connection = session.get(OfficeAgentConnection, row.connection_id) if row and row.connection_id else None
+    payload["can_reopen"] = bool(
+        reason is None and row and not row.finished_at
+        and row.auth_session_id == auth.id and row.user_id == actor.id
+        and row.lease_expires_at > now and row.expires_at > now
+        and connection and connection.auth_session_id == auth.id
+        and connection.user_id == actor.id and connection_online(connection, now)
+    )
+    return payload
 
 
 def browser_file_payload(session, actor, anchor, original, row, reason, now):
@@ -635,12 +680,13 @@ def browser_file_payload(session, actor, anchor, original, row, reason, now):
 
 @router.get("/sessions/{identity}")
 def browser_session(
-    identity: UUID, session: Db, actor: Actor, mode: Literal["editor", "viewer"] | None = None
+    identity: UUID, request: Request, session: Db, actor: Actor,
+    mode: Literal["editor", "viewer"] | None = None,
 ):
     row = session.get(OfficeEditSession, identity)
     if row is None:
         fail(404, "not_found", "Сеанс не найден")
-    return file_status(row.original_id, session, actor, mode)
+    return file_status(row.original_id, request, session, actor, mode)
 
 
 @router.get("/files/{file_id}/history")
@@ -666,6 +712,7 @@ def file_history(
         "items": [
             {
                 "file_id": file.id,
+                "filename": file.name,
                 "revision": revision,
                 "sha256": file.sha256,
                 "size": file.size,

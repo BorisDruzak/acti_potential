@@ -18,6 +18,10 @@
 .office-agent-dot {width: 7px; height: 7px; border-radius: 50%; background: #87959b; flex-shrink: 0;}
 .office-agent-trigger--online .office-agent-dot {background: #397453;}
 .office-agent-presence {font-size: 10px;}
+.office-agent-editing {display: inline-flex; align-items: center; gap: .2rem; color: var(--text, #284740); font-weight: 600;}
+.office-agent-notices {position: fixed; right: 1rem; bottom: 1rem; width: min(380px, calc(100vw - 2rem)); display: flex; flex-direction: column; gap: .5rem; z-index: 1200; pointer-events: none;}
+.office-agent-notice {display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .8rem 1rem; border: 1px solid #b9d5ca; border-radius: .6rem; background: #f2faf6; color: var(--text, #284740); box-shadow: 0 4px 18px #28474020; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; pointer-events: auto;}
+.office-agent-notice button {border: 0; background: transparent; padding: .25rem; color: inherit; font-size: 18px; flex-shrink: 0;}
 .office-agent-panel {width: min(680px, 100%);}
 .office-agent-panel .toolbar {margin-top: 0;}
 .office-agent-panel h3 {font-size: 15px; margin-top: 1.4rem;}

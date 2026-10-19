@@ -15,7 +15,7 @@ metadata revision. The content index retires prior sources from current search
 and queues extraction of the new immutable source in the same transaction.
 
 The domain decision of 2026-10-19 permits editing registered, published and
-imported DOCX documents as **new binary revisions of the same logical original**.
+imported Word documents as **new binary revisions of the same logical original**.
 Both Sync and targeted manual version upload use this policy. Every prior file,
 metadata revision and import provenance remains unchanged; the current binary
 pointer advances and `document.binary.saved` records the actor, original, new
@@ -58,6 +58,35 @@ records history/audit/outbox/receipt, and queues indexing. Rollback removes only
 the newly uncommitted object. A save response is produced after commit.
 
 ## Windows application
+
+Agent **1.2.0** supports DOC, DOCX, DOCM, DOT, DOTX, DOTM, RTF and ODT inputs.
+DOCX follows the existing editing path; other inputs are verified private
+conversion sources. The interactive component creates a separate Word COM
+instance on a background STA, opens the source read-only, sets
+`AutomationSecurity=3` (ForceDisable) before opening, disables automatic link
+updates and saves explicit format 12 (`wdFormatXMLDocument`). It closes only its
+own conversion instance, verifies the macro-free DOCX and publishes the working
+copy without overwriting an existing one. The service never automates Office.
+The first conversion creates a new binary revision even without a later user edit.
+
+The original bytes and immutable download URL remain intact. New revisions and
+current download names use DOCX; history includes each original filename.
+Conversion audit additionally records `previous_file_id`, `from_format` and
+`to_format`. Arbitrary DOC/RTF/template uploads are not accepted as new versions:
+the existing new-version upload still requires a validated macro-free DOCX.
+Older agents remain compatible with DOCX but cannot consume conversion tickets;
+upgrade to 1.2 before editing another input format.
+
+The browser retains an **Открыть в Word** action for its own authorized active
+session. It queues a scoped `open` command instead of acquiring another lease.
+The ACTI Sync trigger shows a pencil and count only for fresh, actually observed
+open Word documents with a live connection and lease. Notifications report
+observed open/close, local save, synchronization and new server acknowledgements;
+initial historical data and successful command dispatch do not manufacture them.
+
+Word API references: [AutomationSecurity](https://learn.microsoft.com/en-us/office/vba/api/word.application.automationsecurity),
+[Documents.Open](https://learn.microsoft.com/en-us/office/vba/api/word.documents.open),
+[SaveAs2](https://learn.microsoft.com/en-us/office/vba/api/word.saveas2).
 
 `ACTISync.Service.exe` runs as **NT AUTHORITY\LocalService**. It never launches
 Word or displays a window. `ACTISync.User.exe` runs in the interactive Windows
@@ -110,8 +139,13 @@ Apply it before deploying the background client and browser panel.
 
 The browser's ACTI Sync panel lists the user's editing documents, their last
 confirmed open/close state and independent server save acknowledgement. Closing
-Word does not discard pending bytes or automatically finish a lease. A closed
-document can still be waiting for synchronization. Stale presence is shown as
+Word does not discard pending bytes. Agent 1.2 automatically finishes a lease
+only after an observed Word close, stable current bytes matching the server ACK,
+no pending snapshots and no in-progress reopen command. It reuses the restrictive
+manual finish validation and holds the verified file against writes/replacement
+through the finish request. A closed document can still be waiting for
+synchronization; a conflict or failed upload keeps its bytes and lease.
+Stale presence is shown as
 unknown/offline rather than fresh evidence of saving or an open Word window.
 
 `POST /office-sync/agent/connect` issues a one-use, 60-second
@@ -149,7 +183,7 @@ both self-contained single-file EXEs and builds a per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.1.1-win-x64.msi`.
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.2.0-win-x64.msi`.
 It embeds both components and needs no separate EXE or .NET runtime installation.
 Internal build outputs include
 `Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`, and `manifest.json` with
