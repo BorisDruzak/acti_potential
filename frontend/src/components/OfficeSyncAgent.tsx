@@ -213,6 +213,7 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
         {statusError && <p role="alert">{statusError}</p>}
         <div className="button-row">
           <button type="button" disabled={denied} onClick={refresh}>Обновить состояние</button>
+          <a href="/api/v1/office-sync/distribution/download" target="_blank" rel="noopener noreferrer">Скачать агент</a>
         </div>
       </div>
       <h3>Документы и сеансы</h3>

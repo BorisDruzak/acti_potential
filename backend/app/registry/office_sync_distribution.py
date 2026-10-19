@@ -20,7 +20,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 REPOSITORY = "BorisDruzak/acti_potential"
 LATEST_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
@@ -186,6 +186,9 @@ class ReleaseCache:
         self.good = None
 
     def get(self):
+        return self.get_release()[0]
+
+    def get_release(self):
         with self.lock:
             now = self.clock()
             if now >= self.next_check:
@@ -204,7 +207,7 @@ class ReleaseCache:
                     pass
             if self.good is None or self.clock() - self.good_at > MAX_STALE_SECONDS:
                 raise ReleaseUnavailable("No verified current release available")
-            return self.good[0]
+            return self.good
 
 
 cache = ReleaseCache()
@@ -215,12 +218,28 @@ def latest(request: Request):
     try:
         return JSONResponse(cache.get(), headers={"Cache-Control": "no-store"})
     except ReleaseUnavailable:
-        # Return directly because the application's generic exception handler
-        # intentionally drops exception headers, including Retry-After.
-        return JSONResponse(
-            {"error": {"code": "release_unavailable",
-                       "message": "ACTI Sync release temporarily unavailable", "details": None},
-             "request_id": getattr(request.state, "request_id", None)},
-            status_code=503,
-            headers={"Retry-After": str(FAILURE_SECONDS), "Cache-Control": "no-store"},
+        return unavailable(request)
+
+
+@router.get("/download", response_class=RedirectResponse, status_code=302)
+def download(request: Request):
+    try:
+        _, payload, _ = cache.get_release()
+        return RedirectResponse(
+            asset_url(payload["release_tag"], payload["filename"]),
+            status_code=302, headers={"Cache-Control": "no-store"},
         )
+    except ReleaseUnavailable:
+        return unavailable(request)
+
+
+def unavailable(request: Request):
+    # Return directly because the application's generic exception handler
+    # intentionally drops exception headers, including Retry-After.
+    return JSONResponse(
+        {"error": {"code": "release_unavailable",
+                   "message": "ACTI Sync release temporarily unavailable", "details": None},
+         "request_id": getattr(request.state, "request_id", None)},
+        status_code=503,
+        headers={"Retry-After": str(FAILURE_SECONDS), "Cache-Control": "no-store"},
+    )

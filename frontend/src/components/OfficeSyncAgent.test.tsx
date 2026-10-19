@@ -58,6 +58,15 @@ it("opens the existing global panel from the tray query", async () => {
   expect(await screen.findByRole("dialog", {name: "ACTI Sync"})).toBeTruthy();
 });
 
+it("offers a separate stable installer link even for an offline agent and a reader", async () => {
+  show(false); openPanel();
+  const link = within(screen.getByRole("dialog", {name: "ACTI Sync"})).getByRole("link", {name: "Скачать агент"});
+  expect(link.getAttribute("href")).toBe("/api/v1/office-sync/distribution/download");
+  expect(link.getAttribute("target")).toBe("_blank");
+  expect(link.getAttribute("rel")).toContain("noreferrer");
+  expect(request.mock.calls.some(([path]) => path.endsWith("/connect"))).toBe(false);
+});
+
 it("bounds discovery retries and never loops connect tickets while the heartbeat remains offline", async () => {
   vi.useFakeTimers(); show(); await act(async () => {});
   await act(async () => {await vi.advanceTimersByTimeAsync(120000);});
