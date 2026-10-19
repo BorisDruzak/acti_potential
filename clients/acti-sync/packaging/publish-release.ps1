@@ -24,10 +24,39 @@ function Invoke-ReleaseGitHub([string[]]$Arguments) {
 }
 $releaseJson = & gh release view $tag --repo $repository --json isDraft,assets,targetCommitish 2>$null
 $exists = $LASTEXITCODE -eq 0
+if ($exists) { $release = $releaseJson | ConvertFrom-Json }
+# Server/document-only main commits may keep the installed agent version. Never
+# publish another package at that version, or move GitHub latest backwards.
+# Inspect the HTTP status so rate limits/network failures cannot look like a
+# first publication. Only an actual 404 means that no prior release exists.
+$latestResponse = & gh api "repos/$repository/releases/latest" --include 2>$null
+$latestExit = $LASTEXITCODE
+$latestText = $latestResponse -join "`n"
+$responseParts = $latestText -split "`r?`n`r?`n", 2
+if ($responseParts.Count -ne 2 -or $responseParts[0] -notmatch '\AHTTP/\S+ (\d{3})\b') {
+    throw 'Cannot establish latest release HTTP status; refusing publication.'
+}
+$latestStatus = [int]$Matches[1]
+$blocksPublication = $false
+if ($latestStatus -eq 200 -and $latestExit -eq 0) {
+    $latest = $responseParts[1] | ConvertFrom-Json
+    if ($latest.draft -ne $false -or $latest.prerelease -ne $false -or
+        $latest.tag_name -cnotmatch '^acti-sync-v(1\.(?:0|[1-9][0-9]{0,2})\.(?:0|[1-9][0-9]{0,4}))-[a-f0-9]{12}$') {
+        throw 'Latest release is not a canonical ACTI Sync release.'
+    }
+    $latestVersion = [version]$Matches[1]
+    if ($latestVersion.Minor -gt 255 -or $latestVersion.Build -gt 65535) { throw 'Invalid latest MSI version.' }
+    $blocksPublication = $latest.tag_name -cne $tag -and $latestVersion -ge [version]$version
+} elseif ($latestStatus -ne 404) {
+    throw 'Latest release query failed; refusing publication.'
+}
+if ($blocksPublication -and (!$exists -or $release.isDraft)) {
+    Write-Output "Skipped ACTI Sync $version publication: an equal or newer version is already published."
+    return
+}
 $manifest = Join-Path $ArtifactDirectory 'acti-sync-release.json'
 $existingManifest = ''
 if ($exists) {
-    $release = $releaseJson | ConvertFrom-Json
     $ref = (Invoke-ReleaseGitHub @('api', "repos/$repository/git/ref/tags/$tag")) | ConvertFrom-Json
     if ($ref.object.type -ne 'commit' -or $ref.object.sha -cne $SourceSha) { throw 'Existing release tag points to another commit.' }
     $downloadDirectory = Join-Path $ArtifactDirectory 'existing-release'
