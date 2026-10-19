@@ -253,6 +253,15 @@ MSIs are at most 512 MiB. Filename, tag and download URL are constructed for
 `BorisDruzak/acti_potential`; callers cannot supply a download origin. The MSI's
 embedded source revision must match the signed source revision.
 
+The separate **Скачать агент** link in the ACTI Sync panel opens public
+`GET /api/v1/office-sync/distribution/download`. This stable, shareable address
+returns a non-cacheable 302 to the MSI from the same verified current release,
+without requiring a running agent or login. It accepts no caller-selected download
+target. A missing/expired verified release returns the same bounded 503/backoff
+as the feed. The panel lists the latest session per original for the current ACTI
+browser authentication, including finished sessions (at most 100 originals);
+it is not the document's complete version/audit history.
+
 The feed refreshes at most every ten minutes per API process, backs off failures
 for five minutes, and retains an unchanged verified last-good release for at most
 24 hours after a failed refresh. Cold/expired failure returns 503 with

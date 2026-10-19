@@ -76,7 +76,8 @@ def test_tamper_duplicate_properties_bad_encoding_oversize(signing):
             feed.verify_envelope(raw, signing[1], NOW)
 
 
-def test_failure_cold_backoff_and_public_route(monkeypatch):
+@pytest.mark.parametrize("route", ["latest", "download"])
+def test_failure_cold_backoff_and_public_route(monkeypatch, route):
     calls = []
     clock = [1.0]
 
@@ -90,7 +91,7 @@ def test_failure_cold_backoff_and_public_route(monkeypatch):
     app.include_router(feed.router, prefix="/api/v1")
     with TestClient(app) as client:
         for _ in range(3):
-            response = client.get("/api/v1/office-sync/distribution/latest")
+            response = client.get(f"/api/v1/office-sync/distribution/{route}")
             assert response.status_code == 503
             assert response.headers["retry-after"] == "300"
             assert "synthetic" not in response.text
@@ -140,6 +141,25 @@ def test_public_success_returns_only_envelope(signing, monkeypatch):
     assert response.status_code == 200
     assert response.json() == expected[0]
     assert "set-cookie" not in response.headers
+
+
+def test_download_tracks_verified_current_release_without_login_or_target_override(signing, monkeypatch):
+    clock = [1.0]
+    current = [candidate(signing, "1.3.5")]
+    monkeypatch.setattr(feed, "cache", feed.ReleaseCache(lambda: current[0], lambda: clock[0]))
+    app = FastAPI()
+    app.include_router(feed.router, prefix="/api/v1")
+    with TestClient(app, follow_redirects=False) as client:
+        for version in ("1.3.5", "1.3.6"):
+            current[0] = candidate(signing, version)
+            clock[0] += feed.REFRESH_SECONDS
+            response = client.get("/api/v1/office-sync/distribution/download?url=https://evil.example/")
+            assert response.status_code == 302
+            assert response.headers["location"] == feed.asset_url(
+                current[0][1]["release_tag"], f"ACTISync-{version}-win-x64.msi",
+            )
+            assert response.headers["cache-control"] == "no-store"
+            assert "set-cookie" not in response.headers
 
 
 @pytest.mark.parametrize("target", ["http://github.com/file", "https://evil.example/file",
