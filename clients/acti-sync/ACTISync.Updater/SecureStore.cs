@@ -41,7 +41,12 @@ internal static class SecureStore {
  internal static byte[] ReadEnvelope() { using var input=SafeFiles.OpenRead(Envelope); if(input.Length>ReleaseTrust.MaxEnvelopeSize) throw new InvalidDataException(); using var output=new MemoryStream();input.CopyTo(output);return output.ToArray(); }
  internal static void Delete(string path) { if(!File.Exists(path))return; SafeFiles.NoReparse(path); using(var input=SafeFiles.OpenRead(path)){} File.Delete(path); }
  internal static void Status(string state,string? version=null)=>Write(Path.Combine(Public,"status.json"),new{state,version=version??CurrentVersion,updated_at=DateTimeOffset.UtcNow});
- internal static void Failure(string stage,Exception error)=>Write(Path.Combine(Root,"failure.json"),new{stage,error_type=error.GetType().Name,error_code=error.HResult,native_error=error is System.ComponentModel.Win32Exception native?native.NativeErrorCode:(int?)null,at=DateTimeOffset.UtcNow});
+ internal static void Failure(string stage,Exception error)=>Write(Path.Combine(Root,"failure.json"),new{
+  stage,error_type=error.GetType().Name,error_code=error.HResult,native_error=error is System.ComponentModel.Win32Exception native?native.NativeErrorCode:(int?)null,
+  error_site=error.TargetSite?.DeclaringType?.FullName+"."+error.TargetSite?.Name,
+  // Method names only: never persist exception messages, arguments, source paths,
+  // document names, credentials, configuration values, or user identities.
+  stack_methods=new System.Diagnostics.StackTrace(error,false).GetFrames().Take(12).Select(frame=>frame.GetMethod()?.DeclaringType?.FullName+"."+frame.GetMethod()?.Name).ToArray(),at=DateTimeOffset.UtcNow});
  internal static string CurrentVersion=>typeof(SecureStore).Assembly.GetName().Version!.ToString(3);
 }
 internal sealed class UpdateRequest {

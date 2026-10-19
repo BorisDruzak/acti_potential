@@ -20,7 +20,10 @@ internal static class WindowsSessions {
  }
  private static UserProcess? Identify(Process process) {
   if(!string.Equals(process.MainModule?.FileName,SecureStore.UserExe,StringComparison.OrdinalIgnoreCase) || process.SessionId==0) return null;
-  if(!OpenProcessToken(process.Handle,8,out var token)) throw new Win32Exception();
+  // Process.Handle requests full access. An unelevated session helper can read
+  // the old user's identity while correctly lacking termination/write rights.
+  using var query=OpenProcess(0x1000,false,process.Id);if(query.IsInvalid)throw new Win32Exception();
+  if(!OpenProcessToken(query.DangerousGetHandle(),8,out var token)) throw new Win32Exception();
   using(token) { using var identity=new WindowsIdentity(token.DangerousGetHandle()); var sid=identity.User?.Value; if(sid is null || identity.IsSystem) return null;
    // Main thread is the earliest-created thread; never post to another process.
    var thread=process.Threads.Cast<ProcessThread>().OrderBy(t=>t.StartTime).First();
@@ -59,10 +62,17 @@ internal static class WindowsSessions {
   if(!CreateEnvironmentBlock(out var environment,medium,false))throw new Win32Exception();
   try {
    SafeFiles.NoReparse(SecureStore.UpdaterExe);var startup=new StartupInfo{Size=Marshal.SizeOf<StartupInfo>(),Desktop=@"winsta0\default"};
-   if(!CreateProcessAsUser(medium,SecureStore.UpdaterExe,new StringBuilder('"'+SecureStore.UpdaterExe+"\" --legacy-exit"),IntPtr.Zero,IntPtr.Zero,false,0x00000400|0x08000000,environment,SecureStore.InstalledDirectory,ref startup,out var created))throw new Win32Exception();
-   try{return Process.GetProcessById((int)created.Pid);}finally{CloseHandle(created.Thread);CloseHandle(created.Process);}
+   // Pin the managed Process handle before the helper can finish its reply and
+   // exit. GetProcessById alone keeps only a PID; ExitCode then throws after a
+   // fast foreign process disappears even though IPC completed successfully.
+   if(!CreateProcessAsUser(medium,SecureStore.UpdaterExe,new StringBuilder('"'+SecureStore.UpdaterExe+"\" --legacy-exit"),IntPtr.Zero,IntPtr.Zero,false,0x00000004|0x00000400|0x08000000,environment,SecureStore.InstalledDirectory,ref startup,out var created))throw new Win32Exception();
+   Process? helper=null;var resumed=false;
+   try{helper=PinProcess((int)created.Pid);if(ResumeThread(created.Thread)==uint.MaxValue)throw new Win32Exception();resumed=true;return helper;}
+   catch{helper?.Dispose();if(!resumed)TerminateProcess(created.Process,1);throw;}
+   finally{CloseHandle(created.Thread);CloseHandle(created.Process);}
   }finally{DestroyEnvironmentBlock(environment);}
  }
+ internal static Process PinProcess(int pid) {var process=Process.GetProcessById(pid);try{_=process.Handle;return process;}catch{process.Dispose();throw;}}
  internal static bool Resume(UserProcess user) {
   if(Snapshot().Any(p=>p.SessionId==user.SessionId && p.Sid==user.Sid)) return true;
   if(!WTSQueryUserToken((uint)user.SessionId,out var raw))return ResumeDecision(user.Sid,null,SessionHasUser(user.SessionId))=="complete";
@@ -110,6 +120,7 @@ internal static class WindowsSessions {
  [StructLayout(LayoutKind.Sequential)]private struct ProcessInfo {public IntPtr Process,Thread;public uint Pid,Tid;}
  [StructLayout(LayoutKind.Sequential)]private struct SidAttributes {public IntPtr Sid;public uint Attributes;}
  [DllImport("advapi32.dll",SetLastError=true)]private static extern bool OpenProcessToken(IntPtr process,uint access,out SafeAccessTokenHandle token);
+ [DllImport("kernel32.dll",SetLastError=true)]private static extern SafeProcessHandle OpenProcess(uint access,bool inherit,int pid);
  [DllImport("advapi32.dll",SetLastError=true)]private static extern bool GetTokenInformation(SafeAccessTokenHandle token,int kind,IntPtr info,int size,out int length);
  [DllImport("advapi32.dll",SetLastError=true)]private static extern bool CreateRestrictedToken(SafeAccessTokenHandle token,uint flags,uint disabledCount,ref SidAttributes disabled,uint deleteCount,IntPtr deletes,uint restrictedCount,IntPtr restricts,out SafeAccessTokenHandle result);
  [DllImport("advapi32.dll",EntryPoint="ConvertStringSidToSidW",CharSet=CharSet.Unicode,SetLastError=true)]private static extern bool ConvertStringSidToSid(string text,out IntPtr sid);
@@ -125,5 +136,7 @@ internal static class WindowsSessions {
  [DllImport("userenv.dll")]private static extern bool DestroyEnvironmentBlock(IntPtr block);
  [DllImport("advapi32.dll",EntryPoint="CreateProcessAsUserW",CharSet=CharSet.Unicode,SetLastError=true)]private static extern bool CreateProcessAsUser(SafeAccessTokenHandle token,string app,StringBuilder command,IntPtr proc,IntPtr thread,bool inherit,uint flags,IntPtr environment,string directory,ref StartupInfo startup,out ProcessInfo result);
  [DllImport("kernel32.dll")]private static extern bool CloseHandle(IntPtr handle);
+ [DllImport("kernel32.dll",SetLastError=true)]private static extern uint ResumeThread(IntPtr thread);
+ [DllImport("kernel32.dll",SetLastError=true)]private static extern bool TerminateProcess(IntPtr process,uint code);
  [DllImport("kernel32.dll",SetLastError=true)]private static extern bool GetNamedPipeServerProcessId(SafePipeHandle pipe,out uint pid);
 }

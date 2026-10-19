@@ -28,7 +28,7 @@ internal static class Installer {
    if(request.Phase=="installing") {
     if(request.InstallerPid==0)throw new IOException("Missing installer process receipt.");
     if(WindowsSessions.ProcessAlive(request.InstallerPid,request.InstallerStarted)) {
-     using var installer=Process.GetProcessById(request.InstallerPid);
+     using var installer=WindowsSessions.PinProcess(request.InstallerPid);
      // A helper crash between durable process creation and ResumeThread leaves
      // a suspended msiexec. Resume only its exact recorded main thread.
      if(request.InstallerThreadId!=0)ResumeInstaller(request.InstallerThreadId,request.InstallerPid);
