@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ApiError, apiRequest } from "../api/client";
 import { discoverLocalBridge, postLocalTicket } from "../engine/localOfficeSync";
 import { DocumentDialog } from "./DocumentDialog";
@@ -201,9 +202,9 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
       <span className="office-agent-dot" aria-hidden="true"/><span>ACTI Sync</span><span className="office-agent-presence">{presence}</span>
       {editingCount > 0 && <span className="office-agent-editing" title={`Редактируется документов: ${editingCount}`} aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15l-1 5Z"/></svg><span>{editingCount}</span></span>}
     </button>
-    {notices.length > 0 && <div className="office-agent-notices" role="region" aria-label="Уведомления ACTI Sync" aria-live="polite" aria-relevant="additions">
+    {createPortal(<div className="office-agent-notices" role={notices.length ? "region" : undefined} aria-label="Уведомления ACTI Sync" aria-live="polite" aria-relevant="additions">
       {notices.map(item => <div className="office-agent-notice" key={item.id}><span>{item.text}</span><button type="button" aria-label="Скрыть уведомление" onClick={() => setNotices(previous => previous.filter(notice => notice.id !== item.id))}>×</button></div>)}
-    </div>}
+    </div>, document.body)}
     {open && <DocumentDialog label="ACTI Sync" className="office-agent-panel" onClose={() => setOpen(false)}>
       <div className="toolbar"><h2>ACTI Sync</h2><button type="button" autoFocus onClick={() => setOpen(false)}>Закрыть</button></div>
       <div className="office-agent-summary">

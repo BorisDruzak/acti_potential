@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError, apiRequest } from "../api/client";
 import { OfficeSyncAgent, type AgentStatus } from "./OfficeSyncAgent";
+import { DocumentDialog } from "./DocumentDialog";
 
 vi.mock("../api/client", async original => ({...await original<typeof import("../api/client")>(), apiRequest: vi.fn()}));
 const request = vi.mocked(apiRequest);
@@ -14,6 +15,21 @@ const withDocument = (): AgentStatus => ({...connected(), documents: [{file_id: 
   document_id: "document", document_title: "Письмо", document_open: false, opened_at: "2026-10-19T08:00:00Z", closed_at: "2026-10-19T08:30:00Z", connection_id: "agent", command: null}]});
 const show = (canControl = true) => render(<><input aria-label="Черновик" defaultValue=""/><OfficeSyncAgent owner="user" csrfToken="csrf" canControl={canControl}/></>);
 const openPanel = () => fireEvent.click(screen.getByRole("button", {name: /ACTI Sync:/}));
+
+it("keeps a notice arriving during a modal inside the inert background", async () => {
+  vi.useFakeTimers(); let data = withDocument();
+  request.mockImplementation(async () => data);
+  show(); await act(async () => {});
+  const dialog = render(<DocumentDialog label="Учётная запись" onClose={vi.fn()}><button autoFocus>Закрыть</button></DocumentDialog>);
+  data = {...data, documents: data.documents.map(item => ({...item, document_open: true, state: "editing"}))};
+  await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
+  const notices = document.querySelector<HTMLElement>(".office-agent-notices")!;
+  expect(notices.textContent).toContain("открыт в Word");
+  expect(notices.inert).toBe(true);
+  expect(document.activeElement).toBe(screen.getByRole("button", {name: "Закрыть"}));
+  dialog.unmount();
+  expect(notices.inert).toBeFalsy();
+});
 
 it("automatically attaches an offline browser through the discovered local bridge without a connect button or protocol prompt", async () => {
   const nonce = "u".repeat(43);
@@ -222,6 +238,17 @@ it("shows an editing pencil only for a fresh open document and removes it on clo
   request.mockImplementation(() => new Promise(() => {}));
   await act(async () => {await vi.advanceTimersByTimeAsync(36000);});
   expect(screen.queryByTitle("Редактируется документов: 1")).toBeNull();
+});
+
+it("keeps notifications accessible outside a collapsed navigation panel", async () => {
+  vi.useFakeTimers(); let data = withDocument(); request.mockImplementation(async () => data);
+  render(<aside inert><OfficeSyncAgent owner="user" csrfToken="csrf" canControl/></aside>);
+  await act(async () => {});
+  data = {...data, documents: data.documents.map(item => ({...item, document_open: true, state: "editing"}))};
+  await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
+  const notices = screen.getByRole("region", {name: "Уведомления ACTI Sync"});
+  expect(notices.closest("[inert]")).toBeNull();
+  expect(within(notices).getByText("Письмо: открыт в Word")).toBeTruthy();
 });
 
 it("notifies real open, local save, server ACK and close transitions without announcing initial or repeated history", async () => {
