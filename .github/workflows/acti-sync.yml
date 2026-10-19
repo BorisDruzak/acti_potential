@@ -1,0 +1,71 @@
+name: ACTI Sync
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/acti-sync-001']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.402'
+      - name: Test and build self-contained EXEs and MSI
+        shell: pwsh
+        run: ./clients/acti-sync/packaging/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ACTISync-win-x64-${{ github.sha }}
+          path: |
+            clients/acti-sync/artifacts/*.msi
+            clients/acti-sync/artifacts/Service/*.exe
+            clients/acti-sync/artifacts/User/*.exe
+            clients/acti-sync/artifacts/manifest.json
+          if-no-files-found: error
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test -- --run src/components/OfficeSync.test.tsx src/components/OfficeOpen.test.tsx src/components/OriginalActions.test.tsx src/engine/FormChanges.test.tsx src/pages/BrowserRegressions.test.tsx src/pages/DocumentsLayout.test.tsx src/pages/Workspaces.test.tsx
+      - run: npm run build
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: acti_test
+          POSTGRES_PASSWORD: synthetic-ci-password
+          POSTGRES_DB: acti_sync_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U acti_test -d acti_sync_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+    env:
+      ACTI_DATABASE_URL: postgresql+psycopg://acti_test:synthetic-ci-password@localhost:5432/acti_sync_test
+      ACTI_REDIS_URL: redis://localhost:6379/15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run pytest -q tests/test_office_sync.py tests/test_office_open.py tests/test_documents.py tests/test_search_quality_v2.py tests/test_task005_content.py
+      - run: uv run ruff check app tests

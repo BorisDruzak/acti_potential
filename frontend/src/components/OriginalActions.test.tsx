@@ -6,7 +6,7 @@ vi.mock("../auth/AuthProvider", () => ({useAuth: () => ({user: {csrf_token: "csr
 afterEach(cleanup);
 it("requires an explicit file choice when there are multiple originals", () => {
   render(<OriginalActions files={[{id: "a", name: "letter.docx", version: 1}, {id: "b", name: "appendix.pdf", version: 1}] as FileVersion[]} canDownload mode="editor" csrfToken=""/>);
-  expect(screen.queryByRole("button", {name: "Открыть в Word"})).toBeNull();
+  expect(screen.queryByRole("button", {name: "Открыть в Word (просмотр)"})).toBeNull();
   fireEvent.click(screen.getByRole("button", {name: "Открыть оригинал"}));
   const dialog = screen.getByRole("dialog", {name: "Выбрать оригинал"});
   expect(dialog.textContent).toContain("appendix.pdf");

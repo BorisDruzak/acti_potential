@@ -1,0 +1,54 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="ACTI Sync" Manufacturer="ACTI" Version="$(var.Version)"
+           UpgradeCode="46C46CCD-DB5A-4A73-942C-4B3E8FDF8B0D" Scope="perMachine" InstallerVersion="500">
+    <MajorUpgrade DowngradeErrorMessage="A newer ACTI Sync is already installed." Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Property Id="SERVERORIGIN" Secure="yes">
+      <RegistrySearch Id="ExistingOrigin" Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="ServerOrigin" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR (SERVERORIGIN AND (SERVERORIGIN &gt;&lt; &quot;https://&quot;))"
+            Message="Supply SERVERORIGIN=https://your-acti-server (a trusted HTTPS origin)." />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="ACTIDIR" Name="ACTI">
+        <Directory Id="INSTALLFOLDER" Name="Sync">
+          <Component Id="Service" Guid="22918F35-CBB9-4AE8-B845-F10328826CE1" Bitness="always64">
+            <File Id="ServiceExe" Source="$(var.ServiceDir)\ACTISync.Service.exe" KeyPath="yes" />
+            <ServiceInstall Id="InstallService" Name="ACTISync" DisplayName="ACTI Sync"
+                Description="Durable background synchronization of ACTI Word working originals."
+                Type="ownProcess" Start="auto" ErrorControl="normal" Account="NT AUTHORITY\LocalService">
+              <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart"
+                  ThirdFailureActionType="restart" RestartServiceDelayInSeconds="15" ResetPeriodInDays="1" />
+            </ServiceInstall>
+            <ServiceControl Id="ControlService" Name="ACTISync" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+          </Component>
+          <Component Id="User" Guid="5E755634-82E1-4597-BFDE-3B4FBF68A5A4" Bitness="always64">
+            <File Id="UserExe" Source="$(var.UserDir)\ACTISync.User.exe" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run" Name="ACTISync" Value="&quot;[#UserExe]&quot;" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\acti-sync" Value="URL:ACTI Sync" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\acti-sync" Name="URL Protocol" Value="" Type="string" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Classes\acti-sync\shell\open\command" Value="&quot;[#UserExe]&quot; &quot;%1&quot;" Type="string" />
+          </Component>
+          <Component Id="Configuration" Guid="F8996799-7DFC-47E3-AAC5-7F957C771B81" Bitness="always64">
+            <RegistryValue Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="ServerOrigin" Value="[SERVERORIGIN]" Type="string" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ACTIDATA" Name="ACTI">
+        <Directory Id="SYNCDATA" Name="Sync">
+          <!-- Queue/workspaces are runtime data, deliberately absent from RemoveFile/RemoveFolder. -->
+          <Component Id="DataDirectory" Guid="A5E71B99-B1D8-4E2D-96CE-05DA03F0D483" Permanent="yes" Bitness="always64">
+            <CreateFolder>
+              <PermissionEx Sddl="D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;LS)" />
+            </CreateFolder>
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Product" Title="ACTI Sync" Level="1">
+      <ComponentRef Id="Service" /><ComponentRef Id="User" />
+      <ComponentRef Id="Configuration" /><ComponentRef Id="DataDirectory" />
+    </Feature>
+  </Package>
+</Wix>

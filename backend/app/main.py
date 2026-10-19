@@ -19,7 +19,14 @@ from app.execution import api as execution_api
 from app.knowledge import api as knowledge_api
 from app.numbering import api as numbering_api
 from app.processes import api as processes_api
-from app.registry import config_api, document_api, file_api, office_api, selection_api
+from app.registry import (
+    config_api,
+    document_api,
+    file_api,
+    office_api,
+    office_sync_api,
+    selection_api,
+)
 from app.relations import api as relations_api
 from app.service_api import admin as service_admin
 from app.service_api import api as service_api
@@ -62,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.public, prefix="/api/v1")
     app.include_router(oidc.public, prefix="/api/v1")
     app.include_router(office_api.public, prefix="/api/v1")
+    app.include_router(office_sync_api.client_router, prefix="/api/v1")
     protected = APIRouter(dependencies=[Depends(current_actor)])
     for router in (
         auth.protected,
@@ -73,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         document_api.router,
         file_api.router,
         office_api.router,
+        office_sync_api.router,
         selection_api.router,
         numbering_api.router,
         content_api.router,

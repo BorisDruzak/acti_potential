@@ -63,7 +63,7 @@ def test_gold_recall_and_mrr_at_ten_with_real_files(client, factory, record_prop
     assert search(client, viewer, query="Скрытаяулика")["total"] == 0
     assert search(client, viewer, query="99 р 2026")["total"] == 0
 
-    # An immutable old original stays addressable but leaves current-only search.
+    # A same-name upload is an independent attachment, never an inferred revision.
     editor = sign_in_as(client, factory, sample["editor"])
     current = client.get(f"/api/v1/documents/{source}").json()
     response = client.put(
@@ -88,7 +88,7 @@ def test_gold_recall_and_mrr_at_ten_with_real_files(client, factory, record_prop
     viewer = sign_in_as(client, factory, sample["viewer"])
     assert (
         search(client, viewer, query='"middle digital phrase"', version_scope="current")["total"]
-        == 0
+        == 1
     )
     assert (
         search(client, viewer, query='"middle digital phrase"', version_scope="all")["total"] == 1

@@ -29,6 +29,9 @@ EVENT_FIELDS = {
     for name in SCHEMA_EVENTS
 }
 EVENT_FIELDS["platform.admin_created"] = frozenset({"user_id"})
+EVENT_FIELDS["document.sync.launched"] = frozenset()
+EVENT_FIELDS["document.sync.finished"] = frozenset()
+EVENT_FIELDS["document.binary.saved"] = frozenset({"original_id", "file_id", "version"})
 for _event in ("identity.external_linked", "identity.external_unlinked"):
     EVENT_FIELDS[_event] = frozenset({"identity_id"})
 for _event in ("reference.item.created", "reference.item.updated"):

@@ -78,6 +78,9 @@ def create_attachments(session, request, actor, document, schema, values, attach
         )
         session.add(row)
         session.flush()
+        from app.registry.office_sync_api import ensure_original
+
+        ensure_original(session, row)
         trusted_ids.add(row.id)
         if field:
             target = proposed[parent][index] if parent else proposed

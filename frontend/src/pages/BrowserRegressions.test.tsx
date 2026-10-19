@@ -54,15 +54,16 @@ async function openCard() {
 it("protects unsaved card edits from a separate file upload", async () => {
   setup();
   await openCard();
+  expect(screen.queryByRole("button", {name: "Загрузить новую версию"})).toBeNull();
   fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Несохранённый текст" } });
-  fireEvent.click(screen.getByRole("button", { name: "Файлы и версии" }));
-  expect((screen.getByLabelText(/Добавить файл или следующую версию/) as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Добавить файл" }));
+  expect((screen.getByLabelText(/Добавить файл/) as HTMLInputElement).disabled).toBe(true);
   expect(screen.getByText(/Сохраните или отмените изменения карточки/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Карточка" }));
   expect((screen.getByLabelText("Название") as HTMLInputElement).value).toBe("Несохранённый текст");
   fireEvent.click(screen.getByRole("button", { name: "Отмена изменений" }));
   fireEvent.click(screen.getByRole("button", { name: "Файлы и версии" }));
-  expect((screen.getByLabelText(/Добавить файл или следующую версию/) as HTMLInputElement).disabled).toBe(false);
+  expect((screen.getByLabelText(/Добавить файл/) as HTMLInputElement).disabled).toBe(false);
 });
 
 it("shows only files belonging to each historical revision", async () => {

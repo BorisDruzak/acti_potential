@@ -112,6 +112,9 @@ async def upload_file(
     )
     session.add(file)
     session.flush()
+    from app.registry.office_sync_api import ensure_original
+
+    ensure_original(session, file)
     if field_key:
         field, parent, index = resolve_file_field(schema, field_key, values)
         target = values[parent][index] if parent else values

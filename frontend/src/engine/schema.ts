@@ -77,6 +77,9 @@ export type ReferenceSet = {
 export type ReferenceItem = { metadata?: Record<string, unknown>; id: string; label: string; active: boolean; code?: string; description?: string; sort_order?: number; parent_id?: string | null; valid_from?: string | null; valid_until?: string | null; selectable?: boolean };
 export type FileVersion = {
   id: string;
+  /** Stable id remains in schema values; bytes at current_file_id are immutable. */
+  current_file_id?: string;
+  binary_revision?: number;
   version: number;
   name: string;
   size: number;

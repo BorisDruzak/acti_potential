@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { ApiError, apiRequest, apiUpload, encodeFile, saveDownload, saveExport, saveSelectedExport } from "../api/client";
+import { ApiError, apiRequest, apiUpload, encodeFile, saveExport, saveSelectedExport } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { Feedback } from "../components/Feedback";
 import { SearchStatus } from "../components/SearchStatus";
@@ -29,7 +29,7 @@ import { DocumentResults } from "../components/DocumentResults";
 import { DocumentDialog } from "../components/DocumentDialog";
 import { DocumentContextMenu } from "../components/DocumentContextMenu";
 import { DocumentFieldFilters, parseFieldFilters, serializeFieldFilters } from "../components/DocumentFieldFilters";
-import { OfficeOpen } from "../components/OfficeOpen";
+import { FileActions } from "../components/OfficeSync";
 import { OriginalActions } from "../components/OriginalActions";
 import { useDocumentSelection } from "../engine/useDocumentSelection";
 import { useDocumentCollaboration } from "../engine/useDocumentCollaboration";
@@ -310,7 +310,7 @@ function DocumentCard({
         </div>
         <div className="document-header-actions">
           <OriginalActions files={card.files || []} canDownload={card.permissions.includes("download")} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>
-          {canUpload && <button type="button" className="original-upload" onClick={() => setTab("files")}>Загрузить новую версию</button>}
+          {canUpload && <button type="button" className="original-upload" onClick={() => setTab("files")}>Добавить файл</button>}
         </div>
       </section>}
       </div>
@@ -392,6 +392,7 @@ function DocumentCard({
             onCreateReference={canEdit && !action.busy ? participantCreation.create : undefined}
             files={card.files}
             canDownload={card.permissions.includes("download")}
+            officeSync={{csrfToken}}
             onFile={
               canUpload
                 ? (field, file) =>
@@ -433,7 +434,7 @@ function DocumentCard({
           <h2>Оригиналы и вложения</h2>
           {canUpload && (
             <label className="upload-area">
-              Добавить файл или следующую версию
+              Добавить файл
               <input
                 type="file"
                 disabled={action.busy || blocked || hasUnsavedChanges}
@@ -445,7 +446,7 @@ function DocumentCard({
                 }}
               />
               <small>
-                Каждая загрузка сохраняет отдельную неизменяемую версию.
+                Добавляет отдельное вложение. Изменения Word сохраняются в истории выбранного оригинала.
               </small>
               {hasUnsavedChanges && (
                 <small role="status">
@@ -459,30 +460,12 @@ function DocumentCard({
               <div className="file-line" key={file.id}>
                 <span>
                   <strong>{file.name}</strong>
-                  <small>
-                    Версия {file.version} · {(file.size / 1024).toFixed(1)} КБ ·{" "}
+                  {!file.name.toLowerCase().endsWith(".docx") && <small>
+                    {(file.size / 1024).toFixed(1)} КБ ·{" "}
                     {new Date(file.created_at).toLocaleString("ru-RU")}
-                  </small>
+                  </small>}
                 </span>
-                {card.permissions.includes("download") && <OfficeOpen file={file} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>}
-                {card.permissions.includes("download") && (
-                  <button
-                    disabled={action.busy}
-                    onClick={() =>
-                      void action.run(
-                        () =>
-                          saveDownload(
-                            file.id,
-                            file.name,
-                            readOnly ? "viewer" : "editor",
-                          ),
-                        "Файл скачан",
-                      )
-                    }
-                  >
-                    Скачать
-                  </button>
-                )}
+                {card.permissions.includes("download") && <FileActions file={file} mode={readOnly ? "viewer" : "editor"} csrfToken={csrfToken}/>}
               </div>
             ))}
           </div>
@@ -1195,7 +1178,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
           </DocumentDialog>}
           {originalCard && <DocumentDialog label="Оригиналы и версии" onClose={() => setOriginalCard(null)}>
             <h2>Оригиналы и версии</h2><p>{originalCard.title}</p>
-            {originalCard.files.map(file => <div key={file.id} className="file-line"><span>{file.name} · Версия {file.version}</span><OfficeOpen file={file} mode={displayMode} csrfToken={auth.user?.csrf_token || ""}/><button onClick={() => void selectionAction.run(() => saveDownload(file.id, file.name, displayMode), "Оригинал скачан")}>Скачать {file.name}, версия {file.version}</button></div>)}
+            {originalCard.files.map(file => <div key={file.id} className="file-line"><span>{file.name}</span><FileActions file={file} mode={displayMode} csrfToken={auth.user?.csrf_token || ""}/></div>)}
             {!originalCard.files.length && <p>Оригиналы пока не загружены.</p>}
             <Feedback error={selectionAction.error}/><button autoFocus onClick={() => setOriginalCard(null)}>Закрыть</button>
           </DocumentDialog>}
