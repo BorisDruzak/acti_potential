@@ -8,9 +8,11 @@ using System.Text.Json;
 namespace ACTISync.User;
 
 internal static class ServiceClient {
- public static async Task<IpcResponse> Send(IpcRequest request) {
+ public static Task<IpcResponse> Send(IpcRequest request)=>Send(request,TokenImpersonationLevel.Impersonation);
+ public static Task<IpcResponse> Presence()=>Send(new(){Action="presence"},TokenImpersonationLevel.Identification);
+ private static async Task<IpcResponse> Send(IpcRequest request,TokenImpersonationLevel level) {
   using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(45));
-  using var pipe=new NamedPipeClientStream(".",Wire.PipeName,PipeDirection.InOut,PipeOptions.Asynchronous,TokenImpersonationLevel.Impersonation);
+  using var pipe=new NamedPipeClientStream(".",Wire.PipeName,PipeDirection.InOut,PipeOptions.Asynchronous,level);
   await pipe.ConnectAsync(3000,timeout.Token);
   // The pipe ACL authenticates callers. Verify its server against SCM too, so pipe-name squatting cannot steal a launch ticket.
   if(!GetNamedPipeServerProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out var pipePid) || pipePid!=ServicePid()) throw new UnauthorizedAccessException("Подлинность службы ACTI Sync не подтверждена.");

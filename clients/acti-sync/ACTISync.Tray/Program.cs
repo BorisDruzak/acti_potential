@@ -48,7 +48,7 @@ internal sealed class TrayContext : ApplicationContext {
   if(refreshing || stopping) return;
   refreshing=true;
   try {
-   var response=await ServiceClient.Send(new(){Action="presence"});
+   var response=await ServiceClient.Presence();
    if(!stopping) tray.Refresh(response.Ok && response.AgentOnline,false);
   } catch {if(!stopping) tray.Refresh(false,false);}
   finally {refreshing=false;}
