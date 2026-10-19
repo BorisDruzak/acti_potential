@@ -30,7 +30,8 @@ def test_ldap_provider_changes_require_pinned_private_ownership():
 
 
 @pytest.mark.parametrize("bootstrap", [False, True])
-def test_idp_profile_never_exposes_provider_or_worker_secrets(bootstrap):
+@pytest.mark.parametrize("domain", [False, True])
+def test_idp_profile_never_exposes_provider_or_worker_secrets(bootstrap, domain):
     env = dict(os.environ, POSTGRES_IMAGE="postgres:16", REDIS_IMAGE="redis:7",
                POSTGRES_PASSWORD="synthetic", ACTI_DATABASE_URL="postgresql://example",
                ACTI_MIGRATION_DATABASE_URL="postgresql://example", ACTI_APP_PASSWORD="synthetic",
@@ -43,6 +44,12 @@ def test_idp_profile_never_exposes_provider_or_worker_secrets(bootstrap):
     if bootstrap:
         env.update(KC_BOOTSTRAP_ADMIN_USERNAME="synthetic-bootstrap",
                    KC_BOOTSTRAP_ADMIN_PASSWORD="synthetic-bootstrap-secret")
+    if domain:
+        env.update(ACTI_PUBLIC_HOST="documents.example.invalid",
+                   ACTI_HTTPS_CA_FILE="/etc/acti-v3/tls/domain-ca.crt")
+    else:
+        env.pop("ACTI_PUBLIC_HOST", None)
+        env.pop("ACTI_HTTPS_CA_FILE", None)
     config = json.loads(subprocess.check_output(
         ["docker", "compose", "--profile", "idp", "-f", str(ROOT / "deploy/compose.yaml"),
          "config", "--format", "json"], env=env, text=True))
@@ -70,6 +77,11 @@ def test_idp_profile_never_exposes_provider_or_worker_secrets(bootstrap):
     assert services["api"]["environment"]["ACTI_OIDC_CA_FILE"] == "/etc/acti-ca/ca.crt"
     ca = next(v for v in services["api"]["volumes"] if v["target"] == "/etc/acti-ca/ca.crt")
     assert ca["read_only"] and not ca.get("bind", {}).get("create_host_path", False)
+    assert ca["source"] == ("/etc/acti-v3/tls/domain-ca.crt" if domain
+                            else "/etc/acti-v3/tls/ca.crt")
+    assert services["frontend"]["networks"]["internal"]["aliases"] == [
+        "documents.example.invalid" if domain else "acti-frontend",
+    ]
 
 
 def test_idp_proxy_is_lazy_and_preserves_tls_origin():

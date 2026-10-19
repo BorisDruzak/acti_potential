@@ -94,7 +94,7 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: /etc/acti-v3/tls/ca.crt
+        source: ${ACTI_HTTPS_CA_FILE:-/etc/acti-v3/tls/ca.crt}
         target: /etc/acti-ca/ca.crt
         read_only: true
         bind:
@@ -160,7 +160,10 @@ services:
       retries: 5
     restart: "no"
     security_opt: [no-new-privileges:true]
-    networks: [internal, edge]
+    networks:
+      internal:
+        aliases: ["${ACTI_PUBLIC_HOST:-acti-frontend}"]
+      edge: {}
   keycloak:
     # Keycloak 26.8.1, linux/amd64. Optional, enabled only after provisioning.
     image: acti-keycloak:26.8.1

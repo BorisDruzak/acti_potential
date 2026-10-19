@@ -18,6 +18,26 @@ renew = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(renew)
 
 
+def test_management_certificate_renewal_can_keep_its_original_endpoint():
+    public = "https://documents.example.invalid"
+    assert renew.renewal_endpoint({"ACTI_ORIGIN": public}) == (
+        public, "documents.example.invalid",
+    )
+    assert renew.renewal_endpoint({
+        "ACTI_ORIGIN": public, "ACTI_TLS_RENEWAL_ORIGIN": "https://127.0.0.1/",
+    }) == ("https://127.0.0.1", "127.0.0.1")
+
+
+@pytest.mark.parametrize("origin", [
+    "http://localhost", "https://user:password@localhost", "https://localhost:444",
+    "https://localhost/path", "https://localhost?query", "https://localhost#fragment",
+])
+def test_management_renewal_endpoint_rejects_unsafe_overrides(origin):
+    with pytest.raises(renew.RenewalError, match="invalid_origin"):
+        renew.renewal_endpoint({"ACTI_ORIGIN": "https://example.invalid",
+                                "ACTI_TLS_RENEWAL_ORIGIN": origin})
+
+
 def openssl_binary():
     command = shutil.which("openssl")
     windows = Path("C:/Program Files/Git/usr/bin/openssl.exe")

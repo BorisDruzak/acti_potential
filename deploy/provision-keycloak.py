@@ -136,7 +136,7 @@ def configure(values, helper):
     state = json.loads(helper.protected(STATE).read_text())
     require(state["owner"] == MARKER and state["origin"] == values["ACTI_ORIGIN"], "foreign_idp_state")
     base = values["ACTI_ORIGIN"] + "/idp"
-    context = ssl.create_default_context(cafile=str(ROOT / "tls/ca.crt"))
+    context = ssl.create_default_context(cafile=values.get("ACTI_HTTPS_CA_FILE", str(ROOT / "tls/ca.crt")))
     opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context), NoRedirect())
 
     def request(method, path, body=None, token=None, form=False, expected=(200, 201, 204)):

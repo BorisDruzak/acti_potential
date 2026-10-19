@@ -40,6 +40,20 @@ def require(condition, code):
         raise RenewalError(code)
 
 
+def renewal_endpoint(values):
+    """Keep the management leaf separate from an externally issued domain leaf."""
+    origin = values.get("ACTI_TLS_RENEWAL_ORIGIN", values["ACTI_ORIGIN"])
+    try:
+        parsed = urlsplit(origin)
+        valid = (parsed.scheme == "https" and parsed.hostname and not parsed.username
+                 and not parsed.password and parsed.port in {None, 443}
+                 and not parsed.query and not parsed.fragment and parsed.path in {"", "/"})
+    except ValueError:
+        valid = False
+    require(valid, "invalid_origin")
+    return origin.rstrip("/"), parsed.hostname
+
+
 def command(arguments, *, data=None, timeout=20):
     env = {key: value for key, value in os.environ.items()
            if not key.startswith("OPENSSL_") and key not in {"LD_PRELOAD", "LD_LIBRARY_PATH"}}
@@ -254,13 +268,7 @@ class Renewal:
         spec = importlib.util.spec_from_file_location("acti_tls_restore_contract", release / "deploy/restore-verify.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.origin = module.parse_env(env)["ACTI_ORIGIN"]
-        parsed = urlsplit(self.origin)
-        require(parsed.scheme == "https" and parsed.hostname and not parsed.username
-                and not parsed.password and parsed.port in {None, 443}
-                and not parsed.query and not parsed.fragment and parsed.path in {"", "/"}, "invalid_origin")
-        self.origin = self.origin.rstrip("/")
-        self.hostname = parsed.hostname
+        self.origin, self.hostname = renewal_endpoint(module.parse_env(env))
         return self.frontend()
 
     def frontend(self):

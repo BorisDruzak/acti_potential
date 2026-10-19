@@ -60,7 +60,7 @@ def main():
             "invalid_protected_ldap_url")
     require(re.fullmatch(r"acti_[a-z0-9_]{1,15}", ldap["reader_sam"]), "unexpected_ldap_reader")
     base = values["ACTI_ORIGIN"] + "/idp"
-    context = ssl.create_default_context(cafile=str(ROOT / "tls/ca.crt"))
+    context = ssl.create_default_context(cafile=values.get("ACTI_HTTPS_CA_FILE", str(ROOT / "tls/ca.crt")))
     opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context), NoRedirect())
 
     def call(method, path, body=None, token=None, form=False):

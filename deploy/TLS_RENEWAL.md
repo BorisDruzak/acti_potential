@@ -5,6 +5,11 @@ server key, SANs, subject and certificate purposes remain unchanged. It does not
 modify AD/LDAPS, SQL Server, users, data mounts or application images, and does
 not reboot or restart the stack. There is no automatic renewal timer.
 
+When the public domain uses a separate externally issued certificate, set
+`ACTI_TLS_RENEWAL_ORIGIN=https://localhost` for the original management leaf.
+This helper must not issue or overwrite the externally managed domain leaf.
+See [DOMAIN_HTTPS.md](DOMAIN_HTTPS.md) for the domain configuration and trust.
+
 The production CLI accepts only the expected committed source SHA and its own
 operation UUID. Runtime, TLS and receipt paths are fixed. Run the helper from
 the active root-owned committed release as root. It checks the runtime SHA,
