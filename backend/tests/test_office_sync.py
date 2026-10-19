@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 from zipfile import ZipFile
 
+import pytest
 from sqlalchemy import func, select
 
 from app.registry.models import BinaryRevision, DocumentFile, OfficeEditSession, RegistryAccess
@@ -184,40 +185,66 @@ def test_every_operation_revalidates_acl_and_browser_logout(client, factory):
     )
 
 
-def test_official_policy_and_csrf_cannot_be_bypassed(client, factory):
+@pytest.mark.parametrize("kind", ["registered", "published", "imported", "previously_published"])
+def test_official_original_saves_new_revision_preserving_metadata_history_and_audit(
+    client, factory, kind
+):
+    from app.platform.models import AuditEvent
     from app.registry.models import Document, MetadataRevision
 
     card = original(client, factory)
     file_id = card["files"][0]["id"]
     assert client.post("/api/v1/office-sync/launch", json={"file_id": file_id}).status_code == 403
     with factory.begin() as db:
-        db.get(Document, UUID(card["id"])).reg_number = "registered-immutable"
-    status = client.get("/api/v1/office-sync/files/" + file_id + "/status").json()
-    assert status["can_edit"] is False and status["reason"]
-    assert (
-        client.post(
-            "/api/v1/office-sync/launch", json={"file_id": file_id}, headers=headers(client)
-        ).status_code
-        == 403
-    )
-    with factory.begin() as db:
-        db.get(Document, UUID(card["id"])).reg_number = None
-        db.add(
-            MetadataRevision(
-                document_id=UUID(card["id"]),
-                revision=99,
-                values={},
-                card_state="published",
-                publication_targets=["internal"],
-                created_by=UUID(card["files"][0]["created_by"]),
+        document = db.get(Document, UUID(card["id"]))
+        if kind == "registered":
+            document.reg_number = "registered-original"
+        elif kind == "published":
+            document.card_state = "published"
+        elif kind == "imported":
+            document.source_database = "synthetic-source"
+            document.source_entity = "synthetic-documents"
+            document.source_id = "synthetic-21"
+            document.source_fingerprint = "a" * 64
+        else:
+            db.add(
+                MetadataRevision(
+                    document_id=document.id, revision=99, values={}, card_state="published",
+                    publication_targets=["internal"], created_by=document.created_by,
+                )
             )
-        )
-    assert (
-        client.post(
-            "/api/v1/office-sync/launch", json={"file_id": file_id}, headers=headers(client)
-        ).status_code
-        == 403
-    )
+        db.flush()
+        before = {column.name: getattr(document, column.name) for column in Document.__table__.columns}
+        old_file = db.get(DocumentFile, UUID(file_id))
+        old_fingerprint = (old_file.storage_key, old_file.sha256, old_file.size)
+        metadata_ids = list(db.scalars(select(MetadataRevision.id).where(MetadataRevision.document_id == document.id)))
+    status = client.get("/api/v1/office-sync/files/" + file_id + "/status").json()
+    assert status["can_edit"] is True, status
+    _, ticket = launch(client, file_id)
+    edit = exchange(client, ticket).json()
+    body = docx("new edition of " + kind + " original")
+    response = save(client, edit, body)
+    assert response.status_code == 200, response.text
+    assert response.json()["revision"] == 2
+    assert save(client, edit, body).json()["revision"] == 2
+    history = client.get("/api/v1/office-sync/files/" + file_id + "/history").json()["items"]
+    assert [item["revision"] for item in history] == [2, 1]
+    assert client.get("/api/v1/files/" + file_id + "/download").content == b"owned immutable office bytes"
+    assert client.get("/api/v1/office-sync/files/" + file_id + "/download").content == body
+    with factory() as db:
+        document = db.get(Document, UUID(card["id"]))
+        assert {column.name: getattr(document, column.name) for column in Document.__table__.columns} == before
+        old_file = db.get(DocumentFile, UUID(file_id))
+        assert (old_file.storage_key, old_file.sha256, old_file.size) == old_fingerprint
+        assert list(db.scalars(select(MetadataRevision.id).where(MetadataRevision.document_id == document.id))) == metadata_ids
+        events = list(db.scalars(select(AuditEvent).where(
+            AuditEvent.object_id == document.id, AuditEvent.action == "document.binary.saved"
+        )))
+        assert len(events) == 1
+        assert events[0].actor_id == UUID(card["files"][0]["created_by"])
+        assert events[0].details == {
+            "original_id": file_id, "file_id": history[0]["file_id"], "version": 2,
+        }
 
 
 def test_finish_releases_lease_and_ticket_expiry(client, factory):
@@ -245,10 +272,21 @@ def test_changed_idempotency_bytes_and_size_reject_without_history(client, facto
         assert db.scalar(select(func.count()).select_from(BinaryRevision)) == 2
 
 
+@pytest.mark.parametrize("imported_published", [False, True])
 def test_manual_versions_are_targeted_idempotent_and_do_not_replace_other_originals(
-    client, factory
+    client, factory, imported_published
 ):
     card = original(client, factory)
+    if imported_published:
+        from app.registry.models import Document
+
+        with factory.begin() as db:
+            document = db.get(Document, UUID(card["id"]))
+            document.card_state = "published"
+            document.reg_number = "registered-original"
+            document.source_database = "synthetic-source"
+            document.source_entity = "synthetic-documents"
+            document.source_id = "synthetic-21"
     file_id = card["files"][0]["id"]
     url = "/api/v1/office-sync/files/" + file_id + "/content"
     body = docx("manual new binary edition")

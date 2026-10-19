@@ -1,7 +1,8 @@
 """Scoped Word sessions. Every operation revalidates the originating browser and ACL.
 
-Only native, unregistered, never-published working documents are editable until
-ACTI defines an explicit official-original/working-copy contract.
+Authorized saves append immutable binary revisions to the same logical original,
+including registered, published and imported documents. Prior bytes and metadata
+remain unchanged; every new revision is audited.
 """
 
 import re
@@ -38,7 +39,6 @@ from app.registry.models import (
     BinaryRevision,
     DocumentFile,
     LogicalOriginal,
-    MetadataRevision,
     OfficeAgentCommand,
     OfficeAgentConnection,
     OfficeAgentTicket,
@@ -112,27 +112,6 @@ def authorized(session, actor, file_id, *, write=False, lock=False, mode=None):
             or actor.scoped_registry_ids is not None
         ):
             fail(403, "interactive_session_required", "Нужна действующая пользовательская сессия")
-        published_before = session.scalar(
-            select(MetadataRevision.id)
-            .where(
-                MetadataRevision.document_id == document.id,
-                MetadataRevision.card_state == "published",
-            )
-            .limit(1)
-        )
-        if (
-            document.card_state != "draft"
-            or document.reg_number
-            or document.source_database
-            or document.source_entity
-            or document.source_id
-            or published_before
-        ):
-            fail(
-                403,
-                "official_original_immutable",
-                "Редактирование доступно только незарегистрированной рабочей копии, которая никогда не публиковалась и не импортировалась",
-            )
         if PurePath(anchor.name).suffix.lower() != ".docx":
             fail(422, "office_format", "Редактирование поддерживает только DOCX")
         if anchor.field_key:

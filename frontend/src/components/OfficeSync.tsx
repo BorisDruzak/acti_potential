@@ -129,6 +129,7 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
     {enabled && <>
       <div className="office-sync-metadata">
       {status && <small>Актуальная редакция содержимого: {status.revision}</small>}
+      {mode === "editor" && status?.can_edit && <small>Сохранение создаёт новую версию этого оригинала. Предыдущие версии и аудит сохраняются.</small>}
       {(state || statusError) && <small className="office-sync-state" role="status">{statusError || state}{status?.editor && !statusError ? ` · ${status.editor.display_name}` : ""}</small>}
       {status?.last_seen_at && <small>Последняя связь: {date(status.last_seen_at)}</small>}
       {status?.last_saved_at && <small>Последняя серверная синхронизация: {date(status.last_saved_at)}</small>}
@@ -142,7 +143,7 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
         ? <small className="office-sync-help" role="status">Word не открылся? Проверьте установку и запуск ACTI Sync — инструкция ниже.</small>
         : <p className="office-sync-help" role="status">Подтвердите открытие программы в браузере. Если Word не открылся, установите один MSI ACTI Sync через администратора / GPO и проверьте наличие Word 2021. Состояние агента и команды «Повторить отправку», «Открыть папку» доступны в панели ACTI Sync вверху страницы. Для просмотра используйте Word, LibreOffice или скачайте файл.</p>)}
       <div className="office-sync-more">
-      <details className="office-sync-help"><summary>Как редактировать в Word</summary><p>Нужны ACTI Sync и Microsoft Word 2021 на Windows. Один MSI устанавливает агент целиком; его предоставляет администратор, в том числе через GPO. Агент работает в фоне, управление и состояния документов находятся в панели ACTI Sync вверху страницы. Подтвердите запрос браузера на запуск ACTI Sync. Сохраняйте в Word через Ctrl+S; «Сохранено в ACTI» появляется только после подтверждения сервера. При потере связи локальная копия сохраняется; повторите отправку из панели после восстановления связи.</p></details>
+      <details className="office-sync-help"><summary>Как редактировать в Word</summary><p>Нужны ACTI Sync и Microsoft Word 2021 на Windows. Один MSI устанавливает агент целиком; его предоставляет администратор, в том числе через GPO. Агент запускается автоматически при входе в Windows и работает в фоне. Новую сессию ACTI подключите кнопкой «Подключить агент» в панели ACTI Sync или первым нажатием «Редактировать в Word»; далее связь поддерживается автоматически. Подтвердите запрос браузера на запуск ACTI Sync. Сохраняйте в Word через Ctrl+S; «Сохранено в ACTI» появляется только после подтверждения сервера. Изменения опубликованных и импортированных документов также создают новую версию того же оригинала с сохранением истории и аудита. При потере связи локальная копия сохраняется; повторите отправку из панели после восстановления связи.</p></details>
       <details onToggle={event => setHistoryOpen(event.currentTarget.open)}>
         <summary>История версий</summary>
         {historyError && <small role="alert">{historyError}</small>}

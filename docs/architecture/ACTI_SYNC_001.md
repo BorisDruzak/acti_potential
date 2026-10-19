@@ -14,14 +14,14 @@ saves change the pointer and content history, without incrementing the card's
 metadata revision. The content index retires prior sources from current search
 and queues extraction of the new immutable source in the same transaction.
 
-ACTI does not yet have a legal designation distinguishing an editable working
-binary from an official original. Until that contract exists, Sync and targeted
-replacement allow only native, unregistered draft documents without imported
-provenance or any previously published metadata revision. Merely switching a
-published card back to draft does not authorize replacement. Existing manual
-attachment upload and read-only Office/LibreOffice opening remain available under
-their existing ACLs. Changing this working-copy policy requires an explicit
-domain decision.
+The domain decision of 2026-10-19 permits editing registered, published and
+imported DOCX documents as **new binary revisions of the same logical original**.
+Both Sync and targeted manual version upload use this policy. Every prior file,
+metadata revision and import provenance remains unchanged; the current binary
+pointer advances and `document.binary.saved` records the actor, original, new
+immutable file and revision in audit/outbox. Card publication state, registration
+and metadata are not changed by a binary save. Existing read/update/upload/download
+and field ACL checks still apply to each operation; viewing mode cannot write.
 
 ## API v1
 
@@ -121,6 +121,12 @@ Connection tokens authorize only heartbeat/renew and bounded command relay,
 never file reading or writing. They are bound to the originating interactive
 browser session, stored with DPAPI and revoked by logout, account blocking or
 expiry. The configured origin remains fixed by the MSI.
+
+The service starts automatically and the user component starts at Windows
+sign-in. Pairing a new ACTI browser authentication session requires **Подключить
+агент** or the first **Редактировать в Word** launch; subsequent presence and
+token renewal are automatic while that session remains authorized. Closing a
+browser tab does not log out; explicit logout revokes the pairing.
 
 The user component pulses its authenticated named pipe; the service reports
 presence only while that pulse is recent. This distinguishes a running service
