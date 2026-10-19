@@ -1,10 +1,10 @@
-# ACTI Sync v1 (Issue #21), current implementation 1.3.0
+# ACTI Sync v1 (Issue #21), current implementation 1.3.5
 
-Version **1.3.0** implements automatic browser connection, a tray icon and signed
-in-place updates. The architecture below describes the implementation; the
-verification section records earlier releases separately. Native acceptance of
-the 1.3.0 bootstrap, automatic upgrade and preservation of an unsaved Word document
-must be recorded after those operations actually pass.
+Version **1.3.5** implements automatic browser connection, a separate tray and
+signed in-place updates. The architecture below describes the implementation;
+historical verification remains separately recorded. Current installed, browser
+and native Word evidence is in
+[the automation acceptance report](ACTI_SYNC_AUTOMATION_ACCEPTANCE.md).
 
 ## Model and compatibility
 
@@ -66,7 +66,7 @@ the newly uncommitted object. A save response is produced after commit.
 
 ## Windows application
 
-Agent **1.3.0** retains support for DOC, DOCX, DOCM, DOT, DOTX, DOTM, RTF and ODT inputs.
+Agent **1.3.5** retains support for DOC, DOCX, DOCM, DOT, DOTX, DOTM, RTF and ODT inputs.
 DOCX follows the existing editing path; other inputs are verified private
 conversion sources. The interactive component creates a separate Word COM
 instance on a background STA, opens the source read-only, sets
@@ -100,10 +100,14 @@ Word API references: [AutomationSecurity](https://learn.microsoft.com/en-us/offi
 [SaveAs2](https://learn.microsoft.com/en-us/office/vba/api/word.saveas2).
 
 `ACTISync.Service.exe` runs as **NT AUTHORITY\LocalService**. It never launches
-Word or displays a window. `ACTISync.User.exe` runs in the interactive Windows
-session and opens the managed local DOCX in installed Word. It has an ACTI tray
-icon showing connection/update state; opening the icon leads to the ACTI browser
-panel. There is no separate document-management window or Windows save
+Word or displays a window. `ACTISync.User.exe` runs at restricted Medium integrity
+in the interactive Windows session and opens the managed local DOCX in installed
+Word. Separate `ACTISync.Tray.exe` owns the notification icon and opens the ACTI
+browser panel. It uses the original logged-on user's desktop token without adding
+privileges; it rejects SYSTEM/session 0 and cannot dispatch document operations.
+Its fixed `presence` request uses Identification impersonation and returns only
+cached connectivity, with no commands, sessions, files or heartbeat mutation.
+There is no separate document-management window or Windows save
 notification. `ACTISync.Updater.exe` is a separate **LocalSystem** service with
 the narrow responsibility of verifying and installing trusted releases. The
 synchronization service keeps its existing identity and document authority.
@@ -204,14 +208,14 @@ connection credentials.
 
 Use Windows x64, pinned .NET SDK **10.0.402** and WiX **6.0.2**. Dependencies are
 pinned in the project files. The build script runs the Windows and updater
-checks, publishes three self-contained single-file EXEs and builds one
+checks, publishes four self-contained single-file EXEs and builds one
 per-machine MSI:
 
 ```powershell
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.0-win-x64.msi`.
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.5-win-x64.msi`.
 The stable MSI UpgradeCode identifies one machine-wide installation: newer MSI
 versions replace the previous product at the same installation path. Working
 copies, queue, protected credentials and configured server origin survive upgrades.
@@ -228,10 +232,10 @@ Version 1.2.2 also permits validated reopening while Word retains its writable
 file handle. This read-only check still validates the actual final path, rejects
 reparse points/hard links and checks the macro-free DOCX package. It neither
 acknowledges a save nor releases a lease; finish keeps restrictive file sharing.
-The MSI embeds all three components and needs no separate EXE or .NET runtime installation.
+The MSI embeds all four components and needs no separate EXE or .NET runtime installation.
 Internal build outputs include
 `Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`,
-`Updater/ACTISync.Updater.exe` and `manifest.json` with SHA256, size and signature
+`Updater/ACTISync.Updater.exe`, `Tray/ACTISync.Tray.exe` and `manifest.json` with SHA256, size and signature
 status. The `ACTI Sync` workflow keeps one MSI in its downloadable installer
 artifact for the exact source commit. On main, a separate publication job runs
 only after the API, web and Windows jobs succeed; it signs and publishes the MSI
@@ -258,12 +262,14 @@ source/filename/tag identity, download size/digest and installed-package identit
 it rejects tampering, broken TLS and downgrades. Publication retries preserve an
 existing identical signed manifest/MSI and refuse changed immutable content.
 
-Before installation the updater authenticates to each running user component's
-update pipe using its SCM service PID. The user component stops accepting new
+Before installation the updater authenticates to each running User/Tray component's
+role-specific update pipe using its SCM service PID. The user component stops accepting new
 launches, drains native work/conversion and exits only after readiness. A durable
 protected ProgramData transaction and helper own MSI installation, including
 replacement of the updater itself. Previously running components resume under
-their original SID/session with the logged-in user's token. Interrupted work
+their original SID/session. The document worker receives a restricted Medium
+token; the tray receives the original logged-on user's token. No linked token,
+new privileges or change to Explorer/UAC is used. Interrupted work
 retains installation/resume receipts; an uncertain MSI is not blindly launched a
 second time. Bootstrap handles a pre-1.3 component with process identity checks
 and bounded conversion drain. These paths never close/quit/kill Word, finish its
@@ -274,17 +280,17 @@ and user startup at sign-in. Initial install requires machine administrator/GPO;
 normal background operation, protocol and Word use the user's existing rights:
 
 ```powershell
-msiexec /i ACTISync-1.3.0-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
-msiexec /i ACTISync-1.3.0-win-x64.msi /qn /norestart /l*v upgrade.log
-msiexec /x ACTISync-1.3.0-win-x64.msi /qn /norestart /l*v uninstall.log
+msiexec /i ACTISync-1.3.5-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
+msiexec /i ACTISync-1.3.5-win-x64.msi /qn /norestart /l*v upgrade.log
+msiexec /x ACTISync-1.3.5-win-x64.msi /qn /norestart /l*v uninstall.log
 ```
 
 An upgrade reuses the configured origin unless explicitly changed.
 An explicit `SERVERORIGIN` takes precedence over the existing registry value;
 the stored value is a fallback only. Service automatic startup and the per-machine
-HKLM Run entry for the background user component are installed by default, with
-no separate autostart step. The user component starts at Windows sign-in.
-The automatic updater drains/restarts the user component and leaves Word documents intact.
+HKLM Run entries for both background User and Tray components are installed by
+default, with no separate autostart step. Both start at Windows sign-in.
+The automatic updater drains/restarts both components and leaves Word documents intact.
 Uninstall/upgrade stop the service and deliberately
 preserve managed data, including unsubmitted working copies and pending state.
 Reinstall against the same origin restores state; if authorization/lease expired,

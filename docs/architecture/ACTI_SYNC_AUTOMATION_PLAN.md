@@ -87,29 +87,32 @@ single MSI embeds all four EXEs and installs both per-user startup entries.
 
 Implementation is complete for the four product areas below. Local checks pass:
 41 frontend files / 328 tests and production build; 29 signed-feed tests with
-pinned dependencies and Ruff; Windows core/service/user checks and 35 updater
+pinned dependencies and Ruff; Windows core/service/user checks and 58 updater
 checks. Combined MSI packaging and installed browser/Word acceptance are tracked
 separately below, and are not implied by unit-test results.
 
-- [ ] Frontend: minimal actions/layout and local discovery helper/hook; focused
+- [x] Frontend: minimal actions/layout and local discovery helper/hook; focused
   regressions then full React tests/build and rendered desktop/mobile acceptance.
-- [ ] Backend/release: signed release verifier/feed, CI signing/publication and
+- [x] Backend/release: signed release verifier/feed, CI signing/publication and
   negative signature/cache tests. Pinned dependencies: cryptography 50.0.2,
   httpx 0.28.x, .NET SDK 10.0.402, WiX 6.0.2; consult official docs if Context7
   quota is unavailable. No private configuration in tracked files.
-- [ ] Windows updater: trust/download/install/recovery + same-MSI packaging and
+- [x] Windows updater: trust/download/install/recovery + same-MSI packaging and
   automatic user activation. Exercise invalid signatures and interrupted stages.
-- [ ] User runtime: guarded bridge, drain/control pipe and tray. Test cross-origin,
+- [x] User runtime: guarded bridge, drain/control pipe and tray. Test cross-origin,
   replay, wrong SID/session and update races; keep service/DPAPI/SID guarantees.
-- [ ] Integration: review combined diff; run scoped API/Windows tests and full web
+- [x] Integration: review combined diff; run scoped API/Windows tests and full web
   tests, merge verified changes, deploy using mount/backup/rollback guards.
-- [ ] Publish bootstrap 1.3.0, then a verified newer release for real automatic
+- [x] Publish the corrected bootstrap 1.3.3, then 1.3.4 and 1.3.5 for real automatic
   upgrade acceptance. Hold a real Word document open with an unsaved marker during
   upgrade; verify same Word process/document/unsaved text, new user process/tray,
   same working bytes/history, then save and verify server ACK and marker bytes.
-- [ ] Inspect browser screenshots for both file locations, automatic connection
+- [x] Inspect browser screenshots for both file locations, automatic connection
   without a click, two actions only, no guides, correct compact layout and no
   authenticated runtime errors. Preserve the user's existing browser state.
-- [ ] Report exact source/artifact/CI/deployment and any remaining platform-specific
+- [x] Report exact source/artifact/CI/deployment and any remaining platform-specific
   acceptance gap. Word 2021 is not installed locally; Microsoft 365 evidence must
   not be called Word 2021 acceptance.
+
+Installed/native/browser/deployment results and the remaining Word 2021 gap are
+recorded in [the acceptance report](ACTI_SYNC_AUTOMATION_ACCEPTANCE.md).
