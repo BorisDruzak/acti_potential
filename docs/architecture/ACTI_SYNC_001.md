@@ -183,7 +183,11 @@ both self-contained single-file EXEs and builds a per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.2.1-win-x64.msi`.
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.2.2-win-x64.msi`.
+Version 1.2.2 also permits validated reopening while Word retains its writable
+file handle. This read-only check still validates the actual final path, rejects
+reparse points/hard links and checks the macro-free DOCX package. It neither
+acknowledges a save nor releases a lease; finish keeps restrictive file sharing.
 It embeds both components and needs no separate EXE or .NET runtime installation.
 Internal build outputs include
 `Service/ACTISync.Service.exe`, `User/ACTISync.User.exe`, and `manifest.json` with

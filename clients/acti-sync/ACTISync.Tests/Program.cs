@@ -23,6 +23,8 @@ try {
  var second = await SafeFiles.SnapshotAsync(working, root, CancellationToken.None);
  Check(second is not null && second.Hash != first!.Hash && File.Exists(first.Path), "new snapshot preserves pending bytes");
  using(var wordHandle=new FileStream(working,FileMode.Open,FileAccess.ReadWrite,FileShare.ReadWrite|FileShare.Delete)) {
+  Check(!SafeFiles.ValidDocx(working),"finish validation still refuses Word's writer handle");
+  Check(SafeFiles.ValidDocx(working,allowWordWrites:true),"reopen validates DOCX while Word retains its writer handle");
   var live=await SafeFiles.SnapshotAsync(working,root,CancellationToken.None);
   Check(live is not null && live.Hash==second!.Hash,"live Word writer handle permits validated stable snapshot");
  }
@@ -35,15 +37,18 @@ try {
  Check(DurableJson.Read<SessionState>(path)?.Pending?.Hash == second!.Hash, "pending recovery after state reload");
  Check(!Directory.EnumerateFiles(root, "*.new").Any(), "atomic state publication cleans temporary files");
  File.WriteAllText(working, "incomplete save");
+ Check(!SafeFiles.ValidDocx(working,allowWordWrites:true),"reopen refuses incomplete DOCX");
  Check(await SafeFiles.SnapshotAsync(working, root, CancellationToken.None) is null, "incomplete DOCX never queued");
  var redirected=Path.Combine(root,"redirect.docx");
  File.CreateSymbolicLink(redirected,working);
+ Check(!SafeFiles.ValidDocx(redirected,allowWordWrites:true),"reopen refuses redirected object");
  try { using var ignored=SafeFiles.OpenRead(redirected); throw new Exception("symlink accepted"); } catch(IOException) { Console.WriteLine("PASS reparse object rejected through opened handle"); }
  var junction=Path.Combine(root,"redirect-dir"); Directory.CreateSymbolicLink(junction,root);
  try { using var ignored=SafeFiles.OpenRead(Path.Combine(junction,"working.docx")); throw new Exception("ancestor link accepted"); } catch(IOException) { Console.WriteLine("PASS parent redirection rejected through final handle path"); }
  File.Delete(redirected); Directory.Delete(junction);
  var hardlink=Path.Combine(root,"hardlink.docx");
  if(!NativeLinks.CreateHardLink(hardlink,working,IntPtr.Zero)) throw new Exception("hardlink test fixture failed");
+ Check(!SafeFiles.ValidDocx(hardlink,allowWordWrites:true),"reopen refuses hard-linked object");
  try { using var ignored=SafeFiles.OpenRead(hardlink); throw new Exception("hardlink accepted"); } catch(IOException) { Console.WriteLine("PASS hardlink object rejected through opened handle"); }
  File.Delete(hardlink);
  Console.WriteLine("ALL WINDOWS CORE CHECKS PASSED");
