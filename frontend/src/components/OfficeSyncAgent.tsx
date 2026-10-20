@@ -80,7 +80,7 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
   const now = Date.now();
   const lifecycle = useRef(0);
   const pending = useRef<AbortController | null>(null);
-  const attachment = useRef({identity: "", rounds: 0, ticketIssued: false});
+  const attachment = useRef({identity: "", rounds: 0, nextAttemptAt: 0});
   useEffect(() => {
     lifecycle.current += 1; setOpen(new URLSearchParams(window.location.search).get("sync") === "1"); setBusy(""); setError(""); setNotices([]);
     observations.current = {receivedAt: null, documents: new Map()};
@@ -101,24 +101,29 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
   const online = !statusError && !!data?.online && fresh(data.last_seen_at, now);
   const hasSnapshot = !!data;
   useEffect(() => {
-    if (attachment.current.identity !== identity || online) attachment.current = {identity, rounds: 0, ticketIssued: false};
+    if (attachment.current.identity !== identity || online) attachment.current = {identity, rounds: 0, nextAttemptAt: 0};
     if (!identity || !csrfToken || !canControl || denied || online || statusError || !hasSnapshot) return;
     const episode = attachment.current;
-    if (episode.ticketIssued || episode.rounds >= 3) return;
     const active = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (delay: number) => {
+      episode.nextAttemptAt = Date.now() + delay;
+      timer = setTimeout(() => void attach(), delay);
+    };
     async function attach() {
-      if (active.signal.aborted || episode.ticketIssued || episode.rounds >= 3) return;
-      episode.rounds += 1;
+      if (active.signal.aborted) return;
+      episode.rounds = Math.min(episode.rounds + 1, 3);
+      // Retain the deadline if a status error interrupts discovery or ticket delivery.
+      episode.nextAttemptAt = Date.now() + 60000;
       const bridge = await discoverLocalBridge(active.signal);
       if (active.signal.aborted) return;
       if (!bridge) {
-        // Three bounded discovery rounds per offline episode. Never issue speculative tickets.
-        if (episode.rounds < 3) timer = setTimeout(() => void attach(), episode.rounds * 10000);
+        // Keep the initial fast rounds, then recover in the background without speculative tickets.
+        schedule(episode.rounds < 3 ? episode.rounds * 10000 : 60000);
         return;
       }
       try {
-        episode.ticketIssued = true;
+        episode.rounds = 3;
         const result = await apiRequest<{uri: string; expires_at: string}>("/office-sync/agent/connect", {
           method: "POST", headers: {"X-CSRF-Token": csrfToken}, signal: active.signal,
         });
@@ -127,13 +132,15 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
         if (!active.signal.aborted) refresh();
       } catch (failure) {
         if (active.signal.aborted) return;
-        if (failure instanceof ApiError && [401, 403].includes(failure.status)) deny();
-        // A failed POST can already have consumed the ticket. Never repeat it or launch a URI.
+        if (failure instanceof ApiError && [401, 403].includes(failure.status)) {active.abort(); deny();}
+        // Never replay an ambiguous POST or launch a URI. Recovery discovers a new challenge and ticket.
       }
+      if (!active.signal.aborted) schedule(60000);
     }
     const cancel = () => {active.abort(); clearTimeout(timer);};
     window.addEventListener("acti:unauthorized", cancel);
-    void attach();
+    if (episode.nextAttemptAt > Date.now()) timer = setTimeout(() => void attach(), episode.nextAttemptAt - Date.now());
+    else void attach();
     return () => {cancel(); window.removeEventListener("acti:unauthorized", cancel);};
   }, [identity, csrfToken, canControl, denied, online, statusError, hasSnapshot, refresh, deny]);
   const connectionOnline = (id: string | null) => !statusError && !!id && !!data?.connections.some(item => item.connection_id === id && item.online && fresh(item.last_seen_at, now));
