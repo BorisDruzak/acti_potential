@@ -40,6 +40,7 @@ import { DocumentContent } from "./DocumentContent";
 import { DocumentLayoutSwitch, DocumentWorkspace, useDocumentLayout } from "../components/DocumentWorkspace";
 import { DocumentResults } from "../components/DocumentResults";
 import { DocumentDialog } from "../components/DocumentDialog";
+import { DocumentDock } from "../components/DocumentDock";
 import { DocumentContextMenu } from "../components/DocumentContextMenu";
 import { DocumentFieldFilters, parseFieldFilters, serializeFieldFilters } from "../components/DocumentFieldFilters";
 import { FileActions, FileRevisionHistory, isOfficeSyncSource } from "../components/OfficeSync";
@@ -137,7 +138,7 @@ function DocumentCard({
   const action = useAction();
   const canEdit = !readOnly && card.permissions.includes("update");
   const formId = useId();
-  const dock = useRef<HTMLDivElement>(null);
+  const receivedCard = useRef(card);
   const [values, setValues] = useState<Values>(card.values);
   const [savedValues, setSavedValues] = useState<Values>(card.values);
   const [cardState, setCardState] = useState<CardState>(card.card_state || "draft");
@@ -170,7 +171,9 @@ function DocumentCard({
           "/history?mode=" +
           (readOnly ? "viewer" : "editor")
       : null,
+    {retainOnReload: true},
   );
+  useEffect(() => {history.reload();}, [card.revision, history.reload]);
   const canUpload = !readOnly && card.permissions.includes("upload");
   const csrfToken = auth.user?.csrf_token || "";
   const participantCreation = useParticipantCreation(card.registry_id, card.schema_version_id, csrfToken, card.id);
@@ -182,17 +185,15 @@ function DocumentCard({
     (!sameFormValue(values, savedValues) || publicationDirty ||
       Object.keys(pendingFiles).length > 0 || registrationNumber.busy);
   const collaboration = useDocumentCollaboration(card.id, revision, readOnly ? "viewer" : "editor", csrfToken, hasUnsavedChanges, hasUnsavedChanges, onSaved);
-  const hasCollaboration = !!collaboration.state;
   useLayoutEffect(() => {
-    const node = dock.current;
-    if (!node) return;
-    const measure = () => node.parentElement?.style.setProperty("--document-card-dock-height", `${Math.ceil(node.getBoundingClientRect().height)}px`);
-    measure();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(node);
-    window.addEventListener("resize", measure);
-    return () => {observer?.disconnect(); window.removeEventListener("resize", measure);};
-  }, [hasCollaboration]);
+    if (receivedCard.current === card) return;
+    if (hasUnsavedChanges) {setConflict(true); return;}
+    receivedCard.current = card;
+    setValues(card.values); setSavedValues(card.values); setRevision(card.revision);
+    setCardState(card.card_state || "draft");
+    setTargets(card.publication_targets || ["internal"]); setSavedTargets(card.publication_targets || ["internal"]);
+    setPendingFiles({}); setConflict(false);
+  }, [card, hasUnsavedChanges]);
   const remoteChange = hasUnsavedChanges ? collaboration.remote : null;
   const collaborationUpdate = collaboration.state ? `Последнее изменение: ${collaboration.state.updated_by?.display_name || "Автор неизвестен"} · ${new Date(collaboration.state.updated_at).toLocaleString("ru-RU")}` : "";
   const collaborationParticipants = collaboration.state?.participants.map(person => `${person.display_name}${person.editing ? " (редактирует)" : " (просматривает)"}`).join(", ");
@@ -283,7 +284,7 @@ function DocumentCard({
         <button onClick={onClose}>К списку</button>
       </div>
       </div>
-      <div className="document-card-dock" ref={dock}>
+      <DocumentDock>
       <div className="document-actions-strip" role="group" aria-label="Действия с документом">
           <div className="document-original-summary">
             <FileTextIcon className="document-original-icon" size={26} aria-hidden="true"/>
@@ -370,7 +371,7 @@ function DocumentCard({
         </button>
         <button className={tab === "content" ? "active" : ""} onClick={() => setTab("content")}><ListBulletsIcon size={18} aria-hidden="true"/>Содержание</button>
       </div>
-      </div>
+      </DocumentDock>
       <Feedback {...action} />
       {collaboration.unavailable && <div className="error" role="alert">Документ удалён или доступ к нему изменён. Обновите список документов.</div>}
       {(conflict || remoteChange) && (
@@ -383,6 +384,10 @@ function DocumentCard({
           <button
             onClick={() => {
               if (hasUnsavedChanges && !window.confirm("Загрузить актуальную редакцию и отменить ваши несохранённые изменения?")) return;
+              setValues(savedValues);
+              setTargets(savedTargets);
+              setPendingFiles({});
+              registrationNumber.reset();
               setConflict(false);
               onSaved();
             }}
@@ -514,7 +519,7 @@ function DocumentCard({
             {card.files.filter(file => isOfficeSyncSource(file.name)).map(file => <FileRevisionHistory key={file.id} file={file} mode={readOnly ? "viewer" : "editor"}/>)}
           </>}
           <h2>История реквизитов</h2>
-          <Feedback {...history} />
+          <Feedback error={history.error} loading={history.loading && !history.data}/>
           {history.data?.map((item) => (
             <details key={item.id}>
               <summary>
@@ -566,6 +571,8 @@ function CreateDocument({
   const auth = useAuth();
   const [typeId, setTypeId] = useState("");
   const draftDirty = useRef(false);
+  const formId = useId();
+  const [formStatus, setFormStatus] = useState({busy: false, saving: false, dirty: false, files: 0});
   const reportDirty = useCallback((dirty: boolean) => {draftDirty.current = dirty; onDirtyChange(dirty);}, [onDirtyChange]);
   const versions = useData<SchemaVersion[]>(
     typeId ? "/document-types/" + typeId + "/versions?mode=editor" : null,
@@ -573,13 +580,28 @@ function CreateDocument({
   const version = versions.data?.find((item) => item.state === "published");
   return (
     <section className="document-card document-create">
-      <div className="toolbar">
+      <div className="toolbar document-card-heading document-card-top">
         <div>
           <h1>Новый документ</h1>
           <p>Реестр: {registry.name}</p>
         </div>
-        <button onClick={onClose}>Отмена создания</button>
       </div>
+      <DocumentDock>
+        <div className="document-actions-strip" role="group" aria-label="Действия с новым документом">
+          <div className="document-original-summary">
+            <FileTextIcon className="document-original-icon" size={26} aria-hidden="true"/>
+            <div><div className="document-original-caption"><span>Новый документ</span><span className="document-state draft">Черновик</span></div>
+              <strong>{formStatus.files ? `Выбрано файлов: ${formStatus.files}` : "Оригиналы можно добавить в форме"}</strong></div>
+          </div>
+          <div className="button-row document-save-actions">
+            <button type="submit" form={formId} className="primary" disabled={!version || formStatus.busy}><FloppyDiskIcon size={17} aria-hidden="true"/>{formStatus.saving ? "Сохранение…" : "Создать документ"}</button>
+            <button type="submit" form={formId} className="primary" data-action="publish" disabled={!version || formStatus.busy}>Опубликовать</button>
+            <button type="button" onClick={onClose} disabled={formStatus.busy}>Отмена создания</button>
+          </div>
+          <span className={`document-save-status${formStatus.dirty ? " unsaved" : ""}`} aria-live="polite">{formStatus.dirty ? "Есть несохранённые изменения" : "Документ ещё не создан"}</span>
+        </div>
+      </DocumentDock>
+      <div className="document-create-configuration">
       <label className="picker">Реестр документа<select value={registry.id} onChange={event => onRegistryChange(event.target.value)}>{registries.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label className="picker">
         Тип документа
@@ -597,6 +619,7 @@ function CreateDocument({
             ))}
         </select>
       </label>
+      </div>
       <Feedback {...versions} />
       {typeId && !versions.loading && !versions.error && !version && (
         <p className="empty-state">
@@ -607,6 +630,8 @@ function CreateDocument({
       {version && (
         <NewDocumentForm
           key={version.id}
+          formId={formId}
+          onStatusChange={setFormStatus}
           onBeforeCreate={onBeforeCreate}
           onDirtyChange={reportDirty}
           registry={registry}
@@ -620,6 +645,8 @@ function CreateDocument({
   );
 }
 function NewDocumentForm({
+  formId,
+  onStatusChange,
   registry,
   version,
   references,
@@ -628,6 +655,8 @@ function NewDocumentForm({
   onBeforeCreate,
   onDirtyChange,
 }: {
+  formId: string;
+  onStatusChange: (status: {busy: boolean; saving: boolean; dirty: boolean; files: number}) => void;
   onBeforeCreate: () => boolean;
   onDirtyChange: (dirty: boolean) => void;
   registry: Registry;
@@ -654,6 +683,10 @@ function NewDocumentForm({
   const lifecycle = <DocumentCardState state={cardState}/>;
   const publication = <DocumentPublication targets={targets} onTargets={setTargets}/>;
   const dirty = JSON.stringify(values) !== JSON.stringify(initialValues(version.schema)) || cardState !== "draft" || JSON.stringify(targets) !== '["internal"]' || Object.keys(pendingFiles).length > 0 || registrationNumber.busy;
+  const busy = action.busy || participantCreation.busy || registrationNumber.busy;
+  const fileCount = Object.keys(pendingFiles).length;
+  useEffect(() => {onStatusChange({busy, saving: action.busy, dirty, files: fileCount});}, [busy, action.busy, dirty, fileCount, onStatusChange]);
+  useEffect(() => () => onStatusChange({busy: false, saving: false, dirty: false, files: 0}), [onStatusChange]);
   useEffect(() => {onDirtyChange(dirty);}, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
   function changeValues(next: Values) {
@@ -690,6 +723,7 @@ function NewDocumentForm({
   }
   return (
     <form
+      id={formId}
       className="panel document-card-form"
       onSubmit={(event) => {
         event.preventDefault();
@@ -739,10 +773,6 @@ function NewDocumentForm({
         </div>
       ))}
       <Feedback {...action} />
-      <div className="button-row document-save-actions"><button type="submit" className="primary" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>
-        {action.busy ? "Сохранение…" : "Создать документ"}
-      </button>
-      <button type="submit" className="primary" data-action="publish" disabled={action.busy || participantCreation.busy || registrationNumber.busy}>Опубликовать</button></div>
     </form>
   );
 }
@@ -926,6 +956,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
     documentId
       ? "/documents/" + documentId + "?mode=" + (readOnly ? "viewer" : "editor")
       : null,
+    {retainOnReload: true},
   );
   useEffect(() => {
     if (!savedDocument) return;
@@ -1024,11 +1055,11 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
   };
   const detail = documentId ? (
       <>
-        <Feedback {...card} />
+        <Feedback error={card.error} loading={card.loading && !card.data}/>
         {card.error && <button onClick={close}>К реестрам</button>}
         {card.data && (
           <DocumentCard
-            key={card.data.id + ":" + card.data.revision + ":" + navigationRevision}
+            key={card.data.id + ":" + navigationRevision}
             card={card.data}
             registryName={registries.data?.find(item => item.id === card.data?.registry_id)?.name || "Реестр"}
             readOnly={readOnly}
@@ -1245,7 +1276,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
               <DocumentLayoutSwitch mode={layout.mode} onChange={chooseLayout}/>
             {!readOnly && createRegistries.length > 0 && <button className="primary" onClick={startCreation}>Создать документ</button>}</div>
           </div>
-          <DocumentWorkspace onListEnd={list.appendError ? undefined : list.loadMore} feedKey={JSON.stringify(applied)} busy={list.loading} layout={layout} onChange={chooseLayout} onResize={resizeLayout} onRestore={restoreLayout}
+          <DocumentWorkspace onListEnd={list.appendError ? undefined : list.loadMore} feedKey={JSON.stringify(applied)} busy={list.loading || list.refreshing} layout={layout} onChange={chooseLayout} onResize={resizeLayout} onRestore={restoreLayout}
             selectedLabel={creating ? "Новый документ" : card.data?.title || resultDocuments.find(item => item.id === documentId)?.title || "Карточка"}
             detail={workspaceDetail}
             count={<div className="document-results-heading"><h2>Документы</h2><span className="muted">Найдено: {list.data?.total ?? "…"}</span></div>}
@@ -1261,7 +1292,7 @@ export function Documents({ readOnly: requestedReadOnly = false }: { readOnly?: 
             </div>
           )}
           {list.error && <button onClick={list.retry}>Повторить поиск</button>}
-          {(list.data || list.loading) && <DocumentFeedEnd enabled={layout.mode !== "card"} hasMore={!!list.data?.next_cursor} loading={list.loading} error={list.appendError} onLoad={list.loadMore}/>}
+          {(list.data || list.loading) && <DocumentFeedEnd enabled={layout.mode !== "card"} hasMore={!!list.data?.next_cursor} loading={list.loading} refreshing={list.refreshing} error={list.appendError} onLoad={list.loadMore}/>}
             </>}/>
         </>
       )}

@@ -7,10 +7,14 @@ export function useDocumentCollaboration(id: string, revision: number, mode: "ed
   const client = useRef(crypto.randomUUID());
   const latest = useRef({dirty, editing, onRefresh}); latest.current = {dirty, editing, onRefresh};
   const refreshed = useRef(revision);
+  const owner = useRef(id);
   useEffect(() => {
-    const controller = new AbortController(); let busy = false; let heartbeatAt = -Infinity;
+    const controller = new AbortController(); let busy = false; let denied = false; let heartbeatAt = -Infinity;
+    refreshed.current = revision;
+    if (owner.current !== id) {owner.current = id; setState(null);}
+    setUnavailable(false);
     const poll = async (heartbeat = false) => {
-      if (document.visibilityState === "hidden" || busy || controller.signal.aborted) return;
+      if (document.visibilityState === "hidden" || busy || denied || controller.signal.aborted) return;
       busy = true;
       try {
         const join = heartbeat || Date.now() - heartbeatAt >= 15000;
@@ -25,6 +29,7 @@ export function useDocumentCollaboration(id: string, revision: number, mode: "ed
         }
       } catch (failure) {
         if (!controller.signal.aborted && failure instanceof ApiError && [403, 404].includes(failure.status)) {
+          denied = true;
           setUnavailable(true); if (!latest.current.dirty) latest.current.onRefresh();
         }
       } finally {busy = false;}

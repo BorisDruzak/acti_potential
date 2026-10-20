@@ -133,3 +133,55 @@ it("filters an exact old-file deep link before extraction pagination and retains
   expect(fetch.mock.calls.some(([url]) => url.includes("/documents/document/content?") && new URL(url, "https://example.test").searchParams.get("file_id") === "file")).toBe(true);
   expect(screen.queryByText("Содержание ещё не обработано")).toBeNull();
 });
+
+it("renders a reading document with headings and paragraphs without duplicating technical table rows", async () => {
+  const blocks = [
+    {...extraction.blocks[0], id: "heading", kind: "heading", text: "Порядок работы"},
+    {...extraction.blocks[0], id: "paragraph", ordinal: 1, text: "Первый абзац.\n\nВторой абзац."},
+    {...extraction.blocks[0], id: "table", kind: "table", ordinal: 2, text: "Исполнитель\tСрок", table: [["Исполнитель", "Срок"]]},
+    {...extraction.blocks[0], id: "row", kind: "table_row", ordinal: 3, parent_id: "table", text: "Исполнитель\tСрок"},
+  ];
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/users/me")
+    ? {id: "reader", roles: ["viewer"], csrf_token: "csrf"}
+    : {items: [{...extraction, blocks, block_count: blocks.length}], total: 1, page: 1, page_size: 20}))));
+  render(<AuthProvider><DocumentContent card={card} readOnly/></AuthProvider>);
+  expect(await screen.findByRole("heading", {name: "Порядок работы"})).toBeTruthy();
+  const reader = screen.getByRole("document", {name: "Извлечённый текст Постановление.docx"});
+  expect(reader.querySelectorAll("p.content-paragraph")).toHaveLength(2);
+  expect(screen.getAllByText("Исполнитель")).toHaveLength(1);
+  expect(document.getElementById("block-row")).toBeTruthy();
+  expect(screen.getByLabelText("Ссылка на блок 4").getAttribute("href")).toContain("block=row");
+});
+
+it("keeps the same content nodes and disclosure state visible throughout refresh", async () => {
+  let refresh: ((response: Response) => void) | undefined;
+  let calls = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.endsWith("/users/me")) return new Response(JSON.stringify({id: "reader", roles: ["viewer"], csrf_token: "csrf"}));
+    if (++calls > 1) return new Promise<Response>(resolve => {refresh = resolve;});
+    return new Response(JSON.stringify({items: [extraction], total: 1, page: 1, page_size: 20}));
+  }));
+  render(<AuthProvider><DocumentContent card={card} readOnly/></AuthProvider>);
+  const paragraph = await screen.findByText("Нормативный порядок подачи заявления");
+  const disclosure = paragraph.closest("details")!;
+  disclosure.open = false;
+  fireEvent.click(screen.getByRole("button", {name: "Обновить содержание"}));
+  expect(screen.getByText("Нормативный порядок подачи заявления")).toBe(paragraph);
+  expect(screen.queryByText("Загрузка…")).toBeNull();
+  await act(async () => refresh!(new Response(JSON.stringify({items: [extraction], total: 1, page: 1, page_size: 20}))));
+  expect(paragraph.closest("details")).toBe(disclosure);
+  expect(disclosure.open).toBe(false);
+});
+
+it("revalidates visible content when the mounted card receives a newer revision", async () => {
+  let calls = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith("/users/me")
+    ? {id: "reader", roles: ["viewer"], csrf_token: "csrf"}
+    : {items: [{...extraction, blocks: [{...extraction.blocks[0], text: ++calls > 1 ? "Новая редакция содержания" : extraction.blocks[0].text}]}], total: 1, page: 1, page_size: 20}))));
+  const view = render(<AuthProvider><DocumentContent card={card} readOnly/></AuthProvider>);
+  const paragraph = await screen.findByText(extraction.blocks[0].text);
+  view.rerender(<AuthProvider><DocumentContent card={{...card, revision: 2}} readOnly/></AuthProvider>);
+  await screen.findByText("Новая редакция содержания");
+  expect(paragraph.isConnected).toBe(true);
+  expect(calls).toBe(2);
+});

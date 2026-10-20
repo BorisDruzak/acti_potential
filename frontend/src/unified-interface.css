@@ -90,6 +90,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .document-card-heading > button { font-size: 12px; flex-shrink: 0; }
 .document-card { container: document-card / inline-size; }
 .document-card-dock { position: sticky; top: 0; z-index: 6; margin-bottom: 0; background: #f8fbfa; border: 1px solid var(--acti-border); border-radius: 7px 7px 0 0; }
+.document-create-configuration { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; padding: 12px; border: 1px solid var(--acti-border); border-radius: 7px; background: white; }
+.document-create-configuration .picker { margin: 0; min-width: 0; }
+@container document-card (max-width: 680px) { .document-create-configuration { grid-template-columns: minmax(0, 1fr); } }
 .document-actions-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; max-width: 100%; padding: 9px 12px; }
 .document-actions-strip button, .document-card-heading > button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: 0 0 auto; min-height: 34px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 .document-actions-strip svg, .document-card .tabs svg { flex-shrink: 0; }

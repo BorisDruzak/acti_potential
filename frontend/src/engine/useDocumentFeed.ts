@@ -3,9 +3,9 @@ import { apiRequest } from "../api/client";
 import type { ContentHit } from "./content";
 
 type Batch = {items: ContentHit[]; total: number; next_cursor: string | null};
-type Feed = {key: string; data: Batch | null; loading: boolean; searching: boolean; searchError: string; error: string; appendError: string; startedAt: number | null; durationMs: number | null};
+type Feed = {key: string; data: Batch | null; loading: boolean; refreshing: boolean; searching: boolean; searchError: string; error: string; appendError: string; startedAt: number | null; durationMs: number | null};
 type Generation = {key: string; controller: AbortController; busy: boolean; data: Batch | null; consumed: Set<string>; pages: number};
-const empty = (key: string): Feed => ({key, data: null, loading: true, searching: true, searchError: "", error: "", appendError: "", startedAt: null, durationMs: null});
+const empty = (key: string): Feed => ({key, data: null, loading: true, refreshing: false, searching: true, searchError: "", error: "", appendError: "", startedAt: null, durationMs: null});
 
 /** Replace all previously loaded batches atomically on refresh; cursors never cross generations. */
 export function useDocumentFeed(body: unknown, csrfToken: string) {
@@ -16,7 +16,7 @@ export function useDocumentFeed(body: unknown, csrfToken: string) {
     if (generation.busy || generation.controller.signal.aborted) return;
     generation.busy = true;
     const started = measure ? performance.now() : null;
-    setState(current => ({...current, loading: true, ...(measure ? {searching: true, startedAt: started, searchError: ""} : {}), error: "", appendError: ""}));
+    setState(current => ({...current, loading: !refresh, refreshing: refresh, ...(measure ? {searching: true, startedAt: started, searchError: ""} : {}), error: "", appendError: ""}));
     try {
       const [parameters, token] = JSON.parse(generation.key);
       const rows = new Map((refresh ? [] : generation.data?.items || []).map(hit => [hit.document.id, hit]));
@@ -33,7 +33,8 @@ export function useDocumentFeed(body: unknown, csrfToken: string) {
       } while (refresh && fetched < target && next);
       generation.pages = refresh ? fetched : generation.pages + fetched;
       generation.consumed = consumed;
-      generation.data = {...batch!, items: [...rows.values()], next_cursor: next};
+      const updated = {...batch!, items: [...rows.values()], next_cursor: next};
+      if (JSON.stringify(updated) !== JSON.stringify(generation.data)) generation.data = updated;
       setState(current => ({...current, data: generation.data}));
     } catch (failure) {
       if (active.current === generation && !generation.controller.signal.aborted) {
@@ -42,7 +43,7 @@ export function useDocumentFeed(body: unknown, csrfToken: string) {
       }
     } finally {
       generation.busy = false;
-      if (active.current === generation && !generation.controller.signal.aborted) setState(current => ({...current, loading: false, ...(started !== null ? {searching: false, startedAt: null, durationMs: Math.max(0, performance.now() - started)} : {})}));
+      if (active.current === generation && !generation.controller.signal.aborted) setState(current => ({...current, loading: false, refreshing: false, ...(started !== null ? {searching: false, startedAt: null, durationMs: Math.max(0, performance.now() - started)} : {})}));
     }
   }, []);
   const begin = useCallback(() => {

@@ -604,6 +604,24 @@ p {
 .content-block.selected { border-left-color: #245ba8; background: #f2f6fd; }
 .content-block .toolbar { gap: 12px; }
 .content-block .toolbar a { overflow-wrap: anywhere; }
+.document-content { min-width: 0; }
+.content-source-actions { margin: 12px 0 8px; }
+.content-source-details { margin: 8px 0 16px; color: #63756c; font-size: 12px; }
+.content-source-details summary { cursor: pointer; }
+.content-reader { max-width: 82ch; margin: 16px auto; padding: clamp(16px, 4vw, 40px); border: 1px solid #dce5df; border-radius: 6px; background: white; color: #233b32; font-size: 15px; line-height: 1.75; }
+.content-reader .content-block { position: relative; border: 0; padding: 0; margin: 0; scroll-margin-top: calc(var(--document-card-dock-height, 120px) + 16px); }
+.content-reader .content-block.selected { background: #edf6f1; outline: 2px solid #8ebaa7; outline-offset: 5px; border-radius: 2px; }
+.content-reader .content-heading { margin: 1.6em 0 .8em; font-size: 1.16em; line-height: 1.5; color: inherit; }
+.content-reader .content-paragraph { margin: 0 0 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.content-reader .content-list-item { padding-left: 1.5em; }
+.content-reader .content-page-label { margin: 1.5em 0 1em; border-bottom: 1px solid #dce5df; color: #63756c; font-size: 11px; }
+.content-reader table { width: 100%; margin: 1em 0; border-collapse: collapse; }
+.content-reader td { position: relative; white-space: pre-wrap; padding: 8px 10px; border: 1px solid #dce5df; }
+.content-reader tr.selected { background: #edf6f1; outline: 2px solid #8ebaa7; }
+.content-block-link { position: absolute; right: -1.3em; top: 0; padding: 0 4px; opacity: 0; color: #467862; text-decoration: none; font-size: 12px; }
+.content-block:hover > .content-block-link, .content-block:focus-within > .content-block-link, .content-block.selected > .content-block-link, td:hover > .content-block-link, .content-block-link:focus-visible { opacity: 1; }
+.content-reader td .content-block-link { right: 0; top: 0; }
+@media (max-width: 600px) { .content-reader { padding: 16px; font-size: 14px; } .content-block-link { right: -.9em; } }
 .content-warnings { color: #76510b; }
 .relation-list { list-style: none; padding: 0; }
 .relation-endpoints { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }

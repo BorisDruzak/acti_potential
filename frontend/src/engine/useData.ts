@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiRequest } from "../api/client";
+import { ApiError, apiRequest } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
-export function useData<T>(path: string | null, request?: {body: unknown; csrfToken: string; retainOnReload?: boolean}) {
+export function useData<T>(path: string | null, request?: {body?: unknown; csrfToken?: string; retainOnReload?: boolean}) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -35,7 +35,10 @@ export function useData<T>(path: string | null, request?: {body: unknown; csrfTo
         if (!controller.signal.aborted) setData(value);
       })
       .catch((failure) => {
-        if (!controller.signal.aborted) setError(failure.message);
+        if (!controller.signal.aborted) {
+          if (failure instanceof ApiError && [401, 403, 404].includes(failure.status)) setData(null);
+          setError(failure.message);
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) {

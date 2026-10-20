@@ -117,3 +117,17 @@ it("retries an explicit search while a background request is pending and ignores
   expect(result.current.data?.items.map(hit => hit.document.id)).toEqual(["retry"]);
   expect(result.current.durationMs).toBe(measured);
 });
+
+it("refreshes an unchanged feed silently without replacing its loaded snapshot", async () => {
+  const {answer} = fixture();
+  const {result} = renderHook(() => useDocumentFeed({query: "one"}, "csrf"));
+  await answer(0, ["a", "b"], null);
+  const initial = result.current.data;
+  act(() => result.current.reload());
+  expect(result.current.loading).toBe(false);
+  expect(result.current.refreshing).toBe(true);
+  expect(result.current.data).toBe(initial);
+  await answer(1, ["a", "b"], null);
+  expect(result.current.data).toBe(initial);
+  expect(result.current.refreshing).toBe(false);
+});

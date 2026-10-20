@@ -18,3 +18,16 @@ it("polls visible cards, refreshes a clean remote revision and sends editing pre
   expect(result.current.remote?.revision).toBe(3);
   expect(fetch.mock.calls.some((args: unknown[]) => (args[1] as RequestInit)?.method === "POST")).toBe(true);
 });
+
+it("stops a denied collaboration poll after one revalidation instead of refreshing forever", async () => {
+  vi.useFakeTimers();
+  const fetch = vi.fn(async () => new Response(JSON.stringify({error: {message: "Доступ отозван"}}), {status: 403}));
+  vi.stubGlobal("fetch", fetch);
+  const refresh = vi.fn();
+  const {result} = renderHook(() => useDocumentCollaboration("a", 1, "editor", "csrf", false, false, refresh));
+  await act(async () => {});
+  await act(async () => vi.advanceTimersByTimeAsync(20000));
+  expect(result.current.unavailable).toBe(true);
+  expect(refresh).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledOnce();
+});

@@ -49,6 +49,48 @@ function setup(mixedVersions = false, sectionNavigation = false, role = "editor"
 const mode = (name: string) => screen.getByRole("radio", {name});
 const firstRow = () => screen.findByRole("row", {name: /Выбрать документ «Альфа»/});
 
+it("keeps creation actions in the same top dock as the card, separate from registry and type pickers", async () => {
+  setup(false, true, "editor", true);
+  fireEvent.click(await screen.findByRole("button", {name: "Создать документ"}));
+  const actions = screen.getByRole("group", {name: "Действия с новым документом"});
+  expect(actions.closest(".document-card-dock")).toBeTruthy();
+  expect(within(actions).getByRole("button", {name: "Создать документ"})).toHaveProperty("disabled", true);
+  expect(actions.contains(screen.getByLabelText("Тип документа", {exact: true}))).toBe(false);
+  fireEvent.change(screen.getByLabelText("Тип документа", {exact: true}), {target: {value: "type"}});
+  await screen.findByRole("textbox", {name: "Наименование"});
+  const submit = within(actions).getByRole("button", {name: "Создать документ"}) as HTMLButtonElement;
+  expect(submit.disabled).toBe(false);
+  expect(submit.form).toBe(screen.getByRole("textbox", {name: "Наименование"}).closest("form"));
+  expect(within(actions).getByText("Черновик", {exact: true})).toBeTruthy();
+});
+
+it.each(["Содержание", "История изменений"])("keeps a clean card and its %s tab current when another editor publishes a new revision", async tab => {
+  const requests = setup();
+  const base = requests.getMockImplementation()!;
+  let revision = 1;
+  requests.mockImplementation(async (url, init) => {
+    if (url.includes("/collaboration")) return new Response(JSON.stringify({revision, updated_at: "2026-10-20T10:00:00Z", participants: []}));
+    if (url.includes("/history")) return new Response(JSON.stringify([{id: `history-${revision}`, revision, values: {}, created_at: "2026-10-20T10:00:00Z"}]));
+    const response = await base(url, init);
+    if (url.includes("/documents/a?") && !url.includes("/content")) return new Response(JSON.stringify({...await response.json(), revision}));
+    return response;
+  });
+  const row = await firstRow();
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(row);
+    await act(async () => {});
+    const input = screen.getByRole("textbox", {name: "Наименование"});
+    fireEvent.click(screen.getByRole("button", {name: tab}));
+    await act(async () => {});
+    revision = 2;
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(screen.getByRole("heading", {name: tab === "Содержание" ? "Содержание и источники" : "История реквизитов"})).toBeTruthy();
+    if (tab === "История изменений") expect(screen.getByText(/Редакция 2 ·/)).toBeTruthy();
+    expect(input.isConnected).toBe(true);
+  } finally {cleanup(); vi.useRealTimers();}
+});
+
 it("opens permitted cards for direct editing and marks only unsaved fields until cancel or save", async () => {
   const fetch = setup();
   fireEvent.click(await firstRow());
@@ -271,7 +313,7 @@ it.each([["edit", false], ["create", false], ["edit", true], ["create", true]] a
       form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
     });
   }
-  const submit = (operation === "edit" ? within(screen.getByRole("group", {name: "Действия с документом"})) : within(form)).getByRole<HTMLButtonElement>("button", {name: operation === "edit" ? "Сохранить карточку" : "Создать документ"});
+  const submit = within(screen.getByRole("group", {name: operation === "edit" ? "Действия с документом" : "Действия с новым документом"})).getByRole<HTMLButtonElement>("button", {name: operation === "edit" ? "Сохранить карточку" : "Создать документ"});
   expect(submit.disabled).toBe(true);
   fireEvent.submit(form);
   expect(saveCalls()).toHaveLength(0);
@@ -511,7 +553,7 @@ it("places saved filters below search and creation beside the view switch with A
   const creation = document.querySelector(".document-create") as HTMLElement;
   const form = within(creation);
   const create = await form.findByRole("button", {name: "Создать документ"});
-  expect(form.getByText("Черновик",{exact:true})).toBeTruthy();
+  expect(within(screen.getByRole("group", {name: "Действия с новым документом"})).getByText("Черновик",{exact:true})).toBeTruthy();
   expect(form.getByLabelText("Внутренняя база")).toHaveProperty("checked", true);
   expect(form.getByLabelText("Общая база")).toHaveProperty("checked", false);
   fireEvent.click(form.getByLabelText("Общая база"));
