@@ -11,6 +11,9 @@ internal sealed class UpdateWorker:BackgroundService {
   while(!stoppingToken.IsCancellationRequested) {
    var retry=TimeSpan.FromMinutes(5);
    try {
+    // Recover manual-MSI users before bootstrap/feed work and before the
+    // self-update helper's global installation mutex can defer this service.
+    if(!InstallerLifecycle.Recover())throw new IOException("MSI user resume deferred.");
     using var mutex=new Mutex(false,@"Global\ACTISync.Install.v1");
     // Kernel mutex ownership is thread-affine; hold it on this thread across
     // async downloads/drains rather than release it from an await continuation.
@@ -19,7 +22,7 @@ internal sealed class UpdateWorker:BackgroundService {
    catch(Exception error) {try{SecureStore.Failure("check",error);SecureStore.Status("deferred");}catch{}}
    // Recovery handoff is local and bounded. Ordinary release/feed checks retain
    // the five-minute interval after the previous helper releases its transaction.
-   if(File.Exists(SecureStore.Request))retry=TimeSpan.FromSeconds(5);
+   if(File.Exists(SecureStore.Request) || File.Exists(InstallerLifecycle.Receipt))retry=TimeSpan.FromSeconds(5);
    try{await Task.Delay(retry,stoppingToken);}catch(OperationCanceledException){break;}
   }
  }

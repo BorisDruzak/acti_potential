@@ -75,6 +75,7 @@ try {
  Reject(()=>LegacySessionExit.Parse(Encoding.UTF8.GetBytes("{\"pid\":42,\"started\":321,\"sid\":\"S-1-5-21-1\",\"session_id\":7,\"thread_id\":100,\"path\":\"C:\\\\evil.exe\"}"),exitTarget.Sid,7),"legacy helper refuses arbitrary path or extra fields");
  if(!LegacySessionExit.IsExpectedHelper((uint)own.Id,own.Id,own.StartTime.ToUniversalTime().Ticks) || LegacySessionExit.IsExpectedHelper((uint)own.Id+1,own.Id,own.StartTime.ToUniversalTime().Ticks) || LegacySessionExit.IsExpectedHelper((uint)own.Id,own.Id,1))throw new Exception("Legacy helper pipe accepted foreign or recycled caller");Console.WriteLine("PASS legacy service pipe authenticates exact spawned helper PID and creation identity");
  NativeQueueChecks.Run();
+ await InstallerLifecycleChecks.Run(temporary);
  await LegacyPipeChecks.Run();
  await ForeignProcessChecks.Run();
  var legacyRecord=JsonSerializer.Deserialize<UserProcess>(Encoding.UTF8.GetBytes("{\"pid\":42,\"started\":321,\"sid\":\"S-1-5-21-1\",\"session_id\":7,\"thread_id\":100}"),ACTISync.Core.Wire.Json)!;if(legacyRecord.Component!="User")throw new Exception("Legacy receipt role changed");Console.WriteLine("PASS old update receipts default to the native User component");

@@ -25,6 +25,7 @@ internal static class Program
             TlsPolicyInitialization();
             SafeDiagnostics();
             CheckState();
+            InstallerLifecycleTests.Run();
             MachineTrustValidation();
             UntrustedTlsProbe();
             ProbeTimeout();

@@ -230,8 +230,22 @@ installer or installed executable.
 Quiet/basic MSI installation validates the origin syntax before installation
 writes, without network requests; explicit SERVERORIGIN or an existing configured
 origin is required. Offline upgrades, repair and uninstall do not require the
-server to respond. Restart Manager is disabled and reboots are suppressed;
-working files remain runtime data, outside MSI removal rules.
+server to respond. Restart Manager detects file use but cannot shut down
+applications; reboots are suppressed. Working files remain runtime data,
+outside MSI removal rules.
+
+Interactive and unattended MSI upgrades use the same authenticated drain as the
+automatic updater. Before removing the previous product, a deferred SYSTEM action
+stages the embedded new updater in a fixed SYSTEM/admin-only directory and
+temporarily runs it under the existing `ACTISyncUpdater` SCM identity. This lets
+the old native User/Tray authenticate its actual service PID without widening
+their IPC trust. The service records exact process/SID/session identities before
+requesting readiness; a busy or unresponsive component aborts the transaction.
+Only after both components exit does the MSI restore the service image path and
+replace files. The new installed updater resumes the protected receipt before
+normal bootstrap/feed work; rollback resumes the previous components. Word is
+never a shutdown target. There is no FilesInUse ignore/reboot option: a failed
+drain must roll back before replacement.
 
 The updater provisions exact HTTPS-origin loopback policies for Chrome, Edge and
 Yandex Browser (26.6.4+). Policy patterns include the explicit port, including
@@ -244,6 +258,7 @@ Browser discovery keeps its initial three fast rounds and then retries every
 new ticket; ambiguous POSTs are never replayed. Online status, logout, revoked
 access and identity changes cancel pending work. No protocol prompt is launched
 by background discovery.
+
 The stable MSI UpgradeCode identifies one machine-wide installation: newer MSI
 versions replace the previous product at the same installation path. Working
 copies, queue, protected credentials and configured server origin survive upgrades.

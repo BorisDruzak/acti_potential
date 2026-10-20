@@ -59,7 +59,7 @@ internal static class Installer {
  }
  private static void StartInstaller(UpdateRequest request) {
   var exe=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"msiexec.exe");
-  var command=new StringBuilder($"\"{exe}\" /i \"{SecureStore.Package}\" /qn /norestart REBOOT=ReallySuppress MSIRESTARTMANAGERCONTROL=Disable MSIDISABLERMRESTART=1");
+  var command=new StringBuilder($"\"{exe}\" /i \"{SecureStore.Package}\" /qn /norestart REBOOT=ReallySuppress MSIRESTARTMANAGERCONTROL=DisableShutdown MSIDISABLERMRESTART=1");
   var startup=new Startup{Size=Marshal.SizeOf<Startup>()};
   if(!CreateProcess(exe,command,IntPtr.Zero,IntPtr.Zero,false,0x00000004|0x08000000,IntPtr.Zero,SecureStore.Root,ref startup,out var process))throw new IOException("Cannot start Windows Installer.");
   try {

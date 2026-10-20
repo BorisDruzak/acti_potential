@@ -3,11 +3,13 @@
   <Package Name="ACTI Sync" Manufacturer="ACTI" Version="$(var.Version)"
            UpgradeCode="46C46CCD-DB5A-4A73-942C-4B3E8FDF8B0D" Scope="perMachine" InstallerVersion="500"
            Language="1033" Codepage="1251">
-    <MajorUpgrade DowngradeErrorMessage="A newer ACTI Sync is already installed." Schedule="afterInstallInitialize" />
+    <!-- All existing component identities/key paths stay stable. Drain within the
+         install script before replacement; retire the old product after execute. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer ACTI Sync is already installed." Schedule="afterInstallExecute" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" MaximumUncompressedMediaSize="600" />
     <Property Id="ACTISOURCESHA" Value="$(var.SourceSha)" />
     <!-- Word owns the user's document session; installation must never close it or reboot. -->
-    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="DisableShutdown" />
     <Property Id="REBOOT" Value="ReallySuppress" />
     <Property Id="SERVERORIGIN" Secure="yes" Hidden="yes" />
     <Property Id="EXISTINGSERVERORIGIN" Secure="yes" Hidden="yes">
@@ -22,12 +24,24 @@
                   Execute="immediate" Return="check" />
     <CustomAction Id="ValidateServerOrigin" BinaryRef="InstallerActions" DllEntry="ValidateServerOrigin"
                   Execute="immediate" Return="check" />
+    <CustomAction Id="RollbackInstallerUsers" BinaryRef="InstallerActions" DllEntry="RollbackInstallerUsers"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="PrepareInstallerUsers" BinaryRef="InstallerActions" DllEntry="PrepareInstallerUsers"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="CommitInstallerUsers" BinaryRef="InstallerActions" DllEntry="CommitInstallerUsers"
+                  Execute="commit" Impersonate="no" Return="ignore" />
+    <CustomAction Id="ResumeInstallerUsers" FileRef="UpdaterExe" ExeCommand="--msi-resume"
+                  Execute="commit" Impersonate="no" Return="ignore" />
     <UIRef Id="ACTIServerUI" />
     <CustomAction Id="CleanupUpdaterPolicy" FileRef="UpdaterExe" ExeCommand="--uninstall-cleanup"
                   Execute="deferred" Impersonate="no" Return="check" />
     <InstallExecuteSequence>
       <!-- Always enforce syntax before writes, including /qn and /qb. No network in the execute sequence. -->
       <Custom Action="ValidateServerOrigin" Before="InstallInitialize" Condition="NOT Installed AND NOT (REMOVE ~= &quot;ALL&quot;)" />
+      <Custom Action="RollbackInstallerUsers" Before="PrepareInstallerUsers" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
+      <Custom Action="PrepareInstallerUsers" Before="CommitInstallerUsers" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
+      <Custom Action="CommitInstallerUsers" Before="ResumeInstallerUsers" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
+      <Custom Action="ResumeInstallerUsers" Before="StopServices" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
       <Custom Action="CleanupUpdaterPolicy" After="StopServices" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
     <StandardDirectory Id="ProgramFiles64Folder">

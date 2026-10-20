@@ -13,6 +13,10 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.ServiceProcess" />
     <Content Include="CustomAction.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(InstallerLifecycleExePath)' != ''">
+    <EmbeddedResource Include="$(InstallerLifecycleExePath)" LogicalName="ACTISync.InstallerLifecycle.exe" />
   </ItemGroup>
 </Project>

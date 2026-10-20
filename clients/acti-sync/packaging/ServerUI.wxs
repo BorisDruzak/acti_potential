@@ -108,13 +108,10 @@
         <Control Id="R" Type="PushButton" X="130" Y="120" Width="90" Height="19" TabSkip="yes" Text="Повторить"><Publish Event="EndDialog" Value="ErrorRetry" /></Control>
       </Dialog>
 
-      <Dialog Id="FilesInUse" Width="390" Height="245" Title="ACTI Sync" KeepModeless="yes">
-        <Control Id="Message" Type="Text" X="18" Y="18" Width="354" Height="55" NoPrefix="yes" Text="Файлы используются перечисленными приложениями. Сохраните документы и закройте приложения самостоятельно, затем повторите попытку." />
-        <Control Id="List" Type="ListBox" X="18" Y="79" Width="354" Height="120" Property="FileInUseProcess" Sunken="yes" TabSkip="yes" />
-        <Control Id="Exit" Type="PushButton" X="84" Y="218" Width="90" Height="19" Cancel="yes" Text="Отмена"><Publish Event="EndDialog" Value="Exit" /></Control>
-        <Control Id="Ignore" Type="PushButton" X="180" Y="218" Width="94" Height="19" Text="Пропустить"><Publish Event="EndDialog" Value="Ignore" /></Control>
-        <Control Id="Retry" Type="PushButton" X="282" Y="218" Width="90" Height="19" Default="yes" Text="Повторить"><Publish Event="EndDialog" Value="Retry" /></Control>
-      </Dialog>
+      <!-- There is deliberately no ListBox/FilesInUse dialog. InstallValidate
+           performs detection only; the guarded deferred lifecycle action must
+           drain the exact ACTI User/Tray processes before any file replacement.
+           A failed drain aborts and rolls back rather than scheduling a reboot. -->
 
       <InstallUISequence>
         <Show Dialog="ACTIServerDlg" After="CostFinalize" Condition="UILevel &gt;= 5 AND NOT Installed AND NOT (REMOVE ~= &quot;ALL&quot;)" />
