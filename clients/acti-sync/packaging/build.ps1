@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.3.7',
+    [string]$Version = '1.3.8',
     [string]$SourceSha = '',
     [string]$OutputDirectory = '',
     [string]$DotNet = 'dotnet',
