@@ -83,21 +83,94 @@ it("offers a separate stable installer link even for an offline agent and a read
   expect(request.mock.calls.some(([path]) => path.endsWith("/connect"))).toBe(false);
 });
 
-it("bounds discovery retries and never loops connect tickets while the heartbeat remains offline", async () => {
+it("keeps discovery bounded after the initial rounds without issuing speculative tickets", async () => {
   vi.useFakeTimers(); show(); await act(async () => {});
-  await act(async () => {await vi.advanceTimersByTimeAsync(120000);});
+  await act(async () => {await vi.advanceTimersByTimeAsync(30000);});
+  expect(fetch).toHaveBeenCalledTimes(48);
+  await act(async () => {await vi.advanceTimersByTimeAsync(59000);});
+  expect(fetch).toHaveBeenCalledTimes(48);
+  await act(async () => {await vi.advanceTimersByTimeAsync(61000);});
+  expect(fetch).toHaveBeenCalledTimes(80);
+  expect(request.mock.calls.some(([path]) => path.endsWith("/connect"))).toBe(false);
+});
+
+it("automatically recovers when the local bridge appears after the initial discovery rounds", async () => {
+  vi.useFakeTimers(); let available = false, attached = false;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (available && url === "http://127.0.0.1:43127/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: "r".repeat(43)}));
+    if (available && url.endsWith("/v1/connect")) {attached = true; return new Response('{"ok":true}');}
+    throw new TypeError("unavailable");
+  }));
+  request.mockImplementation(async path => path.endsWith("/connect") ? {uri: "acti-sync://connect?ticket=" + "r".repeat(43), expires_at: "2099-01-01"} : attached ? connected() : empty());
+  show(); await act(async () => {});
+  fireEvent.change(screen.getByLabelText("Черновик"), {target: {value: "Несохранённое"}});
+  await act(async () => {await vi.advanceTimersByTimeAsync(30000);});
+  available = true;
+  await act(async () => {await vi.advanceTimersByTimeAsync(60000);});
+  expect(screen.getByRole("button", {name: "ACTI Sync: на связи"})).toBeTruthy();
+  expect((screen.getByLabelText("Черновик") as HTMLInputElement).value).toBe("Несохранённое");
+  expect(request.mock.calls.filter(([path]) => path.endsWith("/connect"))).toHaveLength(1);
+});
+
+it("recovers an ambiguous handoff with a fresh discovery and fresh ticket after backoff", async () => {
+  vi.useFakeTimers(); let discoveries = 0, tickets = 0, attached = false;
+  const handoffs: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "http://127.0.0.1:43127/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: (++discoveries === 1 ? "s" : "t").repeat(43)}));
+    if (url.endsWith("/v1/connect")) {
+      handoffs.push(String(init?.body));
+      if (handoffs.length === 1) throw new TypeError("ambiguous");
+      attached = true; return new Response('{"ok":true}');
+    }
+    throw new TypeError("unavailable");
+  }));
+  request.mockImplementation(async path => path.endsWith("/connect") ? {uri: "acti-sync://connect?ticket=" + (++tickets === 1 ? "s" : "t").repeat(43), expires_at: "2099-01-01"} : attached ? connected() : empty());
+  show(); await act(async () => {});
+  expect(handoffs).toEqual([JSON.stringify({ticket: "s".repeat(43), challenge: "s".repeat(43)})]);
+  await act(async () => {await vi.advanceTimersByTimeAsync(59000);});
+  expect(tickets).toBe(1);
+  await act(async () => {await vi.advanceTimersByTimeAsync(1000);});
+  expect(handoffs).toEqual([JSON.stringify({ticket: "s".repeat(43), challenge: "s".repeat(43)}), JSON.stringify({ticket: "t".repeat(43), challenge: "t".repeat(43)})]);
+  expect(screen.getByRole("button", {name: "ACTI Sync: на связи"})).toBeTruthy();
+  await act(async () => {await vi.advanceTimersByTimeAsync(180000);});
+  expect(tickets).toBe(2); expect(discoveries).toBe(2);
+});
+
+it("cancels scheduled background discovery when authentication expires", async () => {
+  vi.useFakeTimers(); show(); await act(async () => {});
+  await act(async () => {await vi.advanceTimersByTimeAsync(30000);});
+  act(() => {window.dispatchEvent(new Event("acti:unauthorized"));});
+  await act(async () => {await vi.advanceTimersByTimeAsync(180000);});
   expect(fetch).toHaveBeenCalledTimes(48);
   expect(request.mock.calls.some(([path]) => path.endsWith("/connect"))).toBe(false);
 });
 
-it("does not issue another connect ticket after an ambiguous POST or a transient server status error", async () => {
-  vi.useFakeTimers(); let unavailable = false;
+it("aborts a late connect ticket when browser identity changes and stops discovery on logout", async () => {
+  vi.useFakeTimers(); let resolve!: (value: unknown) => void;
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-    if (url === "http://127.0.0.1:43127/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: "q".repeat(43)}));
+    if (url === "http://127.0.0.1:43127/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: "w".repeat(43)}));
+    throw new TypeError("unavailable");
+  }));
+  request.mockImplementation(async path => path.endsWith("/connect") ? new Promise(done => {resolve = done;}) : empty());
+  const view = render(<OfficeSyncAgent owner="first" csrfToken="csrf-1" canControl/>); await act(async () => {});
+  const signal = request.mock.calls.find(([path]) => path.endsWith("/connect"))?.[1]?.signal;
+  view.rerender(<OfficeSyncAgent owner="second" csrfToken="csrf-2" canControl={false}/>);
+  expect(signal?.aborted).toBe(true);
+  await act(async () => {resolve({uri: "acti-sync://connect?ticket=" + "w".repeat(43), expires_at: "2099-01-01"});});
+  view.rerender(<OfficeSyncAgent owner="" csrfToken="" canControl/>);
+  await act(async () => {await vi.advanceTimersByTimeAsync(180000);});
+  expect(request.mock.calls.filter(([path]) => path.endsWith("/connect"))).toHaveLength(1);
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/v1/connect"))).toBe(false);
+});
+
+it("does not immediately retry an ambiguous POST after a transient server status error", async () => {
+  vi.useFakeTimers(); let unavailable = false, discoveries = 0, tickets = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "http://127.0.0.1:43127/v1/status") return new Response(JSON.stringify({version: "1.3.0", challenge: (++discoveries === 1 ? "q" : "v").repeat(43)}));
     throw new TypeError("unavailable");
   }));
   request.mockImplementation(async path => {
-    if (path.endsWith("/connect")) return {uri: "acti-sync://connect?ticket=" + "e".repeat(43), expires_at: "2099-01-01"};
+    if (path.endsWith("/connect")) return {uri: "acti-sync://connect?ticket=" + (++tickets === 1 ? "e" : "v").repeat(43), expires_at: "2099-01-01"};
     if (unavailable) throw new Error("network");
     return empty();
   });
@@ -106,6 +179,10 @@ it("does not issue another connect ticket after an ambiguous POST or a transient
   unavailable = true; await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
   unavailable = false; await act(async () => {await vi.advanceTimersByTimeAsync(7000);});
   expect(request.mock.calls.filter(([path]) => path.endsWith("/connect"))).toHaveLength(1);
+  await act(async () => {await vi.advanceTimersByTimeAsync(45000);});
+  expect(tickets).toBe(1);
+  await act(async () => {await vi.advanceTimersByTimeAsync(1000);});
+  expect(tickets).toBe(2); expect(discoveries).toBe(2);
 });
 beforeEach(() => {request.mockReset(); request.mockImplementation(async () => empty()); vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("unavailable")));});
 afterEach(() => {cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); window.history.replaceState({}, "", "/");});

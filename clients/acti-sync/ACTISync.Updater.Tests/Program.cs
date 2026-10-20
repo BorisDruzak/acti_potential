@@ -8,6 +8,12 @@ using System.Reflection.PortableExecutable;
 // block a restricted Medium token in CSRSS before managed authentication runs.
 using(var apphost=File.OpenRead(Path.Combine(AppContext.BaseDirectory,"ACTISync.Updater.exe")))using(var pe=new PEReader(apphost))if(pe.PEHeaders.PEHeader?.Subsystem!=Subsystem.WindowsGui)throw new Exception("Updater apphost must use Windows GUI subsystem for restricted session helpers");
 Console.WriteLine("PASS updater apphost uses Windows GUI subsystem before any managed helper authentication");
+var yandexPolicy=@"SOFTWARE\Policies\YandexBrowser\LoopbackNetworkAllowedForUrls";
+if(LoopbackPolicies.PolicyOrigin(new Uri("https://acti.example"))!="https://acti.example:443" || LoopbackPolicies.PolicyOrigin(new Uri("https://acti.example:8443"))!="https://acti.example:8443" || LoopbackPolicies.PolicyOrigin(new Uri("https://[::1]"))!="https://[::1]:443")throw new Exception("Browser policy origin must include the exact HTTPS port");
+if(!LoopbackPolicies.PolicyKeys.Contains(yandexPolicy) || LoopbackPolicies.PolicyKeys.Count!=3)throw new Exception("Yandex loopback provisioning missing");
+var policyEntry=new LoopbackPolicies.OwnedEntry(yandexPolicy,"43127","https://acti.example");
+if(!LoopbackPolicies.MayRemove(policyEntry,policyEntry.Origin) || LoopbackPolicies.MayRemove(policyEntry,"https://admin.example") || LoopbackPolicies.MayRemove(policyEntry with{Key=@"SOFTWARE\Other"},policyEntry.Origin) || LoopbackPolicies.MayRemove(policyEntry with{Slot="43126"},policyEntry.Origin) || LoopbackPolicies.MayRemove(policyEntry with{Slot="44127"},policyEntry.Origin))throw new Exception("Browser policy ownership boundary failed");
+Console.WriteLine("PASS Yandex provisioning and cleanup preserve administrator entries and constrain owned registry values");
 using var key=RSA.Create(3072);
 var fields=new Dictionary<string,object>{["schema"]=1,["product"]="ACTISync",["version"]="1.3.1",["source_sha"]=new string('a',40),["filename"]="ACTISync-1.3.1-win-x64.msi",["sha256"]=new string('b',64),["size"]=1024,["release_tag"]="acti-sync-v1.3.1-aaaaaaaaaaaa",["published_at"]="2026-10-19T00:00:00Z"};
 string Envelope(Dictionary<string,object> values) { var payload=JsonSerializer.SerializeToUtf8Bytes(values); return JsonSerializer.Serialize(new{payload=Convert.ToBase64String(payload),signature=Convert.ToBase64String(key.SignData(payload,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1))}); }
@@ -69,6 +75,7 @@ try {
  Reject(()=>LegacySessionExit.Parse(Encoding.UTF8.GetBytes("{\"pid\":42,\"started\":321,\"sid\":\"S-1-5-21-1\",\"session_id\":7,\"thread_id\":100,\"path\":\"C:\\\\evil.exe\"}"),exitTarget.Sid,7),"legacy helper refuses arbitrary path or extra fields");
  if(!LegacySessionExit.IsExpectedHelper((uint)own.Id,own.Id,own.StartTime.ToUniversalTime().Ticks) || LegacySessionExit.IsExpectedHelper((uint)own.Id+1,own.Id,own.StartTime.ToUniversalTime().Ticks) || LegacySessionExit.IsExpectedHelper((uint)own.Id,own.Id,1))throw new Exception("Legacy helper pipe accepted foreign or recycled caller");Console.WriteLine("PASS legacy service pipe authenticates exact spawned helper PID and creation identity");
  NativeQueueChecks.Run();
+ await InstallerLifecycleChecks.Run(temporary);
  await LegacyPipeChecks.Run();
  await ForeignProcessChecks.Run();
  var legacyRecord=JsonSerializer.Deserialize<UserProcess>(Encoding.UTF8.GetBytes("{\"pid\":42,\"started\":321,\"sid\":\"S-1-5-21-1\",\"session_id\":7,\"thread_id\":100}"),ACTISync.Core.Wire.Json)!;if(legacyRecord.Component!="User")throw new Exception("Legacy receipt role changed");Console.WriteLine("PASS old update receipts default to the native User component");
