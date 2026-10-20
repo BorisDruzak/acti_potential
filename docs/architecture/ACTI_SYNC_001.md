@@ -1,4 +1,4 @@
-# ACTI Sync v1 (Issue #21), current implementation 1.3.6
+# ACTI Sync v1 (Issue #21), current implementation 1.3.7
 
 Version **1.3.5** implements automatic browser connection, a separate tray and
 signed in-place updates. The architecture below describes the implementation;
@@ -215,8 +215,8 @@ per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.6-win-x64.msi`.
-Version 1.3.6 adds a native Russian MSI server-selection page. Double-click the
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.7-win-x64.msi`.
+Version 1.3.7 adds a native Russian MSI server-selection page. Double-click the
 single MSI, enter a server hostname or HTTPS origin, and use **Проверить
 соединение**. **Установить** always checks the current input again. The check
 requires strict TLS hostname/expiry validation and a trusted LocalMachine root,
@@ -317,9 +317,9 @@ and user startup at sign-in. Initial install requires machine administrator/GPO;
 normal background operation, protocol and Word use the user's existing rights:
 
 ```powershell
-msiexec /i ACTISync-1.3.6-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
-msiexec /i ACTISync-1.3.6-win-x64.msi /qn /norestart /l*v upgrade.log
-msiexec /x ACTISync-1.3.6-win-x64.msi /qn /norestart /l*v uninstall.log
+msiexec /i ACTISync-1.3.7-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
+msiexec /i ACTISync-1.3.7-win-x64.msi /qn /norestart /l*v upgrade.log
+msiexec /x ACTISync-1.3.7-win-x64.msi /qn /norestart /l*v uninstall.log
 ```
 
 An upgrade reuses the configured origin unless explicitly changed.
