@@ -1,4 +1,4 @@
-# ACTI Sync v1 (Issue #21), current implementation 1.3.7
+# ACTI Sync v1 (Issue #21), current implementation 1.3.8
 
 Version **1.3.5** implements automatic browser connection, a separate tray and
 signed in-place updates. The architecture below describes the implementation;
@@ -215,8 +215,8 @@ per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.7-win-x64.msi`.
-Version 1.3.7 adds a native Russian MSI server-selection page. Double-click the
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.8-win-x64.msi`.
+Version 1.3.7 added a native Russian MSI server-selection page. Double-click the
 single MSI, enter a server hostname or HTTPS origin, and use **Проверить
 соединение**. **Установить** always checks the current input again. The check
 requires strict TLS hostname/expiry validation and a trusted LocalMachine root,
@@ -226,6 +226,13 @@ to eight seconds and reports a Russian result in the installer. The embedded
 net472 custom action uses the Windows .NET Framework 4.7.2-or-newer runtime;
 modern supported Windows 10/11 installations include it. It is not another
 installer or installed executable.
+
+Version 1.3.8 explicitly enables the CLR4 legacy activation policy required by
+DTF 6 native hosting. Without it, a machine with .NET Framework 4.8.1 can fail
+with 0x80131700 before origin validation runs. The cold-host build check now
+also exercises DTF's GetRequestedRuntimeInfo selection using CustomAction.config.
+This process-local compatibility setting does not enable old TLS protocols or
+change machine-wide .NET configuration.
 
 Quiet/basic MSI installation validates the origin syntax before installation
 writes, without network requests; explicit SERVERORIGIN or an existing configured
@@ -332,9 +339,9 @@ and user startup at sign-in. Initial install requires machine administrator/GPO;
 normal background operation, protocol and Word use the user's existing rights:
 
 ```powershell
-msiexec /i ACTISync-1.3.7-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
-msiexec /i ACTISync-1.3.7-win-x64.msi /qn /norestart /l*v upgrade.log
-msiexec /x ACTISync-1.3.7-win-x64.msi /qn /norestart /l*v uninstall.log
+msiexec /i ACTISync-1.3.8-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
+msiexec /i ACTISync-1.3.8-win-x64.msi /qn /norestart /l*v upgrade.log
+msiexec /x ACTISync-1.3.8-win-x64.msi /qn /norestart /l*v uninstall.log
 ```
 
 An upgrade reuses the configured origin unless explicitly changed.

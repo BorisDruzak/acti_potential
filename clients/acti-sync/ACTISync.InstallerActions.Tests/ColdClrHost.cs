@@ -7,6 +7,9 @@ using System.Reflection;
 using System.Runtime.Versioning;
 using System.IO;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Xml;
 
 internal static class ColdClrHost
 {
@@ -20,6 +23,22 @@ internal static class ColdClrHost
 
         try
         {
+            // DTF 6 still selects the CLR through GetRequestedRuntimeInfo and
+            // CorBindToRuntimeEx. A managed TLS test alone bypasses that path.
+            var configPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(arguments[0])), "CustomAction.config");
+            var config = new XmlDocument { XmlResolver = null };
+            config.Load(configPath);
+            var startup = config.SelectSingleNode("/configuration/startup") as XmlElement;
+            if (startup == null || startup.GetAttribute("useLegacyV2RuntimeActivationPolicy") != "true")
+                return Fail("DTF CLR4 activation requires an explicit legacy runtime activation policy.");
+            var directory = new StringBuilder(260);
+            var version = new StringBuilder(20);
+            uint directoryLength, versionLength;
+            var result = GetRequestedRuntimeInfo(arguments[0], null, configPath, 0, 0,
+                directory, directory.Capacity, out directoryLength, version, version.Capacity, out versionLength);
+            if (result < 0 || version.ToString() != "v4.0.30319")
+                return Fail("DTF native runtime selection failed: 0x" + result.ToString("X8"));
+
             var assembly = Assembly.LoadFrom(arguments[0]);
             var policy = assembly.GetType("ACTISync.InstallerActions.InstallerTlsPolicy", false);
             var initialize = policy == null ? null : policy.GetMethod("Initialize", BindingFlags.Static | BindingFlags.NonPublic);
@@ -52,7 +71,7 @@ internal static class ColdClrHost
                 }
             }
 
-            Console.WriteLine("Cold CLR4 host TLS policy test passed; no network or MSI actions.");
+            Console.WriteLine("DTF native CLR4 selection and cold host TLS policy tests passed; no network or MSI actions.");
             return 0;
         }
         catch (Exception)
@@ -60,6 +79,12 @@ internal static class ColdClrHost
             return Fail("Unable to load or invoke installer TLS initialization.");
         }
     }
+
+    [DllImport("mscoree.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetRequestedRuntimeInfo(string executable, string requestedVersion,
+        string configurationFile, uint startupFlags, uint runtimeInfoFlags,
+        StringBuilder directory, int directoryCapacity, out uint directoryLength,
+        StringBuilder version, int versionCapacity, out uint versionLength);
 
     private static int Fail(string message)
     {
