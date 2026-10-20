@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.3.5',
+    [string]$Version = '1.3.6',
     [string]$SourceSha = '',
     [string]$OutputDirectory = '',
     [string]$DotNet = 'dotnet',
@@ -35,6 +35,19 @@ try {
     Run-Native $Wix @('extension', 'add', '-g', 'WixToolset.Util.wixext/6.0.2')
     Run-Native $DotNet @('run', '--project', 'ACTISync.Tests', '-c', 'Release')
     Run-Native $DotNet @('run', '--project', 'ACTISync.Updater.Tests', '-c', 'Release')
+    Run-Native $DotNet @('run', '--project', 'ACTISync.InstallerActions.Tests', '-c', 'Release')
+    $installerActionsDirectory = Join-Path $OutputDirectory 'InstallerActions'
+    Run-Native $DotNet @('build', 'ACTISync.InstallerActions/ACTISync.InstallerActions.csproj', '-c', 'Release',
+        '-p:Platform=x64', '-o', $installerActionsDirectory)
+    if (!(Test-Path -LiteralPath (Join-Path $installerActionsDirectory 'ACTISync.InstallerActions.CA.dll'))) {
+        throw 'Expected an embedded DTF custom-action DLL; refusing an MSI without server validation.'
+    }
+    $coldClrCompiler = Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+    if (!(Test-Path -LiteralPath $coldClrCompiler)) { throw 'Windows .NET Framework x64 compiler required for cold CLR regression test.' }
+    $coldClrFixture = Join-Path $clientRoot 'ACTISync.InstallerActions.Tests/ColdClrHost.cs'
+    $coldClrExe = Join-Path $installerActionsDirectory 'ACTISync.InstallerActions.ColdClrHost.exe'
+    Run-Native $coldClrCompiler @('/nologo', '/target:exe', '/platform:x64', "/out:$coldClrExe", $coldClrFixture)
+    Run-Native $coldClrExe @((Join-Path $installerActionsDirectory 'ACTISync.InstallerActions.dll'))
     foreach ($component in @('Service', 'User', 'Updater', 'Tray')) {
         $destination = Join-Path $OutputDirectory $component
         Run-Native $DotNet @('publish', "ACTISync.$component/ACTISync.$component.csproj", '-c', 'Release',
@@ -56,12 +69,14 @@ try {
         }
     }
     $msi = Join-Path $OutputDirectory "ACTISync-$Version-win-x64.msi"
-    Run-Native $Wix @('build', (Join-Path $PSScriptRoot 'ACTISync.wxs'), '-arch', 'x64',
+    Run-Native $Wix @('build', (Join-Path $PSScriptRoot 'ACTISync.wxs'), (Join-Path $PSScriptRoot 'ServerUI.wxs'), '-arch', 'x64',
         '-ext', 'WixToolset.Util.wixext/6.0.2', '-d', "Version=$Version",
         '-d', "SourceSha=$SourceSha",
+        '-d', "InstallerActionsDir=$installerActionsDirectory",
         '-d', "ServiceDir=$(Join-Path $OutputDirectory 'Service')",
         '-d', "UserDir=$(Join-Path $OutputDirectory 'User')",
         '-d', "UpdaterDir=$(Join-Path $OutputDirectory 'Updater')", '-d', "TrayDir=$(Join-Path $OutputDirectory 'Tray')", '-o', $msi)
+    Run-Native $Wix @('msi', 'validate', $msi)
     if ($SignCertificateThumbprint) {
         $signParameters.FilePath = $msi
         if ((Set-AuthenticodeSignature @signParameters).Status -ne 'Valid') { throw 'MSI signing failed.' }

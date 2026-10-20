@@ -1,0 +1,134 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="ACTIServerUI">
+      <TextStyle Id="ACTINormal" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="ACTIHeading" FaceName="Segoe UI" Size="12" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="ACTINormal" />
+      <Property Id="ErrorDialog" Value="ACTIErrorDlg" />
+
+      <Dialog Id="ACTIServerDlg" Width="390" Height="245" Title="Установка ACTI Sync">
+        <Control Id="Title" Type="Text" X="18" Y="15" Width="354" Height="25" NoPrefix="yes" Text="{\ACTIHeading}Подключение к серверу ACTI" />
+        <Control Id="Introduction" Type="Text" X="18" Y="49" Width="354" Height="35" NoPrefix="yes" Text="Укажите адрес сервера. ACTI Sync проверит соединение перед установкой." />
+        <Control Id="ServerLabel" Type="Text" X="18" Y="91" Width="354" Height="15" NoPrefix="yes" Text="Адрес сервера (HTTPS):" />
+        <Control Id="Server" Type="Edit" X="18" Y="109" Width="354" Height="20" Property="SERVERORIGIN" />
+        <Control Id="Hint" Type="Text" X="18" Y="136" Width="354" Height="30" NoPrefix="yes" Text="Например: https://acti.example.org. Сертификат сервера должен быть доверен этому компьютеру." />
+        <Control Id="Check" Type="PushButton" X="18" Y="175" Width="153" Height="20" Text="Проверить соединение">
+          <Publish Event="DoAction" Value="CheckServer" Order="1" />
+          <!-- Recreate the result dialog after each check so its formatted text is current. -->
+          <Publish Event="SpawnDialog" Value="ACTICheckResultDlg" Order="2" />
+        </Control>
+        <Control Id="BottomLine" Type="Line" X="0" Y="207" Width="390" Height="0" />
+        <Control Id="Install" Type="PushButton" X="180" Y="218" Width="94" Height="19" Default="yes" ElevationShield="yes" Text="Установить">
+          <!-- The action clears and recomputes ACTICHECKOK, even after editing a previously checked address. -->
+          <Publish Event="DoAction" Value="CheckServer" Order="1" />
+          <Publish Event="SpawnDialog" Value="ACTICheckResultDlg" Order="2" Condition="ACTICHECKOK &lt;&gt; &quot;1&quot;" />
+          <Publish Event="EndDialog" Value="Return" Order="3" Condition="ACTICHECKOK = &quot;1&quot;" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="282" Y="218" Width="90" Height="19" Cancel="yes" Text="Отмена">
+          <Publish Event="SpawnDialog" Value="ACTICancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ACTICheckResultDlg" Width="350" Height="150" Title="Проверка соединения">
+        <Control Id="Message" Type="Text" X="18" Y="20" Width="314" Height="87" NoPrefix="yes" Text="[ACTICHECKMESSAGE]" />
+        <Control Id="OK" Type="PushButton" X="242" Y="120" Width="90" Height="19" Default="yes" Cancel="yes" Text="ОК">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ACTIMaintenanceDlg" Width="390" Height="200" Title="Обслуживание ACTI Sync">
+        <Control Id="Title" Type="Text" X="18" Y="18" Width="354" Height="25" NoPrefix="yes" Text="{\ACTIHeading}ACTI Sync уже установлен" />
+        <Control Id="Description" Type="Text" X="18" Y="59" Width="354" Height="45" NoPrefix="yes" Text="Восстановите установленные компоненты или удалите программу. Рабочие документы и очередь синхронизации сохраняются." />
+        <Control Id="Repair" Type="PushButton" X="18" Y="124" Width="113" Height="21" Default="yes" ElevationShield="yes" Text="Восстановить">
+          <Publish Event="Reinstall" Value="ALL" Order="1" />
+          <Publish Event="EndDialog" Value="Return" Order="2" />
+        </Control>
+        <Control Id="Remove" Type="PushButton" X="142" Y="124" Width="106" Height="21" ElevationShield="yes" Text="Удалить">
+          <Publish Event="Remove" Value="ALL" Order="1" />
+          <Publish Event="EndDialog" Value="Return" Order="2" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="282" Y="173" Width="90" Height="19" Cancel="yes" Text="Отмена">
+          <Publish Event="SpawnDialog" Value="ACTICancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ACTIProgressDlg" Width="390" Height="200" Title="ACTI Sync" Modeless="yes">
+        <Control Id="Title" Type="Text" X="18" Y="18" Width="354" Height="25" NoPrefix="yes" Text="{\ACTIHeading}Выполняется установка" />
+        <Control Id="Description" Type="Text" X="18" Y="58" Width="354" Height="30" NoPrefix="yes" Text="Подождите, пока Windows завершит операцию с ACTI Sync." />
+        <Control Id="ActionText" Type="Text" X="18" Y="102" Width="354" Height="25" NoPrefix="yes">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="Progress" Type="ProgressBar" X="18" Y="132" Width="354" Height="12" ProgressBlocks="yes">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="282" Y="173" Width="90" Height="19" Cancel="yes" Text="Отмена">
+          <Publish Event="SpawnDialog" Value="ACTICancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ACTICancelDlg" Width="300" Height="110" Title="ACTI Sync">
+        <Control Id="Question" Type="Text" X="18" Y="18" Width="264" Height="45" NoPrefix="yes" Text="Прервать установку ACTI Sync?" />
+        <Control Id="Yes" Type="PushButton" X="96" Y="79" Width="90" Height="19" Text="Да">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+        <Control Id="No" Type="PushButton" X="192" Y="79" Width="90" Height="19" Default="yes" Cancel="yes" Text="Нет">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ACTIFinishDlg" Width="390" Height="175" Title="ACTI Sync">
+        <Control Id="Title" Type="Text" X="18" Y="18" Width="354" Height="25" NoPrefix="yes" Text="{\ACTIHeading}Операция завершена" />
+        <Control Id="Message" Type="Text" X="18" Y="65" Width="354" Height="45" NoPrefix="yes" Text="Windows успешно завершила операцию с ACTI Sync." />
+        <Control Id="Finish" Type="PushButton" X="282" Y="145" Width="90" Height="19" Default="yes" Cancel="yes" Text="Готово">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+      <Dialog Id="ACTIUserExitDlg" Width="390" Height="175" Title="ACTI Sync">
+        <Control Id="Message" Type="Text" X="18" Y="30" Width="354" Height="75" NoPrefix="yes" Text="Установка ACTI Sync отменена. Чтобы повторить установку, откройте этот MSI ещё раз." />
+        <Control Id="Finish" Type="PushButton" X="282" Y="145" Width="90" Height="19" Default="yes" Cancel="yes" Text="Закрыть">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+      <Dialog Id="ACTIFatalDlg" Width="390" Height="175" Title="ACTI Sync">
+        <Control Id="Message" Type="Text" X="18" Y="30" Width="354" Height="75" NoPrefix="yes" Text="Не удалось завершить операцию с ACTI Sync. Проверьте сообщение Windows Installer и повторите попытку." />
+        <Control Id="Finish" Type="PushButton" X="282" Y="145" Width="90" Height="19" Default="yes" Cancel="yes" Text="Закрыть">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <!-- Windows Installer selects and positions the response buttons for the message type. -->
+      <Dialog Id="ACTIErrorDlg" Width="350" Height="150" Title="ACTI Sync" ErrorDialog="yes">
+        <Control Id="ErrorText" Type="Text" X="18" Y="16" Width="314" Height="95" TabSkip="no" NoPrefix="yes" Text="[ErrorText]" />
+        <Control Id="Y" Type="PushButton" X="130" Y="120" Width="90" Height="19" TabSkip="yes" Text="Да"><Publish Event="EndDialog" Value="ErrorYes" /></Control>
+        <Control Id="A" Type="PushButton" X="130" Y="120" Width="90" Height="19" TabSkip="yes" Text="Прервать"><Publish Event="EndDialog" Value="ErrorAbort" /></Control>
+        <Control Id="C" Type="PushButton" X="130" Y="120" Width="90" Height="19" TabSkip="yes" Text="Отмена"><Publish Event="EndDialog" Value="ErrorCancel" /></Control>
+        <Control Id="I" Type="PushButton" X="130" Y="120" Width="90" Height="19" TabSkip="yes" Text="Пропустить"><Publish Event="EndDialog" Value="ErrorIgnore" /></Control>
+        <Control Id="N" Type="PushButton" X="130" Y="120" Width="90" Height="19" TabSkip="yes" Text="Нет"><Publish Event="EndDialog" Value="ErrorNo" /></Control>
+        <Control Id="O" Type="PushButton" X="130" Y="120" Width="90" Height="19" TabSkip="yes" Text="ОК"><Publish Event="EndDialog" Value="ErrorOk" /></Control>
+        <Control Id="R" Type="PushButton" X="130" Y="120" Width="90" Height="19" TabSkip="yes" Text="Повторить"><Publish Event="EndDialog" Value="ErrorRetry" /></Control>
+      </Dialog>
+
+      <Dialog Id="FilesInUse" Width="390" Height="245" Title="ACTI Sync" KeepModeless="yes">
+        <Control Id="Message" Type="Text" X="18" Y="18" Width="354" Height="55" NoPrefix="yes" Text="Файлы используются перечисленными приложениями. Сохраните документы и закройте приложения самостоятельно, затем повторите попытку." />
+        <Control Id="List" Type="ListBox" X="18" Y="79" Width="354" Height="120" Property="FileInUseProcess" Sunken="yes" TabSkip="yes" />
+        <Control Id="Exit" Type="PushButton" X="84" Y="218" Width="90" Height="19" Cancel="yes" Text="Отмена"><Publish Event="EndDialog" Value="Exit" /></Control>
+        <Control Id="Ignore" Type="PushButton" X="180" Y="218" Width="94" Height="19" Text="Пропустить"><Publish Event="EndDialog" Value="Ignore" /></Control>
+        <Control Id="Retry" Type="PushButton" X="282" Y="218" Width="90" Height="19" Default="yes" Text="Повторить"><Publish Event="EndDialog" Value="Retry" /></Control>
+      </Dialog>
+
+      <InstallUISequence>
+        <Show Dialog="ACTIServerDlg" After="CostFinalize" Condition="UILevel &gt;= 5 AND NOT Installed AND NOT (REMOVE ~= &quot;ALL&quot;)" />
+        <Show Dialog="ACTIMaintenanceDlg" After="ACTIServerDlg" Condition="UILevel &gt;= 5 AND Installed AND NOT REMOVE AND NOT REINSTALL AND NOT RESUME AND NOT Preselected" />
+        <Show Dialog="ACTIProgressDlg" Before="ExecuteAction" Condition="UILevel &gt;= 5" />
+        <Show Dialog="ACTIFinishDlg" OnExit="success" Condition="UILevel &gt;= 5" />
+        <Show Dialog="ACTIUserExitDlg" OnExit="cancel" Condition="UILevel &gt;= 5" />
+        <Show Dialog="ACTIFatalDlg" OnExit="error" Condition="UILevel &gt;= 5" />
+      </InstallUISequence>
+      <AdminUISequence>
+        <Show Dialog="ACTIFinishDlg" OnExit="success" Condition="UILevel &gt;= 5" />
+        <Show Dialog="ACTIUserExitDlg" OnExit="cancel" Condition="UILevel &gt;= 5" />
+        <Show Dialog="ACTIFatalDlg" OnExit="error" Condition="UILevel &gt;= 5" />
+      </AdminUISequence>
+    </UI>
+  </Fragment>
+</Wix>

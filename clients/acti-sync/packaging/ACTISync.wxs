@@ -1,20 +1,33 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <!-- Preserve the released ProductLanguage for major-upgrade detection; the wizard uses Russian text. -->
   <Package Name="ACTI Sync" Manufacturer="ACTI" Version="$(var.Version)"
-           UpgradeCode="46C46CCD-DB5A-4A73-942C-4B3E8FDF8B0D" Scope="perMachine" InstallerVersion="500">
+           UpgradeCode="46C46CCD-DB5A-4A73-942C-4B3E8FDF8B0D" Scope="perMachine" InstallerVersion="500"
+           Language="1033" Codepage="1251">
     <MajorUpgrade DowngradeErrorMessage="A newer ACTI Sync is already installed." Schedule="afterInstallInitialize" />
-    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" MaximumUncompressedMediaSize="600" />
     <Property Id="ACTISOURCESHA" Value="$(var.SourceSha)" />
-    <Property Id="SERVERORIGIN" Secure="yes" />
-    <Property Id="EXISTINGSERVERORIGIN" Secure="yes">
+    <!-- Word owns the user's document session; installation must never close it or reboot. -->
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <Property Id="REBOOT" Value="ReallySuppress" />
+    <Property Id="SERVERORIGIN" Secure="yes" Hidden="yes" />
+    <Property Id="EXISTINGSERVERORIGIN" Secure="yes" Hidden="yes">
       <RegistrySearch Id="ExistingOrigin" Root="HKLM" Key="SOFTWARE\ACTI\Sync" Name="ServerOrigin" Type="raw" Bitness="always64" />
     </Property>
     <SetProperty Id="SERVERORIGIN" Value="[EXISTINGSERVERORIGIN]" Before="LaunchConditions"
                  Sequence="both" Condition="NOT SERVERORIGIN AND EXISTINGSERVERORIGIN" />
-    <Launch Condition="Installed OR (SERVERORIGIN AND (SERVERORIGIN &gt;&lt; &quot;https://&quot;))"
-            Message="Supply SERVERORIGIN=https://your-acti-server (a trusted HTTPS origin)." />
+    <Launch Condition="Installed OR UILevel &gt;= 5 OR SERVERORIGIN"
+            Message="Укажите SERVERORIGIN=https://имя-сервера для установки ACTI Sync." />
+    <Binary Id="InstallerActions" SourceFile="$(var.InstallerActionsDir)\ACTISync.InstallerActions.CA.dll" />
+    <CustomAction Id="CheckServer" BinaryRef="InstallerActions" DllEntry="CheckServer"
+                  Execute="immediate" Return="check" />
+    <CustomAction Id="ValidateServerOrigin" BinaryRef="InstallerActions" DllEntry="ValidateServerOrigin"
+                  Execute="immediate" Return="check" />
+    <UIRef Id="ACTIServerUI" />
     <CustomAction Id="CleanupUpdaterPolicy" FileRef="UpdaterExe" ExeCommand="--uninstall-cleanup"
                   Execute="deferred" Impersonate="no" Return="check" />
     <InstallExecuteSequence>
+      <!-- Always enforce syntax before writes, including /qn and /qb. No network in the execute sequence. -->
+      <Custom Action="ValidateServerOrigin" Before="InstallInitialize" Condition="NOT Installed AND NOT (REMOVE ~= &quot;ALL&quot;)" />
       <Custom Action="CleanupUpdaterPolicy" After="StopServices" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
     <StandardDirectory Id="ProgramFiles64Folder">

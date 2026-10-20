@@ -1,4 +1,4 @@
-# ACTI Sync v1 (Issue #21), current implementation 1.3.5
+# ACTI Sync v1 (Issue #21), current implementation 1.3.6
 
 Version **1.3.5** implements automatic browser connection, a separate tray and
 signed in-place updates. The architecture below describes the implementation;
@@ -215,7 +215,35 @@ per-machine MSI:
 ./clients/acti-sync/packaging/build.ps1
 ```
 
-The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.5-win-x64.msi`.
+The single installer is `clients/acti-sync/artifacts/ACTISync-1.3.6-win-x64.msi`.
+Version 1.3.6 adds a native Russian MSI server-selection page. Double-click the
+single MSI, enter a server hostname or HTTPS origin, and use **Проверить
+соединение**. **Установить** always checks the current input again. The check
+requires strict TLS hostname/expiry validation and a trusted LocalMachine root,
+then validates the bounded ACTI liveness/readiness responses. Redirects, HTTP,
+credentials, paths and query strings are refused. The complete check is bounded
+to eight seconds and reports a Russian result in the installer. The embedded
+net472 custom action uses the Windows .NET Framework 4.7.2-or-newer runtime;
+modern supported Windows 10/11 installations include it. It is not another
+installer or installed executable.
+
+Quiet/basic MSI installation validates the origin syntax before installation
+writes, without network requests; explicit SERVERORIGIN or an existing configured
+origin is required. Offline upgrades, repair and uninstall do not require the
+server to respond. Restart Manager is disabled and reboots are suppressed;
+working files remain runtime data, outside MSI removal rules.
+
+The updater provisions exact HTTPS-origin loopback policies for Chrome, Edge and
+Yandex Browser (26.6.4+). Policy patterns include the explicit port, including
+443, because an omitted policy port matches all ports. It preserves existing
+administrator entries and removes only unchanged entries recorded as its own.
+TLS, firewall and unrelated browser protection policies are not disabled.
+
+Browser discovery keeps its initial three fast rounds and then retries every
+60 seconds while offline. Failed handoffs use a new discovery challenge and a
+new ticket; ambiguous POSTs are never replayed. Online status, logout, revoked
+access and identity changes cancel pending work. No protocol prompt is launched
+by background discovery.
 The stable MSI UpgradeCode identifies one machine-wide installation: newer MSI
 versions replace the previous product at the same installation path. Working
 copies, queue, protected credentials and configured server origin survive upgrades.
@@ -289,9 +317,9 @@ and user startup at sign-in. Initial install requires machine administrator/GPO;
 normal background operation, protocol and Word use the user's existing rights:
 
 ```powershell
-msiexec /i ACTISync-1.3.5-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
-msiexec /i ACTISync-1.3.5-win-x64.msi /qn /norestart /l*v upgrade.log
-msiexec /x ACTISync-1.3.5-win-x64.msi /qn /norestart /l*v uninstall.log
+msiexec /i ACTISync-1.3.6-win-x64.msi /qn /norestart SERVERORIGIN=https://acti.example.org /l*v install.log
+msiexec /i ACTISync-1.3.6-win-x64.msi /qn /norestart /l*v upgrade.log
+msiexec /x ACTISync-1.3.6-win-x64.msi /qn /norestart /l*v uninstall.log
 ```
 
 An upgrade reuses the configured origin unless explicitly changed.

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);SYSLIB0014;SYSLIB0057</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="ColdClrHost.cs" />
+    <Compile Include="../ACTISync.InstallerActions/ServerOrigin.cs" Link="ServerOrigin.cs" />
+    <Compile Include="../ACTISync.InstallerActions/HealthPayload.cs" Link="HealthPayload.cs" />
+    <Compile Include="../ACTISync.InstallerActions/ProbeResult.cs" Link="ProbeResult.cs" />
+    <Compile Include="../ACTISync.InstallerActions/InstallerCheck.cs" Link="InstallerCheck.cs" />
+    <Compile Include="../ACTISync.InstallerActions/ServerProbe.cs" Link="ServerProbe.cs" />
+    <Compile Include="../ACTISync.InstallerActions/InstallerTlsPolicy.cs" Link="InstallerTlsPolicy.cs" />
+    <Compile Include="../ACTISync.InstallerActions/ProbeDiagnostics.cs" Link="ProbeDiagnostics.cs" />
+  </ItemGroup>
+</Project>
