@@ -80,6 +80,19 @@ internal static class WindowsSessions {
  internal static Process PinProcess(int pid) {var process=Process.GetProcessById(pid);try{_=process.Handle;return process;}catch{process.Dispose();throw;}}
  internal static void RequireLegacyUser(UserProcess user){if(UserRoles.Require(user.Component)!="User")throw new InvalidDataException("Legacy exit is restricted to the native User component.");}
  internal static bool Resume(UserProcess user)=>ResumeAll([user]);
+ internal static bool ResumeReady(IEnumerable<UserProcess> users,IEnumerable<UserProcess> running,Func<UserProcess,string> decision) {
+  var current=running.ToArray();
+  return ResumePlan(users).All(user=>current.Any(p=>p.Sid==user.Sid && p.SessionId==user.SessionId && p.Component==user.Component) || decision(user)=="complete");
+ }
+ internal static void WaitResumed(IEnumerable<UserProcess> users) {
+  var captured=users.ToArray();
+  ACTISync.InstallerActions.StartupHealth.Wait(()=>ResumeReady(captured,Snapshot(),SessionDecision),()=>Thread.Sleep(500));
+ }
+ private static string SessionDecision(UserProcess user) {
+  if(!WTSQueryUserToken((uint)user.SessionId,out var raw))return ResumeDecision(user.Sid,null,SessionHasUser(user.SessionId));
+  using var token=new SafeAccessTokenHandle(raw);using var identity=new WindowsIdentity(token.DangerousGetHandle());
+  return ResumeDecision(user.Sid,identity.User?.Value,true);
+ }
  private static bool ResumeComponent(UserProcess user) {
   UserRoles.Require(user.Component);
   if(Snapshot().Any(p=>p.SessionId==user.SessionId && p.Sid==user.Sid && p.Component==user.Component)) return true;

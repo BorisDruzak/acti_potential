@@ -57,16 +57,17 @@ internal static class MsiContractChecks
 
                 var sequence = Rows(db, "SELECT `Action`, `Sequence` FROM `InstallExecuteSequence`")
                     .ToDictionary(r => r[0], r => int.Parse(r[1], CultureInfo.InvariantCulture));
-                string[] ordered = { "InstallValidate", "InstallInitialize", "RollbackInstallerUsers", "PrepareInstallerUsers", "CommitInstallerUsers", "ResumeInstallerUsers", "StopServices", "InstallFiles", "InstallExecute", "RemoveExistingProducts", "InstallFinalize" };
+                string[] ordered = { "InstallValidate", "InstallInitialize", "RollbackInstallerUsers", "PrepareInstallerUsers", "CommitInstallerUsers", "ResumeInstallerUsers", "StopServices", "InstallFiles", "StartServices", "CheckInstalledHealth", "InstallExecute", "RemoveExistingProducts", "InstallFinalize" };
                 for (int i = 1; i < ordered.Length; i++)
                     Require(sequence[ordered[i - 1]] < sequence[ordered[i]], "Unsafe lifecycle action ordering: " + ordered[i]);
                 Require(sequence["ValidateServerOrigin"] < sequence["InstallInitialize"] && !sequence.ContainsKey("CheckServer"), "Execute sequence must validate syntax without network requests.");
                 var actions = Rows(db, "SELECT `Action`, `Type` FROM `CustomAction`").ToDictionary(r => r[0], r => int.Parse(r[1], CultureInfo.InvariantCulture));
-                foreach (var action in new[] { "PrepareInstallerUsers", "RollbackInstallerUsers", "CommitInstallerUsers", "ResumeInstallerUsers" })
+                foreach (var action in new[] { "PrepareInstallerUsers", "RollbackInstallerUsers", "CommitInstallerUsers", "ResumeInstallerUsers", "CheckInstalledHealth" })
                     Require((actions[action] & 0xC00) == 0xC00, "Lifecycle action must execute deferred without impersonation: " + action);
                 Require((actions["RollbackInstallerUsers"] & 0x300) == 0x100, "Rollback must precede any service mutation.");
                 foreach (var action in new[] { "CommitInstallerUsers", "ResumeInstallerUsers" })
                     Require((actions[action] & 0x300) == 0x200, "Resume must wait for commit: " + action);
+                Require((actions["CheckInstalledHealth"] & 0x340) == 0, "Failed health must abort inside the MSI transaction.");
                 Require((actions["PrepareInstallerUsers"] & 0x40) == 0, "A failed drain must abort installation.");
 
                 // ICE20's non-FilesInUse requirements remain mandatory.
