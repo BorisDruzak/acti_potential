@@ -1,4 +1,24 @@
-# ACTI Sync v1 (Issue #21), current implementation 1.4.1
+# ACTI Sync v1 (Issue #21), current implementation 1.4.2
+
+Version **1.4.2** adds scoped lease resumption after an interrupted installation
+or service outage longer than the 90-second lease. `POST /sessions/{id}/resume`
+accepts the prior acknowledged `revision` and `sha256`, plus optional `pending`
+proof (`key`, `revision`, `sha256`). Under the existing document/original/session
+locks it requires an unchanged original and no other live lease. The sole
+exception is the exact same-session committed save receipt whose expected
+revision, key and hash match the preserved pending request, whose original base
+hash matches immutable history, and whose committed bytes are still current.
+That permits a lost save ACK to be replayed without an arbitrary rebase.
+
+Resume never writes content, rotates a token, extends access expiry or revives a
+finished session; the browser session and current ACL remain mandatory. Expired
+credentials still require authorization. A genuine reacquisition records one
+`document.sync.lease_resumed` audit/outbox event with session ID and revision;
+repeating a successful request while its lease is live does not duplicate it.
+The native client validates the session/file/base or exact pending proof, retains
+the old ACK and pending idempotency key until the ordinary save ACK, and preserves
+all bytes on conflict, unauthorized access, unavailable servers and older servers
+without the optional route. Existing heartbeat/save/renew expiry rules remain.
 
 Version **1.4.1** changes the native installer and post-install health image
 query to a pinned process handle with `PROCESS_QUERY_LIMITED_INFORMATION` and

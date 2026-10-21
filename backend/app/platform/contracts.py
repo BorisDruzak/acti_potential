@@ -31,6 +31,7 @@ EVENT_FIELDS = {
 EVENT_FIELDS["platform.admin_created"] = frozenset({"user_id"})
 EVENT_FIELDS["document.sync.launched"] = frozenset()
 EVENT_FIELDS["document.sync.finished"] = frozenset()
+EVENT_FIELDS["document.sync.lease_resumed"] = frozenset({"session_id", "revision"})
 EVENT_FIELDS["document.sync.recovered"] = frozenset({"session_id", "command_id", "local_sha256"})
 EVENT_FIELDS["document.binary.saved"] = frozenset({
     "original_id", "file_id", "version", "previous_file_id", "from_format", "to_format",

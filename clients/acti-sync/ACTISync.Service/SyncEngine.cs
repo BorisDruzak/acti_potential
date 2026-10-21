@@ -243,7 +243,9 @@ public sealed partial class SyncEngine : IDisposable {
      if(observedHash is null && !s.Blocked) { s.Status=s.Opened ? "editing" : "opening"; s.Error=null; }
      if(s.Dirty && !s.Blocked) { s.Dirty=false; s.RetryAt=DateTimeOffset.MinValue; }
      if(await FinishClosed(s,observedHash,ct)) return;
-     if(s.Blocked || s.RetryAt>DateTimeOffset.UtcNow || s.RecoveryPending) return;
+     if(s.RetryAt>DateTimeOffset.UtcNow || s.RecoveryPending) return;
+     if(s.Status is not ("reauth" or "error") && !await ResumeLease(s,ct)) return;
+     if(s.Blocked) return;
      if(!File.Exists(s.WorkingPath)) await Download(s,ct);
      if(s.ExpiresAt < DateTimeOffset.UtcNow.AddMinutes(3)) {
       using var renew=await Send(s,HttpMethod.Post,"renew",JsonContent.Create(new{},options:Wire.Json),ct); await Ensure(renew);

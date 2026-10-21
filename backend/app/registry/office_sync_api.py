@@ -94,6 +94,18 @@ class Recover(Input):
     document_closed: bool = Field(strict=True)
 
 
+class ResumePending(Input):
+    key: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.:-]+$")
+    revision: int = Field(ge=1, strict=True)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class Resume(Input):
+    revision: int = Field(ge=1, strict=True)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    pending: ResumePending | None = None
+
+
 def ensure_original(session, file):
     """Caller holds document lock when creating; preserve every legacy ID separately."""
     row = session.get(LogicalOriginal, file.id)
@@ -363,6 +375,48 @@ def renew(identity: UUID, request: Request, session: Db):
     return {**status_payload(session, row, original), "token": token}
 
 
+@client_router.post("/sessions/{identity}/resume")
+def resume(identity: UUID, data: Resume, request: Request, session: Db):
+    # Reacquiring a lease is distinct from rotating credentials or writing bytes.
+    # Keep the existing expiry, browser/ACL checks and document -> original ->
+    # session lock order. A lost reply can safely repeat the same scoped proof.
+    row, actor, anchor, original, now = client_context(
+        session, request, identity, allow_expired_lease=True
+    )
+    file = current_file(session, anchor, original)
+    if original.revision != data.revision or file.sha256 != data.sha256:
+        pending = data.pending
+        receipt = session.get(OfficeSaveReceipt, (row.id, pending.key)) if pending else None
+        prior_id = session.scalar(select(BinaryRevision.file_id).where(
+            BinaryRevision.original_id == original.id, BinaryRevision.revision == data.revision
+        ))
+        prior = session.get(DocumentFile, prior_id) if prior_id else None
+        if (
+            pending is None or receipt is None or prior is None or prior.sha256 != data.sha256
+            or pending.revision != data.revision or receipt.expected_revision != pending.revision
+            or receipt.sha256 != pending.sha256 or file.sha256 != receipt.sha256
+            or original.revision != receipt.revision
+        ):
+            fail(409, "revision_conflict", "Оригинал изменён; локальная копия сохранена")
+        # The exact own commit is already durable. This only permits replay of
+        # its existing receipt; the client retains its pending key/base until ACK.
+    other = session.scalar(select(OfficeEditSession.id).where(
+        OfficeEditSession.original_id == original.id,
+        OfficeEditSession.id != row.id,
+        OfficeEditSession.finished_at.is_(None),
+        OfficeEditSession.lease_expires_at > now,
+        OfficeEditSession.expires_at > now,
+    ).limit(1))
+    if other is not None:
+        fail(409, "original_locked", "Оригинал открыт другим сеансом; локальная копия сохранена")
+    if row.lease_expires_at <= now:
+        row.last_seen_at, row.lease_expires_at = now, now + timedelta(seconds=LEASE_SECONDS)
+        emit(session, request, actor, "document.sync.lease_resumed", "document_file", anchor.id, {
+            "session_id": str(row.id), "revision": original.revision,
+        })
+    return status_payload(session, row, original)
+
+
 def stream_original(request, session, file, revision):
     storage = LocalFileStorage(request.app.state.settings.storage_root)
     try:
@@ -466,6 +520,8 @@ def commit_save(source, expected, key, digest, identity, request, session, conte
     if receipt:
         if receipt.sha256 != digest or receipt.expected_revision != expected:
             fail(409, "idempotency_conflict", "Ключ повторной отправки уже использован")
+        if receipt.revision == original.revision and current_file(session, anchor, original).sha256 == digest:
+            row.state = "saved"
         # Return the original commit acknowledgement even if another save followed it.
         return {
             **status_payload(session, row, original),

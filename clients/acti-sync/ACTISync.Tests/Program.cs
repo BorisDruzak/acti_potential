@@ -6,6 +6,7 @@ if(args.Contains("--multifile")) { await MultifileChecks.Run(); return; }
 if(args.Contains("--recovery")) { await RecoveryChecks.Run(); return; }
 if(args.Contains("--deadline")) { await HttpDeadlineChecks.Run(); return; }
 if(args.Contains("--telemetry")) { await TelemetryNegotiationChecks.Run(); return; }
+if(args.Contains("--lease-resume")) { await LeaseResumeChecks.Run(); return; }
 
 static void Check(bool condition, string name) { if (!condition) throw new Exception(name); Console.WriteLine("PASS " + name); }
 static void Reject(Action action, string name) { try { action(); } catch (ArgumentException) { Console.WriteLine("PASS " + name); return; } throw new Exception(name); }
@@ -67,6 +68,7 @@ await MultifileChecks.Run();
 await RecoveryChecks.Run();
 await HttpDeadlineChecks.Run();
 await TelemetryNegotiationChecks.Run();
+await LeaseResumeChecks.Run();
 await AgentChecks.Run();
 internal static class NativeLinks {
  [System.Runtime.InteropServices.DllImport("kernel32.dll",EntryPoint="CreateHardLinkW",CharSet=System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true)]

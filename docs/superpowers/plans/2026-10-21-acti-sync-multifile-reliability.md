@@ -69,3 +69,18 @@ explicit copy-first conflict recovery and guarded, staged native updates.
   all five Authenticode signatures; promote an already published candidate safely;
   fall back after strict-server telemetry rejection; keep older unfinished copies
   visible while a newer session exists.
+
+- Live 1.4.1 canary: upgrade returned 0; the same Word process retained three
+  unsaved documents and 24 working files. Forced repair first returned 3010 after
+  a Tray file lock whose holder was not captured; retry returned 0. All 19 unsaved documents and 40
+  working files survived both attempts. No restart was performed.
+- The prolonged service stop exposed expired leases: local pending snapshots
+  remained intact but uploads became conflicts. Add the separate CAS-only resume
+  route above; do not relax expired bearer, browser, ACL, save or renew checks.
+  Reconcile a lost save ACK only through its own committed receipt. RED tests
+  reproduced the missing route, blocked native resume and lost-ACK proof gap.
+- The interrupted 19-document synthetic run was explicitly aborted. Only its
+  saved/closed fixture state JSONs were archived under protected state storage;
+  workspaces and pending snapshots remain byte-for-byte preserved. No business
+  session or server completion record was changed. Repeat full live acceptance
+  against official 1.4.2 before enabling rollout.
