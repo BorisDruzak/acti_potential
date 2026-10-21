@@ -2,6 +2,7 @@ using System;
 using ACTISync.InstallerActions;
 internal static class StartupHealthTests {
  internal static void Run() {
+  ProcessImageTests.Run();
   var checks=0;var delays=0;
   StartupHealth.Wait(()=>++checks>3,()=>delays++,10,2);
   Program.Assert(checks==5 && delays==4,"Startup must stabilize before commit");
