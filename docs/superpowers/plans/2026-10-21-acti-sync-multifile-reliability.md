@@ -18,16 +18,16 @@ explicit copy-first conflict recovery and guarded, staged native updates.
 
 ## Tasks
 
-- [ ] Native processing and recovery: Core/Service/User plus native tests. First
+- [x] Native processing and recovery: Core/Service/User plus native tests. First
   demonstrate a slow file blocking a healthy file; then prove four-transfer cap,
   independent heartbeat/IPC and same-session serialization at 3/10/20 sessions.
   Add optional telemetry and copy-before-recover command. Prove safe-copy failure,
   Word-open refusal, preserved pending bytes, lost ACK and no arbitrary path.
-- [ ] Backend/browser: office_sync_api.py, models/migration and frontend Sync
+- [x] Backend/browser: office_sync_api.py, models/migration and frontend Sync
   components/API/tests. Validate telemetry limits and freshness, compact counts,
   version-gated recovery, CSRF/ACL/command binding, audit and idempotent recovery
   without changing current revision or another editor's lease. Run API and Web.
-- [ ] Update lifecycle/distribution: Updater, InstallerActions, packaging,
+- [x] Update lifecycle/distribution: Updater, InstallerActions, packaging,
   office_sync_distribution.py/settings/tests. Prove 0/partial/100 cohorts,
   verified fallback for legacy, bounded health failure/native rollback and native
   resume, invalid signer rejection and unchanged unsigned/RSA trust behavior.
@@ -56,3 +56,16 @@ explicit copy-first conflict recovery and guarded, staged native updates.
 - User confirmed no Code Signing certificate. Keep actual Authenticode acceptance
   open; implement its validation/publication controls without fabricating trust.
 - GitNexus tools unavailable in this session. Verify dynamic contracts in source/tests.
+- Ruling: negotiate queue telemetry before sending additional heartbeat fields;
+  older servers reject unknown fields. Missing capability retains the legacy body.
+- Live acceptance must preserve one pre-existing unfinished local session. If it
+  cannot be identified as an owned fixture, test 19 owned documents concurrently
+  and 20-session simulation rather than mutating that session to free capacity.
+
+- Source verification: native/updater/installer suites and actual MSI build passed;
+  frontend 345 tests and build passed; full API 930 passed/9 skipped, then final
+  projection/recovery 28 passed. Ruff app/tests/new migration passed.
+- Independent review corrections: resume on post-install health failure; inspect
+  all five Authenticode signatures; promote an already published candidate safely;
+  fall back after strict-server telemetry rejection; keep older unfinished copies
+  visible while a newer session exists.

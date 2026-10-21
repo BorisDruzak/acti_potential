@@ -18,7 +18,8 @@ Use bounded requests, independent cancellation, fair scheduling and recovery.
 ## Browser telemetry
 
 Add optional `pending_uploads` (0..2) and `error_code` (a fixed safe enum) to session
-heartbeats. Old clients remain compatible and missing telemetry is unknown.
+heartbeats after the server advertises `queue-telemetry-v1` in session response
+capabilities. Old clients/servers remain compatible and missing telemetry is unknown.
 Expose scoped fresh telemetry, never local paths/tokens. Show compact counts of
 open files, pending files and attention items, with freshness and concise errors.
 Old/stale connections must not become confirmed saved or confirmed zero pending.
