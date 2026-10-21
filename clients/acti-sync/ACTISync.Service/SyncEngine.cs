@@ -83,6 +83,7 @@ public sealed partial class SyncEngine : IDisposable {
       if(command.Action is not ("open" or "reveal") || !owner.Started.Contains(command.Id)) return new(){Error="Действие не подтверждено службой."};
       Complete(owner,request.CommandId,request.Ok==true); return new(){Ok=true};
      }
+     if(owner.AuthorizationRequired) return new(){Error="Подключение требует авторизации в ACTI."};
      if(request.Action=="command_start") {
       if(sessions[command.SessionId].Finished) { Complete(owner,command.Id,false); return new(){Error="Сеанс завершён; откройте новую редакцию из ACTI."}; }
       if(command.Action is not ("open" or "reveal") || !owner.Started.Add(command.Id)) return new(){Error="Команда уже принята."};

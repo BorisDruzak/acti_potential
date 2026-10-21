@@ -151,6 +151,9 @@ public sealed class AgentState {
  public string ConnectionId { get; set; } = "";
  public string ProtectedToken { get; set; } = "";
  public DateTimeOffset ExpiresAt { get; set; }
+ public bool AuthorizationRequired { get; set; }
+ public int RelayFailures { get; set; }
+ public DateTimeOffset NextRelayAt { get; set; }
  public List<CommandResult> Results { get; set; } = [];
  public Dictionary<string,CommandResult> Completed { get; set; } = [];
  public Dictionary<string,string> CompletedSessions { get; set; } = [];

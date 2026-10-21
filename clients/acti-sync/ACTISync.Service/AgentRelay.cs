@@ -12,9 +12,14 @@ public sealed partial class SyncEngine {
  private readonly ConcurrentDictionary<string,AgentState> agents=[];
  private readonly ConcurrentDictionary<string,DateTimeOffset> pulses=[];
  private readonly ConcurrentDictionary<string,DateTimeOffset> agentContacts=[];
+ private readonly ConcurrentDictionary<string,byte> relayStateDirty=[];
  internal Func<DateTimeOffset> Clock { get; set; }=()=>DateTimeOffset.UtcNow;
  private string AgentPath(string id)=>Path.Combine(root,"agents",Guid.Parse(id).ToString("D")+".json");
  private void PersistAgent(AgentState agent)=>DurableJson.Write(AgentPath(agent.ConnectionId),agent);
+ private void PersistRelayRetry(AgentState agent) {
+  try {PersistAgent(agent);relayStateDirty.TryRemove(agent.ConnectionId,out _);}
+  catch(Exception e) when(e is IOException or UnauthorizedAccessException) {relayStateDirty[agent.ConnectionId]=0;}
+ }
  private void InitializeAgents() {
   Security.DirectoryAcl(Path.Combine(root,"agents"));
   foreach(var path in Directory.EnumerateFiles(Path.Combine(root,"agents"),"*.json")) {
@@ -34,7 +39,8 @@ public sealed partial class SyncEngine {
   var prior=agents.GetOrAdd(next.ConnectionId,next);
   lock(prior) {
    if(prior.Sid!=sid || prior.ServerOrigin!=next.ServerOrigin) throw new UnauthorizedAccessException();
-   prior.ProtectedToken=next.ProtectedToken;prior.ExpiresAt=next.ExpiresAt;PersistAgent(prior);
+   prior.ProtectedToken=next.ProtectedToken;prior.ExpiresAt=next.ExpiresAt;
+   prior.AuthorizationRequired=false;prior.RelayFailures=0;prior.NextRelayAt=default;PersistAgent(prior);
   }
  }
  private async Task<IpcResponse> Connect(string sid,string? ticket,CancellationToken ct) {
@@ -47,7 +53,7 @@ public sealed partial class SyncEngine {
  private IpcResponse Pulse(string sid) {
   pulses[sid]=Clock();
   var commands=new List<AgentCommand>();
-  if(!NativeDispatchPaused()) foreach(var agent in agents.Values.Where(a=>a.Sid==sid && config.Matches(a.ServerOrigin))) lock(agent) commands.AddRange(agent.Pending.Values.Where(c=>c.ExpiresAt>Clock() && !agent.Started.Contains(c.Id) && !agent.Completed.ContainsKey(c.Id)));
+  if(!NativeDispatchPaused()) foreach(var agent in agents.Values.Where(a=>a.Sid==sid && config.Matches(a.ServerOrigin))) lock(agent) if(!agent.AuthorizationRequired) commands.AddRange(agent.Pending.Values.Where(c=>c.ExpiresAt>Clock() && !agent.Started.Contains(c.Id) && !agent.Completed.ContainsKey(c.Id)));
   return new(){Ok=true,Commands=commands,AgentOnline=AgentOnline(sid),Sessions=sessions.Values.Where(s=>s.Sid==sid && s.Finished && s.RecoveryRevealPending && config.Matches(s.ServerOrigin)).Take(20).Select(s=>views[s.SessionId]).ToList()};
  }
  private bool AgentOnline(string sid)=>agents.Values.Any(a=>a.Sid==sid && config.Matches(a.ServerOrigin) && agentContacts.TryGetValue(a.ConnectionId,out var seen) && Clock()>=seen && Clock()-seen<=TimeSpan.FromSeconds(35));
@@ -75,22 +81,30 @@ public sealed partial class SyncEngine {
   if(!await gate.WaitAsync(0,ct)) return;
   try {
    if(!config.Matches(agent.ServerOrigin) || !pulses.TryGetValue(agent.Sid,out var pulse) || !AgentPresence.IsFresh(pulse,Clock())) return;
+   string? attemptedToken=null;
    try {
     string protectedToken; DateTimeOffset expires; List<CommandResult> results;
-    lock(agent) { protectedToken=agent.ProtectedToken; expires=agent.ExpiresAt; results=agent.Results.ToList(); }
+    lock(agent) {
+     // A full/unavailable disk must not kill the relay loop. Retry only the
+     // durable state write while HTTP remains paused by the in-memory gate.
+     if(relayStateDirty.ContainsKey(agent.ConnectionId))PersistRelayRetry(agent);
+     if(agent.AuthorizationRequired || agent.NextRelayAt>Clock())return;
+     protectedToken=agent.ProtectedToken;attemptedToken=protectedToken;expires=agent.ExpiresAt;results=agent.Results.ToList();
+    }
     if(expires<DateTimeOffset.UtcNow.AddMinutes(3)) {
      using var renew=await SendAgent(agent,protectedToken,"renew",new{},ct); await Ensure(renew);
      var rotated=await renew.Content.ReadFromJsonAsync<AgentCredentials>(Wire.Json,ct) ?? throw new IOException();
      if(rotated.ConnectionId!=agent.ConnectionId || string.IsNullOrWhiteSpace(rotated.Token)) throw new IOException();
-     lock(agent) { if(agent.ProtectedToken!=protectedToken) return; agent.ProtectedToken=Security.Protect(rotated.Token); agent.ExpiresAt=rotated.ExpiresAt; protectedToken=agent.ProtectedToken; PersistAgent(agent); }
+     lock(agent) { if(agent.ProtectedToken!=protectedToken) return; agent.ProtectedToken=Security.Protect(rotated.Token); agent.ExpiresAt=rotated.ExpiresAt; protectedToken=agent.ProtectedToken;attemptedToken=protectedToken;PersistAgent(agent); }
     }
     if(!pulses.TryGetValue(agent.Sid,out pulse) || !AgentPresence.IsFresh(pulse,Clock())) return;
     using var response=await SendAgent(agent,protectedToken,"heartbeat",new{command_results=results,client_version=Wire.Version},ct); await Ensure(response);
     var heartbeat=await response.Content.ReadFromJsonAsync<AgentHeartbeat>(Wire.Json,ct) ?? throw new IOException();
-    agentContacts[agent.ConnectionId]=Clock();
     lock(agent) {
      // Connect/launch may rotate this credential while HTTP is in flight.
-     if(!agents.TryGetValue(agent.ConnectionId,out var current) || !ReferenceEquals(current,agent)) return;
+     if(!agents.TryGetValue(agent.ConnectionId,out var current) || !ReferenceEquals(current,agent) || agent.ProtectedToken!=attemptedToken) return;
+     agentContacts[agent.ConnectionId]=Clock();
+     agent.RelayFailures=0;agent.NextRelayAt=default;
      agent.Results.RemoveAll(r=>results.Contains(r));
      var valid=heartbeat.Commands.Where(c=>c.ExpiresAt>Clock() && Guid.TryParse(c.Id,out _) && Guid.TryParse(c.SessionId,out _) && c.Action is "open" or "retry" or "finish" or "reveal" or "recover").ToDictionary(c=>c.Id);
      foreach(var id in agent.Pending.Keys.Where(id=>!valid.ContainsKey(id) && !agent.Started.Contains(id)).ToArray()) agent.Pending.Remove(id);
@@ -102,7 +116,18 @@ public sealed partial class SyncEngine {
     }
    } catch(Exception e) when(e is HttpRequestException or IOException or UnauthorizedAccessException or CryptographicException or TaskCanceledException or JsonException or InvalidOperationException) {
     if(ct.IsCancellationRequested) return;
-    // Retain encrypted credentials and command receipts for reconnect/recovery.
+    lock(agent) {
+     // A late failure for an old token must never poison a fresh browser ticket.
+     if(attemptedToken is null || agent.ProtectedToken!=attemptedToken)return;
+     if(e is ApiException {Status:HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden}) {
+      agent.AuthorizationRequired=true;agentContacts.TryRemove(agent.ConnectionId,out _);
+     }else {
+      agent.RelayFailures=Math.Clamp(agent.RelayFailures,0,5)+1;
+      agent.NextRelayAt=Clock().AddSeconds(Math.Min(60,Math.Pow(2,agent.RelayFailures)));
+     }
+     // Retain encrypted credentials, commands and receipts across restart.
+     PersistRelayRetry(agent);
+    }
    }
   }finally{gate.Release();}
  }

@@ -1,4 +1,15 @@
-# ACTI Sync v1 (Issue #21), current implementation 1.4.2
+# ACTI Sync v1 (Issue #21), current implementation 1.4.3
+
+Version **1.4.3** stops retrying a relay credential rejected with HTTP 401/403.
+The authorization pause persists across service restarts; the existing automatic
+browser connection flow supplies a fresh scoped credential to resume it. Network
+and server failures retry with exponential delays from 2 to 60 seconds. A late
+response for an old credential cannot alter a newly connected credential.
+Queued files, encrypted tokens, pending commands and durable action receipts
+remain intact. New native commands pause after a known authorization rejection,
+while already started action results and completed receipts remain accepted.
+This closes the observed repeated renewals of rejected credentials without
+weakening token expiry, current ACL checks or browser session requirements.
 
 Version **1.4.2** adds scoped lease resumption after an interrupted installation
 or service outage longer than the 90-second lease. `POST /sessions/{id}/resume`
