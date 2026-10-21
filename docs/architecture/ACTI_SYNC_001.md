@@ -1,4 +1,15 @@
-# ACTI Sync v1 (Issue #21), current implementation 1.4.0
+# ACTI Sync v1 (Issue #21), current implementation 1.4.1
+
+Version **1.4.1** changes the native installer and post-install health image
+query to a pinned process handle with `PROCESS_QUERY_LIMITED_INFORMATION` and
+`QueryFullProcessImageNameW`. It preserves exact installed paths, service accounts,
+Automatic/Running checks and the MSI commit gate. The handle remains pinned through
+an SCM PID/state recheck and kernel exit-time validation, including exit code 259.
+This avoids the extra module-memory rights requested by `Process.MainModule`.
+A restricted-token regression reproduces its AccessDenied failure and verifies
+the limited query succeeds. The 1.4.0 canary MSI failed its health action with
+AccessDenied; native rollback restored the previous installation. 1.4.1 release
+and real MSI acceptance remain separate.
 
 Version **1.3.5** implements automatic browser connection, a separate tray and
 signed in-place updates. The architecture below describes the implementation;

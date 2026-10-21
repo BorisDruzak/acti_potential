@@ -18,5 +18,6 @@
     <Compile Include="../ACTISync.InstallerActions/InstallerLifecycle.cs" Link="InstallerLifecycle.cs" />
     <Compile Include="../ACTISync.InstallerActions/InstallerLifecycleSecurityPolicy.cs" Link="InstallerLifecycleSecurityPolicy.cs" />
     <Compile Include="../ACTISync.InstallerActions/StartupHealth.cs" Link="StartupHealth.cs" />
+    <Compile Include="../ACTISync.InstallerActions/WindowsStartupHealth.cs" Link="WindowsStartupHealth.cs" />
   </ItemGroup>
 </Project>
