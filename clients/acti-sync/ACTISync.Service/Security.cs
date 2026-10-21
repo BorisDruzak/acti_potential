@@ -22,6 +22,12 @@ internal static class Security {
   if (traverse) acl.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null), FileSystemRights.Traverse | FileSystemRights.ReadAttributes | FileSystemRights.Synchronize, InheritanceFlags.None, PropagationFlags.None, AccessControlType.Allow));
   new DirectoryInfo(path).SetAccessControl(acl);
  }
+ internal static void RecoveryDirectoryAcl(string path,string ownerSid) {
+  DirectoryAcl(path);
+  var acl=new DirectoryInfo(path).GetAccessControl();
+  acl.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(ownerSid),FileSystemRights.ReadAndExecute | FileSystemRights.Synchronize,InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,PropagationFlags.None,AccessControlType.Allow));
+  new DirectoryInfo(path).SetAccessControl(acl);
+ }
  internal static string Protect(string token) => Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(token), null, DataProtectionScope.CurrentUser));
  internal static string Unprotect(string token) => Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(token), null, DataProtectionScope.CurrentUser));
 }

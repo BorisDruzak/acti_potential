@@ -219,11 +219,18 @@ class BinaryRevision(Base):
 
 class OfficeEditSession(Base):
     __tablename__ = "office_edit_sessions"
+    __table_args__ = (
+        CheckConstraint("pending_uploads BETWEEN 0 AND 2", name="office_pending_uploads"),
+        CheckConstraint("error_code IN ('network','conflict','reauth','quota','file_busy','word_missing','local_io','server_rejected')", name="office_sync_error_code"),
+    )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     connection_id: Mapped[UUID | None] = mapped_column(ForeignKey("office_agent_connections.id"), index=True)
     document_open: Mapped[bool | None] = mapped_column(Boolean)
     opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pending_uploads: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(24))
+    telemetry_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     original_id: Mapped[UUID] = mapped_column(ForeignKey("logical_originals.id"), index=True)
     auth_session_id: Mapped[UUID] = mapped_column(ForeignKey("auth_sessions.id"))
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
@@ -277,7 +284,7 @@ class OfficeAgentTicket(Base):
 class OfficeAgentCommand(Base):
     __tablename__ = "office_agent_commands"
     __table_args__ = (
-        CheckConstraint("action IN ('open','retry','finish','reveal')", name="office_agent_action"),
+        CheckConstraint("action IN ('open','retry','finish','reveal','recover')", name="office_agent_action"),
         CheckConstraint("state IN ('pending','succeeded','failed','expired')", name="office_agent_command_state"),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -286,5 +293,6 @@ class OfficeAgentCommand(Base):
     action: Mapped[str] = mapped_column(String(16))
     state: Mapped[str] = mapped_column(String(16), default="pending")
     error: Mapped[str | None] = mapped_column(String(256))
+    recovery_sha256: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

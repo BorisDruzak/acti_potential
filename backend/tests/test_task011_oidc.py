@@ -304,11 +304,13 @@ def test_migration_cannot_discard_existing_identity(client, factory, active):
     with factory.begin() as db:
         db.get(ExternalIdentity, identity["id"]).active = active
     engine = factory.kw["bind"]
+    with engine.connect() as connection:
+        before_downgrade = connection.scalar(text("SELECT version_num FROM alembic_version"))
     with pytest.raises(DBAPIError):
         with engine.begin() as connection:
             config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
             config.attributes["connection"] = connection
             command.downgrade(config, "0010_service_api")
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0019_number_year_type"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == before_downgrade
         assert connection.scalar(text("SELECT count(*) FROM external_identities")) == 1

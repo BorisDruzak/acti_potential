@@ -38,7 +38,7 @@ def test_clean_repeat_and_concurrent_upgrade():
         "processed_events",
     } <= set(inspect(engine).get_table_names())
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0019_number_year_type"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0022_office_recovery"
         assert conn.scalar(text("SELECT count(*) FROM roles")) == 4
     engine.dispose()
 

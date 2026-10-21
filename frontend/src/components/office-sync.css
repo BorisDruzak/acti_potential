@@ -26,6 +26,7 @@
 .office-agent-panel .toolbar {margin-top: 0;}
 .office-agent-panel h3 {font-size: 15px; margin-top: 1.4rem;}
 .office-agent-summary {display: flex; flex-direction: column; gap: .5rem;}
+.office-agent-counts {font-size: 13px; line-height: 1.5; overflow-wrap: anywhere;}
 .office-agent-summary .button-row {align-items: center;}
 .office-agent-summary .button-row a {font-size: 12px;}
 .office-agent-summary small, .office-agent-documents small {color: var(--muted, #526c72); font-size: 12px;}

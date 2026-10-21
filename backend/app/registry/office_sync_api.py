@@ -18,7 +18,7 @@ from zipfile import BadZipFile, ZipFile
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import event, func, select
+from sqlalchemy import event, func, or_, select
 from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import COOKIE_NAME, current_actor, db_session
@@ -54,6 +54,7 @@ Db = Annotated[object, Depends(db_session, scope="function")]
 Actor = Annotated[object, Depends(current_actor)]
 LEASE_SECONDS = 90
 TOKEN_SECONDS = 900
+WORD_CLOSE_MESSAGE = "Сохраните и закройте документ в Word"
 MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 SOURCE_MIMES = {
     "doc": "application/msword",
@@ -83,6 +84,14 @@ class Exchange(Input):
 class Heartbeat(Input):
     state: Literal["opening", "editing", "local_saved", "syncing", "offline", "conflict", "error"]
     document_open: bool | None = None
+    pending_uploads: int | None = Field(default=None, ge=0, le=2, strict=True)
+    error_code: Literal["network", "conflict", "reauth", "quota", "file_busy", "word_missing", "local_io", "server_rejected"] | None = None
+
+
+class Recover(Input):
+    command_id: UUID
+    local_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    document_closed: bool = Field(strict=True)
 
 
 def ensure_original(session, file):
@@ -171,6 +180,7 @@ def docx_filename(name):
 def status_payload(session, row, original):
     file = session.get(DocumentFile, original.current_file_id)
     return {
+        "capabilities": ["queue-telemetry-v1", "recovery-v1"],
         "session_id": row.id,
         "file_id": original.id,
         "filename": docx_filename(file.name) if source_format(file) != "docx" else file.name,
@@ -210,7 +220,7 @@ def verify_browser(session, row, now):
     return resolve_actor_by_hash(session, auth.token_hash, now)
 
 
-def client_context(session, request, identity, *, allow_expired_lease=False, lock=True):
+def client_context(session, request, identity, *, allow_expired_lease=False, allow_finished=False, lock=True):
     row = session.get(OfficeEditSession, identity)
     bearer = request.headers.get("Authorization", "")
     token = bearer[7:] if bearer.startswith("Bearer ") else ""
@@ -235,7 +245,7 @@ def client_context(session, request, identity, *, allow_expired_lease=False, loc
     if (
         not row.token_hash
         or not secrets.compare_digest(row.token_hash, token_digest(token))
-        or row.finished_at
+        or (row.finished_at and not allow_finished)
         or row.expires_at <= now
     ):
         fail(401, "sync_access_expired", "Срок доступа истёк; локальная копия сохранена")
@@ -329,6 +339,8 @@ def exchange(data: Exchange, request: Request, session: Db):
 def heartbeat(identity: UUID, data: Heartbeat, request: Request, session: Db):
     row, _, _, original, now = client_context(session, request, identity)
     row.last_seen_at, row.lease_expires_at = now, now + timedelta(seconds=LEASE_SECONDS)
+    row.pending_uploads, row.error_code = data.pending_uploads, data.error_code
+    row.telemetry_seen_at = now if data.pending_uploads is not None else None
     if data.document_open is True and row.document_open is not True:
         row.document_open, row.opened_at, row.closed_at = True, now, None
     elif data.document_open is False and row.document_open is True:
@@ -593,6 +605,44 @@ def finish(identity: UUID, request: Request, session: Db):
     return status_payload(session, row, original)
 
 
+@client_router.post("/sessions/{identity}/recover")
+def recover(identity: UUID, data: Recover, request: Request, session: Db):
+    if not data.document_closed:
+        fail(422, "document_open", WORD_CLOSE_MESSAGE)
+    row, actor, anchor, original, now = client_context(
+        session, request, identity, allow_expired_lease=True, allow_finished=True
+    )
+    connection = session.get(OfficeAgentConnection, row.connection_id) if row.connection_id else None
+    command = session.scalar(select(OfficeAgentCommand).where(
+        OfficeAgentCommand.id == data.command_id,
+    ).with_for_update().execution_options(populate_existing=True))
+    if (
+        connection is None or command is None or command.action != "recover"
+        or command.session_id != row.id or command.connection_id != connection.id
+        or connection.auth_session_id != row.auth_session_id or connection.user_id != row.user_id
+    ):
+        fail(404, "not_found", "Команда восстановления не найдена")
+    if connection.expires_at <= now:
+        fail(401, "agent_token_invalid", "Повторно подключите ACTI Sync")
+    if not recovery_supported(connection):
+        fail(409, "client_upgrade_required", "Для восстановления обновите ACTI Sync до 1.4.0")
+    # A lost ACK can replay only this exact, durably committed preservation receipt.
+    if command.state == "succeeded" and command.recovery_sha256 == data.local_sha256 and row.finished_at:
+        return status_payload(session, row, original)
+    if command.state != "pending" or command.expires_at <= now or row.finished_at:
+        fail(409, "recovery_command_invalid", "Обновите состояние и повторите восстановление")
+    command_access(session, actor, connection, command)
+    command.recovery_sha256, command.state, command.error = data.local_sha256, "succeeded", None
+    row.finished_at, row.state, row.last_seen_at, row.lease_expires_at = now, "finished", now, now
+    if row.document_open is True:
+        row.document_open, row.closed_at = False, now
+    # A local preservation receipt never appends a revision or touches any other lease.
+    emit(session, request, actor, "document.sync.recovered", "document_file", anchor.id, {
+        "session_id": str(row.id), "command_id": str(command.id), "local_sha256": data.local_sha256,
+    })
+    return status_payload(session, row, original)
+
+
 @router.get("/files/{file_id}/download")
 def current_download(
     file_id: UUID,
@@ -635,8 +685,8 @@ def file_status(
         )
         .limit(1)
     )
-    payload = browser_file_payload(session, actor, anchor, original, row, reason, now)
     auth = browser_auth(session, request)
+    payload = browser_file_payload(session, actor, anchor, original, row, reason, now, auth.id)
     connection = session.get(OfficeAgentConnection, row.connection_id) if row and row.connection_id else None
     payload["can_reopen"] = bool(
         reason is None and row and not row.finished_at
@@ -648,7 +698,7 @@ def file_status(
     return payload
 
 
-def browser_file_payload(session, actor, anchor, original, row, reason, now):
+def browser_file_payload(session, actor, anchor, original, row, reason, now, auth_id=None):
     file_id = anchor.id
     file = current_file(session, anchor, original)
     state = row.state if row else "idle"
@@ -657,6 +707,15 @@ def browser_file_payload(session, actor, anchor, original, row, reason, now):
     if row and row.finished_at is None and row.lease_expires_at > now and row.expires_at > now:
         reason = reason or "Оригинал уже открыт в ACTI Sync"
     editor = session.get(User, row.user_id) if row else None
+    connection = session.get(OfficeAgentConnection, row.connection_id) if row and row.connection_id else None
+    telemetry_fresh = bool(
+        row and row.user_id == actor.id and row.auth_session_id == auth_id and not row.finished_at
+        and connection and connection.user_id == actor.id and connection.auth_session_id == auth_id
+        and connection_online(connection, now) and row.expires_at > now
+        and row.telemetry_seen_at and row.telemetry_seen_at >= now - timedelta(seconds=35)
+        and row.last_seen_at and row.last_seen_at >= now - timedelta(seconds=35)
+        and row.pending_uploads is not None
+    )
     return {
         "file_id": file_id,
         "current_file_id": file.id,
@@ -674,6 +733,10 @@ def browser_file_payload(session, actor, anchor, original, row, reason, now):
         "opened_at": row.opened_at if row else None,
         "closed_at": row.closed_at if row else None,
         "connection_id": row.connection_id if row else None,
+        "telemetry_fresh": telemetry_fresh,
+        "telemetry_seen_at": row.telemetry_seen_at if telemetry_fresh else None,
+        "pending_uploads": row.pending_uploads if telemetry_fresh else None,
+        "error_code": row.error_code if telemetry_fresh else None,
         "editor": {"id": editor.id, "display_name": editor.display_name} if editor else None,
     }
 
@@ -727,7 +790,7 @@ def file_history(
 
 class CommandInput(Input):
     session_id: UUID
-    action: Literal["open", "retry", "finish", "reveal"]
+    action: Literal["open", "retry", "finish", "reveal", "recover"]
 
 
 class CommandResult(Input):
@@ -821,6 +884,11 @@ def connection_online(row, now):
         and row.last_seen_at
         and row.last_seen_at >= now - timedelta(seconds=35)
     )
+
+
+def recovery_supported(connection):
+    return bool(connection and re.fullmatch(r"1\.[0-9]{1,5}\.[0-9]{1,5}", connection.client_version)
+        and tuple(int(part) for part in connection.client_version.split(".")) >= (1, 4, 0))
 
 
 def expire_command(row, now):
@@ -923,6 +991,9 @@ def agent_heartbeat(identity: UUID, data: AgentHeartbeat, request: Request, sess
         expire_command(command, now)
         if command.state != "pending":
             continue
+        if command.action == "recover" and not recovery_supported(connection):
+            command.state, command.error = "failed", "Для восстановления обновите ACTI Sync до 1.4.0"
+            continue
         result = results.get(command.id)
         try:
             command_access(
@@ -930,17 +1001,21 @@ def agent_heartbeat(identity: UUID, data: AgentHeartbeat, request: Request, sess
                 actor,
                 connection,
                 command,
-                allow_finished=bool(result and result.ok and command.action == "finish"),
+                allow_finished=bool(result and result.ok and command.action in {"finish", "recover"}),
             )
         except HTTPException:
             command.state, command.error = "failed", "Доступ к сеансу больше недоступен"
             continue
         if result:
-            command.state = "succeeded" if result.ok else "failed"
+            # Only the recovery endpoint can confirm durable copy preservation.
+            ok = result.ok and command.action != "recover"
+            command.state = "succeeded" if ok else "failed"
             # The client error may contain paths, credentials or exception internals.
             # Never store or relay arbitrary native exception text to the browser.
             command.error = (
-                None if result.ok else "ACTI Sync не выполнил действие; локальная копия сохранена"
+                None if ok else WORD_CLOSE_MESSAGE
+                if command.action == "recover" and result.error == "file_busy"
+                else "ACTI Sync не выполнил действие; локальная копия сохранена"
             )
         else:
             commands.append(
@@ -968,6 +1043,8 @@ def browser_command(data: CommandInput, request: Request, session: Db, actor: Ac
     )
     if not connection_online(connection, now):
         fail(409, "agent_offline", "Подключите ACTI Sync на этом компьютере")
+    if data.action == "recover" and not recovery_supported(connection):
+        fail(409, "client_upgrade_required", "Для восстановления обновите ACTI Sync до 1.4.0")
     probe = OfficeAgentCommand(
         connection_id=connection.id,
         session_id=row.id,
@@ -1015,8 +1092,8 @@ def agent_status(request: Request, session: Db, actor: Actor):
         for row in connections
     ]
     recent = max(connections, key=lambda row: row.last_seen_at or row.created_at, default=None)
-    # PostgreSQL DISTINCT ON picks the latest owned session per logical original;
-    # apply the panel bound after deduplication, never returning another browser's rows.
+    # Keep unfinished local copies recoverable even after the same browser opens a
+    # newer session. Only the latest completed session per original stays in history.
     latest = (
         select(OfficeEditSession.id)
         .where(
@@ -1033,8 +1110,13 @@ def agent_status(request: Request, session: Db, actor: Actor):
     )
     rows = session.scalars(
         select(OfficeEditSession)
-        .where(OfficeEditSession.id.in_(latest))
-        .order_by(OfficeEditSession.created_at.desc())
+        .where(
+            OfficeEditSession.auth_session_id == auth.id,
+            OfficeEditSession.user_id == actor.id,
+            OfficeEditSession.connection_id.is_not(None),
+            or_(OfficeEditSession.id.in_(latest), OfficeEditSession.finished_at.is_(None)),
+        )
+        .order_by(OfficeEditSession.finished_at.is_not(None), OfficeEditSession.created_at.desc())
         .limit(100)
     )
     documents = []
@@ -1048,7 +1130,7 @@ def agent_status(request: Request, session: Db, actor: Actor):
             authorized(session, actor, row.original_id, write=True)
         except HTTPException as error:
             reason, can_control = error.detail.get("message", "Редактирование недоступно"), False
-        payload = browser_file_payload(session, actor, anchor, original, row, reason, now)
+        payload = browser_file_payload(session, actor, anchor, original, row, reason, now, auth.id)
         command = session.scalar(
             select(OfficeAgentCommand)
             .where(OfficeAgentCommand.session_id == row.id)
@@ -1059,16 +1141,20 @@ def agent_status(request: Request, session: Db, actor: Actor):
         )
         if command:
             expire_command(command, now)
+        connection = session.get(OfficeAgentConnection, row.connection_id)
         payload.update(
             {
                 "document_id": document.id,
                 "document_title": document.title,
                 "can_control": can_control,
+                "can_recover": bool(can_control and row.expires_at > now and connection_online(connection, now) and recovery_supported(connection)),
+                "can_launch_current": bool(reason is None and row.finished_at and command and command.action == "recover" and command.state == "succeeded" and not active_session(session, row.original_id, now)),
                 "command": {
                     "id": command.id,
                     "action": command.action,
                     "state": command.state,
                     "error": command.error,
+                    "error_code": "file_busy" if command.action == "recover" and command.error == WORD_CLOSE_MESSAGE else None,
                 }
                 if command
                 else None,
