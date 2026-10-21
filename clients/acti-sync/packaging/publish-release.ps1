@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ArtifactDirectory,
-    [Parameter(Mandatory)][string]$SourceSha
+    [Parameter(Mandatory)][string]$SourceSha,
+    [switch]$RequireAuthenticode,
+    [bool]$ReleaseAsLatest = $true
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -9,6 +11,18 @@ $repository = 'BorisDruzak/acti_potential'
 $installers = @(Get-ChildItem -LiteralPath $ArtifactDirectory -Filter 'ACTISync-*-win-x64.msi' -File)
 if ($installers.Count -ne 1) { throw 'Expected exactly one verified installer artifact.' }
 $installer = $installers[0]
+. (Join-Path $PSScriptRoot 'AuthenticodeGate.ps1')
+$signedFiles = @($installer.FullName) + @('Service','User','Updater','Tray' | ForEach-Object {
+    Join-Path $ArtifactDirectory "$_/ACTISync.$_.exe"
+})
+$signatureStatuses = foreach ($file in $signedFiles) {
+    if (!(Test-Path -LiteralPath $file -PathType Leaf)) { throw 'Missing release component.' }
+    (Get-AuthenticodeSignature -LiteralPath $file).Status.ToString()
+}
+$signatureMode = Get-PublicationSignatureMode -Statuses $signatureStatuses -Required:$RequireAuthenticode
+if ($signatureMode -eq 'authenticode') {
+    Assert-ReleaseAuthenticode -Files $signedFiles
+} else { Write-Output 'Authenticode: not configured; publishing through the required RSA release-manifest trust path.' }
 if ($installer.Name -notmatch '^ACTISync-(1\.(?:0|[1-9][0-9]{0,2})\.(?:0|[1-9][0-9]{0,4}))-win-x64\.msi$') {
     throw 'Invalid release coordinates.'
 }
@@ -78,9 +92,10 @@ if ($exists) {
 & (Join-Path $PSScriptRoot 'sign-release.ps1') -Installer $installer.FullName -SourceSha $SourceSha `
     -OutputPath $manifest -ExistingManifest $existingManifest | Out-Null
 if (!$exists) {
+    $latestArgument = if ($ReleaseAsLatest) { '--latest' } else { '--latest=false' }
     Invoke-ReleaseGitHub @('release', 'create', $tag, '--repo', $repository, '--target', $SourceSha,
         '--title', "ACTI Sync $version", '--notes', "Verified ACTI Sync $version ($SourceSha).",
-        '--draft') | Out-Null
+        '--draft', $latestArgument) | Out-Null
     $release = [pscustomobject]@{isDraft=$true; assets=@()}
 }
 if ($release.isDraft) {
@@ -89,6 +104,12 @@ if ($release.isDraft) {
             Invoke-ReleaseGitHub @('release', 'upload', $tag, $path, '--repo', $repository) | Out-Null
         }
     }
-    Invoke-ReleaseGitHub @('release', 'edit', $tag, '--repo', $repository, '--draft=false', '--latest') | Out-Null
+    $latestArgument = if ($ReleaseAsLatest) { '--latest' } else { '--latest=false' }
+    Invoke-ReleaseGitHub @('release', 'edit', $tag, '--repo', $repository, '--draft=false', $latestArgument) | Out-Null
+} elseif ($ReleaseAsLatest -and !$blocksPublication) {
+    # Candidate publication can precede server rollout configuration. Promotion
+    # retries must verify the exact tag and immutable signed assets above before
+    # changing latest, and must never move latest behind an equal/newer release.
+    Invoke-ReleaseGitHub @('release', 'edit', $tag, '--repo', $repository, '--latest') | Out-Null
 }
 Write-Output "Published verified ACTI Sync $version at tag $tag"

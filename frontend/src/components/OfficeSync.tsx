@@ -26,6 +26,21 @@ export function validSyncUri(uri: string): boolean {
 }
 export const isOfficeSyncSource = (name: string) => /\.(doc|docx|docm|dot|dotx|dotm|rtf|odt)$/i.test(name);
 
+/** Shared, user-triggered launch of the current immutable original. */
+export async function launchOfficeOriginal(fileId: string, csrfToken: string, signal: AbortSignal) {
+  const bridge = await discoverLocalBridge(signal);
+  signal.throwIfAborted();
+  const result = await apiRequest<{uri: string; expires_at: string}>("/office-sync/launch", {
+    method: "POST", headers: {"X-CSRF-Token": csrfToken}, body: JSON.stringify({file_id: fileId}), signal,
+  });
+  signal.throwIfAborted();
+  if (!validSyncUri(result.uri) || !(Date.parse(result.expires_at) > Date.now())) throw new Error("invalid_launch_ticket");
+  if (bridge) await postLocalTicket(bridge, "launch", result.uri, result.expires_at, signal);
+  else {
+    const link = document.createElement("a"); link.href = result.uri; link.rel = "noreferrer"; link.click();
+  }
+}
+
 export function FileActions({file, mode, csrfToken, sync = true, showDownload = true, compact = false}: {
   file: FileVersion; mode: "editor" | "viewer"; csrfToken: string; sync?: boolean; showDownload?: boolean; compact?: boolean;
 }) {
@@ -52,18 +67,7 @@ export function FileActions({file, mode, csrfToken, sync = true, showDownload = 
         await apiRequest("/office-sync/agent/commands", {method: "POST", headers: {"X-CSRF-Token": csrfToken},
           body: JSON.stringify({session_id: status.session_id, action: "open"}), signal: active.signal});
       } else {
-        const bridge = await discoverLocalBridge(active.signal);
-        active.signal.throwIfAborted();
-        const result = await apiRequest<{uri: string; expires_at: string}>("/office-sync/launch", {
-          method: "POST", headers: {"X-CSRF-Token": csrfToken}, body: JSON.stringify({file_id: file.id}), signal: active.signal,
-        });
-        active.signal.throwIfAborted();
-        if (!validSyncUri(result.uri) || !(Date.parse(result.expires_at) > Date.now())) throw new Error("invalid_launch_ticket");
-        if (bridge) await postLocalTicket(bridge, "launch", result.uri, result.expires_at, active.signal);
-        else {
-          // This path is reachable only from the user's edit click, never from discovery.
-          const link = document.createElement("a"); link.href = result.uri; link.rel = "noreferrer"; link.click();
-        }
+        await launchOfficeOriginal(file.id, csrfToken, active.signal);
       }
       if (!active.signal.aborted) refresh();
     } catch {

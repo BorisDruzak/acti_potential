@@ -1,15 +1,19 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.3.8',
+    [string]$Version = '1.4.0',
     [string]$SourceSha = '',
     [string]$OutputDirectory = '',
     [string]$DotNet = 'dotnet',
     [string]$Wix = '',
     [string]$SignCertificateThumbprint = '',
-    [string]$TimestampUrl = ''
+    [string]$TimestampUrl = '',
+    [switch]$RequireAuthenticode
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'AuthenticodeGate.ps1')
+& (Join-Path $PSScriptRoot 'Test-AuthenticodeGate.ps1')
+$certificate = Get-ReleaseSigningCertificate -Thumbprint $SignCertificateThumbprint -TimestampUrl $TimestampUrl -Required:$RequireAuthenticode
 $clientRoot = Split-Path $PSScriptRoot -Parent
 if (!$OutputDirectory) { $OutputDirectory = Join-Path $clientRoot 'artifacts' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
@@ -48,10 +52,9 @@ try {
         }
     }
     if ($SignCertificateThumbprint) {
-        $certificate = Get-Item -LiteralPath "Cert:/CurrentUser/My/$SignCertificateThumbprint"
         foreach ($executable in @(Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'; Join-Path $OutputDirectory 'User/ACTISync.User.exe'; Join-Path $OutputDirectory 'Updater/ACTISync.Updater.exe'; Join-Path $OutputDirectory 'Tray/ACTISync.Tray.exe')) {
             $signParameters = @{FilePath=$executable; Certificate=$certificate; HashAlgorithm='SHA256'}
-            if ($TimestampUrl) { $signParameters.TimestampServer = $TimestampUrl }
+            $signParameters.TimestampServer = $TimestampUrl
             $result = Set-AuthenticodeSignature @signParameters
             if ($result.Status -ne 'Valid') { throw 'EXE Authenticode signing failed.' }
         }
@@ -92,10 +95,14 @@ try {
         if ((Set-AuthenticodeSignature @signParameters).Status -ne 'Valid') { throw 'MSI signing failed.' }
     }
     $files = @($msi, (Join-Path $OutputDirectory 'Service/ACTISync.Service.exe'), (Join-Path $OutputDirectory 'User/ACTISync.User.exe'), (Join-Path $OutputDirectory 'Updater/ACTISync.Updater.exe'), (Join-Path $OutputDirectory 'Tray/ACTISync.Tray.exe'))
+    if ($SignCertificateThumbprint -or $RequireAuthenticode) {
+        Assert-ReleaseAuthenticode -Files $files -Thumbprint $SignCertificateThumbprint
+    } else { Write-Output 'Authenticode: not configured; RSA-signed release manifest remains required for publication.' }
     $manifest = foreach ($file in $files) {
         $item = Get-Item -LiteralPath $file
         [ordered]@{name=$item.Name; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(); signature=(Get-AuthenticodeSignature -LiteralPath $file).Status.ToString()}
     }
     $manifest | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $OutputDirectory 'manifest.json')
+    & (Join-Path $PSScriptRoot 'Test-PublicationPolicy.ps1') -ArtifactDirectory $OutputDirectory
     Write-Output "Single installer (includes sync service, native user worker, tray and dedicated updater): $msi"
 } finally { Pop-Location }

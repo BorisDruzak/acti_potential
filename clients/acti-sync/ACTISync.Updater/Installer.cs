@@ -36,9 +36,11 @@ internal static class Installer {
     }
     // Never relaunch an uncertain installer. Verify installed product version;
     // a failed transaction resumes users and is retried from a fresh feed poll.
-    request.Phase=request.InstallerExitCode is 3010 or 1641?"reboot_required":InstalledMatches(release)?"installed":"failed";SecureStore.Write(SecureStore.Request,request);
+    request.Phase=request.InstallerExitCode is 3010 or 1641?"reboot_required":(request.InstallerExitCode is null or 0) && InstalledMatches(release)?"installed":"failed";SecureStore.Write(SecureStore.Request,request);
    }
-   if(!WindowsSessions.ResumeAll(request.Users))throw new IOException("Logged-in user resume deferred.");
+   InstallerCompletion.Reconcile(request.Phase=="installed",
+    ()=>ACTISync.InstallerActions.WindowsStartupHealth.Check(release.Version),
+    ()=>WindowsSessions.ResumeAll(request.Users),()=>WindowsSessions.WaitResumed(request.Users));
    if(request.Phase=="installed") {
     SecureStore.Write(Path.Combine(SecureStore.Root,"last-installed.json"),new{version=release.Version,source_sha=release.SourceSha,sha256=release.Sha256,installed_at=DateTimeOffset.UtcNow,exit_code=request.InstallerExitCode});
     SecureStore.Status("current",release.Version);

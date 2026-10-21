@@ -12,9 +12,72 @@ const connected = (): AgentStatus => ({...empty(), online: true, last_seen_at: n
 const withDocument = (): AgentStatus => ({...connected(), documents: [{file_id: "original", current_file_id: "bytes-2", filename: "letter.docx", revision: 2,
   can_edit: false, can_control: true, reason: "Оригинал уже открыт", session_id: "session", last_seen_at: new Date().toISOString(),
   last_saved_at: "2026-10-19T09:00:00Z", state: "saved", lease_expires_at: new Date(Date.now() + 60000).toISOString(), editor: null,
-  document_id: "document", document_title: "Письмо", document_open: false, opened_at: "2026-10-19T08:00:00Z", closed_at: "2026-10-19T08:30:00Z", connection_id: "agent", command: null}]});
+  document_id: "document", document_title: "Письмо", document_open: false, opened_at: "2026-10-19T08:00:00Z", closed_at: "2026-10-19T08:30:00Z", connection_id: "agent", command: null,
+  pending_uploads: 0, error_code: null, telemetry_fresh: true, telemetry_seen_at: new Date().toISOString()}]});
 const show = (canControl = true) => render(<><input aria-label="Черновик" defaultValue=""/><OfficeSyncAgent owner="user" csrfToken="csrf" canControl={canControl}/></>);
 const openPanel = () => fireEvent.click(screen.getByRole("button", {name: /ACTI Sync:/}));
+
+it("summarizes fresh open, pending files and attention without counting snapshots or stale zeros", async () => {
+  vi.useFakeTimers(); const data = withDocument();
+  data.documents[0] = {...data.documents[0], document_open: true, pending_uploads: 2, error_code: "network"};
+  request.mockResolvedValue(data); show(); await act(async () => {}); openPanel();
+  expect(screen.getByText("Открыто: 1 · Ожидают отправки: 1 · Требуют внимания: 1")).toBeTruthy();
+  expect(screen.getByText("Нет связи с сервером")).toBeTruthy();
+  expect(screen.queryByText("Сохранено в ACTI")).toBeNull();
+  request.mockImplementation(() => new Promise(() => {}));
+  await act(async () => {await vi.advanceTimersByTimeAsync(36000);});
+  expect(screen.getByText("Открыто: неизвестно · Ожидают отправки: неизвестно · Требуют внимания: неизвестно")).toBeTruthy();
+  expect(screen.queryByText("Нет связи с сервером")).toBeNull();
+});
+
+it("treats missing telemetry as unknown even when a legacy agent reports saved", async () => {
+  const data = withDocument(); delete data.documents[0].pending_uploads; delete data.documents[0].telemetry_fresh;
+  request.mockResolvedValue(data); show(); await screen.findByRole("button", {name: "ACTI Sync: на связи"}); openPanel();
+  expect(screen.getByText("Открыто: 0 · Ожидают отправки: неизвестно · Требуют внимания: неизвестно")).toBeTruthy();
+  expect(screen.queryByText("Сохранено в ACTI")).toBeNull();
+  expect(screen.getByText("Очередь отправки неизвестна")).toBeTruthy();
+  expect(screen.queryByRole("button", {name: "Сохранить копию и завершить"})).toBeNull();
+});
+
+it("offers bound recovery only on server capability and asks to close Word on file_busy", async () => {
+  const data = withDocument(); data.documents[0] = {...data.documents[0], state: "conflict", can_recover: true, error_code: "file_busy"};
+  request.mockImplementation(async path => path.endsWith("/commands") ? {id: "recovery", state: "pending"} : data);
+  show(); await screen.findByRole("button", {name: "ACTI Sync: на связи"}); openPanel();
+  expect(screen.getByText("Сохраните и закройте документ в Word")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Сохранить копию и завершить"}));
+  await screen.findByText("Сохранить копию и завершить: ожидает выполнения");
+  expect(request).toHaveBeenCalledWith("/office-sync/agent/commands", expect.objectContaining({
+    body: JSON.stringify({session_id: "session", action: "recover"}), headers: {"X-CSRF-Token": "csrf"},
+  }));
+});
+
+it("offers the standard current-original launch after acknowledged recovery", async () => {
+  const data = withDocument(); data.documents[0] = {...data.documents[0], state: "finished", can_control: false, can_launch_current: true,
+    command: {id: "recovered", action: "recover", state: "succeeded"}};
+  request.mockResolvedValue(data); show(); await screen.findByRole("button", {name: "ACTI Sync: на связи"}); openPanel();
+  expect(screen.getByRole("button", {name: "Открыть актуальный оригинал"})).toBeTruthy();
+  expect(screen.queryByRole("button", {name: "Сохранить копию и завершить"})).toBeNull();
+});
+
+it("shows the safe Word-close recovery refusal even when session telemetry is stale", async () => {
+  const data = withDocument(); data.documents[0] = {...data.documents[0], state: "offline", telemetry_fresh: false, pending_uploads: null,
+    can_recover: true, command: {id: "recover", action: "recover", state: "failed", error_code: "file_busy", error: "C:\\private"}};
+  request.mockResolvedValue(data); show(); await screen.findByRole("button", {name: "ACTI Sync: на связи"}); openPanel();
+  expect(screen.getByText("Сохраните и закройте документ в Word")).toBeTruthy();
+  expect(document.body.textContent).not.toContain("private");
+});
+
+it("expires queue telemetry independently of renewed session presence while the next poll hangs", async () => {
+  vi.useFakeTimers(); const data = withDocument();
+  data.documents[0].telemetry_seen_at = new Date(Date.now() - 34000).toISOString();
+  request.mockResolvedValue(data); show(); await act(async () => {}); openPanel();
+  expect(screen.getByText("Сохранено в ACTI")).toBeTruthy();
+  request.mockImplementation(() => new Promise(() => {}));
+  await act(async () => {await vi.advanceTimersByTimeAsync(1100);});
+  expect(screen.getByRole("button", {name: "ACTI Sync: на связи"})).toBeTruthy();
+  expect(screen.queryByText("Сохранено в ACTI")).toBeNull();
+  expect(screen.getByText("Очередь отправки неизвестна")).toBeTruthy();
+});
 
 it("keeps a notice arriving during a modal inside the inert background", async () => {
   vi.useFakeTimers(); let data = withDocument();

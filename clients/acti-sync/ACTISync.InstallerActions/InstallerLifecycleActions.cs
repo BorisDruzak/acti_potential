@@ -7,6 +7,9 @@ namespace ACTISync.InstallerActions
     public static class InstallerLifecycleActions
     {
         [CustomAction]
+        public static ActionResult CheckInstalledHealth(Session session) => Run(session, _ => WindowsStartupHealth.Check(session.CustomActionData["Version"]));
+
+        [CustomAction]
         public static ActionResult PrepareInstallerUsers(Session session) => Run(session, InstallerLifecycle.Prepare);
 
         [CustomAction]
