@@ -14,6 +14,8 @@ if(!LoopbackPolicies.PolicyKeys.Contains(yandexPolicy) || LoopbackPolicies.Polic
 var policyEntry=new LoopbackPolicies.OwnedEntry(yandexPolicy,"43127","https://acti.example");
 if(!LoopbackPolicies.MayRemove(policyEntry,policyEntry.Origin) || LoopbackPolicies.MayRemove(policyEntry,"https://admin.example") || LoopbackPolicies.MayRemove(policyEntry with{Key=@"SOFTWARE\Other"},policyEntry.Origin) || LoopbackPolicies.MayRemove(policyEntry with{Slot="43126"},policyEntry.Origin) || LoopbackPolicies.MayRemove(policyEntry with{Slot="44127"},policyEntry.Origin))throw new Exception("Browser policy ownership boundary failed");
 Console.WriteLine("PASS Yandex provisioning and cleanup preserve administrator entries and constrain owned registry values");
+await RolloutChecks.Run();
+await PostInstallChecks.Run();
 using var key=RSA.Create(3072);
 var fields=new Dictionary<string,object>{["schema"]=1,["product"]="ACTISync",["version"]="1.3.1",["source_sha"]=new string('a',40),["filename"]="ACTISync-1.3.1-win-x64.msi",["sha256"]=new string('b',64),["size"]=1024,["release_tag"]="acti-sync-v1.3.1-aaaaaaaaaaaa",["published_at"]="2026-10-19T00:00:00Z"};
 string Envelope(Dictionary<string,object> values) { var payload=JsonSerializer.SerializeToUtf8Bytes(values); return JsonSerializer.Serialize(new{payload=Convert.ToBase64String(payload),signature=Convert.ToBase64String(key.SignData(payload,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1))}); }

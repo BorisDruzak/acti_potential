@@ -26,6 +26,7 @@ internal static class Program
             SafeDiagnostics();
             CheckState();
             InstallerLifecycleTests.Run();
+            StartupHealthTests.Run();
             MachineTrustValidation();
             UntrustedTlsProbe();
             ProbeTimeout();

@@ -103,10 +103,10 @@ def test_draft_replaces_reservation_and_publishes_final_values_without_reusing_o
     with factory.kw["bind"].begin() as connection:
         config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
         config.attributes["connection"] = connection
-        revision_before = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        before_downgrade = connection.scalar(text("SELECT version_num FROM alembic_version"))
         with pytest.raises(RuntimeError, match="Scoped registration claims exist"), connection.begin_nested():
             command.downgrade(config, "0017_registry_number_claims")
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == revision_before
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == before_downgrade
 
 
 def test_draft_number_cannot_be_stolen_by_manual_creation_or_another_card_token(client, factory):
@@ -177,11 +177,11 @@ def test_registration_lock_migration_preserves_all_existing_rows(client, factory
             )).one() for table in tables}
 
         before = snapshot()
-        revision_before = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        before_downgrade = connection.scalar(text("SELECT version_num FROM alembic_version"))
         with pytest.raises(RuntimeError, match="Scoped registration claims exist"), connection.begin_nested():
             command.downgrade(config, "0017_registry_number_claims")
         assert snapshot() == before
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == revision_before
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == before_downgrade
 
 
 def test_bound_draft_can_replace_cleared_number_without_replaying_cancelled_reservation(client, factory):

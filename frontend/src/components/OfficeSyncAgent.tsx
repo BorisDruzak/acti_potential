@@ -3,15 +3,18 @@ import { createPortal } from "react-dom";
 import { ApiError, apiRequest } from "../api/client";
 import { discoverLocalBridge, postLocalTicket } from "../engine/localOfficeSync";
 import { DocumentDialog } from "./DocumentDialog";
-import { officeSyncLabels, type OfficeSyncStatus } from "./OfficeSync";
+import { launchOfficeOriginal, officeSyncLabels, type OfficeSyncStatus } from "./OfficeSync";
 import "./office-sync.css";
 
-type AgentAction = "open" | "retry" | "finish" | "reveal";
-type AgentCommand = {id: string; action: AgentAction; state: "pending" | "succeeded" | "failed" | "expired"; error?: string | null};
+type AgentAction = "open" | "retry" | "finish" | "reveal" | "recover";
+type SyncError = "network" | "conflict" | "reauth" | "quota" | "file_busy" | "word_missing" | "local_io" | "server_rejected";
+type AgentCommand = {id: string; action: AgentAction; state: "pending" | "succeeded" | "failed" | "expired"; error?: string | null; error_code?: "file_busy" | null};
 type Connection = {connection_id: string; online: boolean; last_seen_at: string | null; client_version: string | null};
 type AgentDocument = OfficeSyncStatus & {
   document_id: string; document_title: string; can_control: boolean; connection_id: string | null;
   document_open: boolean | null; opened_at: string | null; closed_at: string | null; command: AgentCommand | null;
+  pending_uploads?: number | null; error_code?: SyncError | null; telemetry_fresh?: boolean; telemetry_seen_at?: string | null;
+  can_recover?: boolean; can_launch_current?: boolean;
 };
 export type AgentStatus = {
   online: boolean; last_seen_at: string | null; client_version: string | null;
@@ -20,7 +23,10 @@ export type AgentStatus = {
 type Snapshot = {data: AgentStatus | null; error: string; denied: boolean; receivedAt: number | null};
 type Notice = {id: number; text: string; expires: number};
 const empty: Snapshot = {data: null, error: "", denied: false, receivedAt: null};
-const actionNames: Record<AgentAction, string> = {open: "Открыть в Word", retry: "Повторить отправку", finish: "Завершить сеанс", reveal: "Открыть папку"};
+const actionNames: Record<AgentAction, string> = {open: "Открыть в Word", retry: "Повторить отправку", finish: "Завершить сеанс", reveal: "Открыть папку", recover: "Сохранить копию и завершить"};
+const errorNames: Record<SyncError, string> = {network: "Нет связи с сервером", conflict: "Оригинал изменён другим редактором", reauth: "Войдите в ACTI повторно",
+  quota: "Недостаточно места для локальной копии", file_busy: "Сохраните и закройте документ в Word", word_missing: "Microsoft Word недоступен",
+  local_io: "Не удалось прочитать локальную копию", server_rejected: "Сервер не принял изменения"};
 const commandNames: Record<AgentCommand["state"], string> = {pending: "ожидает выполнения", succeeded: "выполнено", failed: "ошибка выполнения", expired: "время ожидания истекло"};
 const fresh = (value: string | null, now: number) => !!value && Number.isFinite(Date.parse(value)) && now - Date.parse(value) <= 35000 && now - Date.parse(value) >= -5000;
 const date = (value: string) => new Date(value).toLocaleString("ru-RU");
@@ -91,7 +97,7 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
   }, [denied]);
   // A pending HTTP request must not keep an expired heartbeat looking online.
   useEffect(() => {
-    const times = [data?.last_seen_at, ...data?.connections.map(item => item.last_seen_at) || [], ...data?.documents.map(item => item.last_seen_at) || []]
+    const times = [data?.last_seen_at, ...data?.connections.map(item => item.last_seen_at) || [], ...data?.documents.flatMap(item => [item.last_seen_at, item.telemetry_seen_at]) || []]
       .filter((value): value is string => !!value).map(value => Date.parse(value) + 35001).filter(value => value > Date.now());
     times.push(...data?.documents.map(item => Date.parse(item.lease_expires_at || "")).filter(value => value > Date.now()) || []);
     if (!times.length) return;
@@ -146,6 +152,15 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
   const connectionOnline = (id: string | null) => !statusError && !!id && !!data?.connections.some(item => item.connection_id === id && item.online && fresh(item.last_seen_at, now));
   const editingCount = data?.documents.filter(item => online && connectionOnline(item.connection_id) && fresh(item.last_seen_at, now) &&
     item.document_open === true && item.state !== "finished" && !!item.lease_expires_at && Date.parse(item.lease_expires_at) > now).length || 0;
+  const currentDocuments = data?.documents.filter(item => item.state !== "finished") || [];
+  const documentKnown = (item: AgentDocument) => online && connectionOnline(item.connection_id) && fresh(item.last_seen_at, now);
+  const telemetryKnown = (item: AgentDocument) => documentKnown(item) && item.telemetry_fresh === true && fresh(item.telemetry_seen_at || null, now) &&
+    Number.isInteger(item.pending_uploads) && item.pending_uploads! >= 0 && item.pending_uploads! <= 2;
+  const openKnown = online && currentDocuments.every(item => documentKnown(item) && item.document_open !== null);
+  const queuesKnown = online && currentDocuments.every(telemetryKnown);
+  const openCount = currentDocuments.filter(item => item.document_open === true).length;
+  const queueCount = currentDocuments.filter(item => (item.pending_uploads || 0) > 0).length;
+  const attentionCount = currentDocuments.filter(item => !!item.error_code || ["conflict", "error", "offline"].includes(item.state)).length;
   useEffect(() => {
     if (!data || statusError || denied || receivedAt === null) return;
     const observed = observations.current;
@@ -187,6 +202,7 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
   }, [notices]);
   async function command(item: AgentDocument, action: AgentAction) {
     if (busy || denied || !canControl || !item.can_control || !item.session_id || !connectionOnline(item.connection_id)) return;
+    if (action === "recover" && !item.can_recover) return;
     const generation = lifecycle.current;
     const active = new AbortController(); pending.current = active;
     setBusy(item.session_id); setError("");
@@ -202,6 +218,15 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
       else {setError("Команда не принята. Обновите состояние и повторите действие."); refresh();}
     } finally {if (!active.signal.aborted && generation === lifecycle.current) setBusy("");}
   }
+  async function launchCurrent(item: AgentDocument) {
+    if (busy || denied || !canControl || !item.can_launch_current) return;
+    const generation = lifecycle.current;
+    const active = new AbortController(); pending.current = active;
+    setBusy(item.file_id); setError("");
+    try {await launchOfficeOriginal(item.file_id, csrfToken, active.signal); if (!active.signal.aborted) refresh();}
+    catch {if (!active.signal.aborted && generation === lifecycle.current) {setError("Не удалось открыть актуальный оригинал. Обновите состояние и повторите действие."); refresh();}}
+    finally {if (!active.signal.aborted && generation === lifecycle.current) setBusy("");}
+  }
   const presence = online ? "на связи" : !data && !statusError ? "проверка связи" : "нет связи";
   return <>
     <button type="button" className={`office-agent-trigger${online ? " office-agent-trigger--online" : ""}`} aria-label={`ACTI Sync: ${presence}${editingCount ? ` · редактируется документов: ${editingCount}` : ""}`}
@@ -216,6 +241,7 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
       <div className="toolbar"><h2>ACTI Sync</h2><button type="button" autoFocus onClick={() => setOpen(false)}>Закрыть</button></div>
       <div className="office-agent-summary">
         <strong role="status">{online ? "Агент на связи" : presence === "проверка связи" ? "Проверяем связь с агентом…" : "Агент не на связи"}</strong>
+        <span className="office-agent-counts">Открыто: {openKnown ? openCount : "неизвестно"} · Ожидают отправки: {queuesKnown ? queueCount : "неизвестно"} · Требуют внимания: {queuesKnown ? attentionCount : "неизвестно"}</span>
         {data?.client_version && <small>Версия агента: {data.client_version}</small>}
         {data?.last_seen_at && <small>Последняя связь агента: {date(data.last_seen_at)}</small>}
         {statusError && <p role="alert">{statusError}</p>}
@@ -230,21 +256,29 @@ export function OfficeSyncAgent({owner, csrfToken, canControl}: {owner: string; 
         {data?.documents.map(item => {
           const connected = connectionOnline(item.connection_id);
           const known = connected && fresh(item.last_seen_at, now);
+          const queueKnown = telemetryKnown(item);
           const documentState = item.document_open === true ? "Открыт в Word" : item.document_open === false ? "Закрыт в Word" : "Состояние Word неизвестно";
-          const syncState = item.state === "saved" && !item.last_saved_at ? "Сохранение не подтверждено" : officeSyncLabels[item.state];
+          const syncState = item.state === "saved" && (!item.last_saved_at || !queueKnown || item.pending_uploads !== 0 || item.error_code) ? "Сохранение не подтверждено" : officeSyncLabels[item.state];
           return <li key={item.session_id || item.file_id}>
             <strong>{item.document_title || "Документ"}</strong><span>{item.filename}</span>
             <div className="office-agent-document-status"><span>{known || item.document_open === null ? documentState : `Последнее известное состояние: ${documentState.charAt(0).toLowerCase()}${documentState.slice(1)}`}</span>
               <span>{known || item.state === "finished" ? syncState : "Нет свежего подтверждения синхронизации"}</span></div>
+            {item.state !== "finished" && <small>{queueKnown ? `Ожидают отправки: ${item.pending_uploads}` : "Очередь отправки неизвестна"}</small>}
+            {queueKnown && item.error_code && <small role="status">{errorNames[item.error_code] || "Требуется внимание"}</small>}
             <small>Актуальная редакция содержимого: {item.revision}</small>
             {item.opened_at && <small>Открыт: {date(item.opened_at)}</small>}
             {item.closed_at && <small>Закрыт: {date(item.closed_at)}</small>}
             {item.last_saved_at && <small>Последняя серверная синхронизация: {date(item.last_saved_at)}</small>}
             {item.command && <small role="status">{actionNames[item.command.action]}: {commandNames[item.command.state]}</small>}
+            {item.command?.action === "recover" && item.command.state === "failed" && item.command.error_code === "file_busy" &&
+              !(queueKnown && item.error_code === "file_busy") && <small role="status">{errorNames.file_busy}</small>}
             {canControl && item.can_control && item.session_id && item.state !== "finished" && <div className="button-row">
               {(["open", "retry", "finish", "reveal"] as const).map(action => <button type="button" key={action}
                 disabled={!!busy || denied || !connected || item.command?.state === "pending"} onClick={() => void command(item, action)}>{actionNames[action]}</button>)}
+              {item.can_recover && <button type="button" disabled={!!busy || denied || !connected || item.command?.state === "pending"} onClick={() => void command(item, "recover")}>{actionNames.recover}</button>}
             </div>}
+            {canControl && item.can_launch_current && item.command?.action === "recover" && item.command.state === "succeeded" &&
+              <button type="button" disabled={!!busy || denied} onClick={() => void launchCurrent(item)}>Открыть актуальный оригинал</button>}
           </li>;
         })}
       </ul>

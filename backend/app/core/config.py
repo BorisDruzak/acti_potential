@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     storage_root: str = "/documents"
     secure_cookie: bool = True
     source_sha: str = "development"
+    sync_rollout_percentage: int = Field(default=100, ge=0, le=100)
+    sync_rollout_sha256: str = ""
+    sync_legacy_fallback_tag: str = ""
     trusted_proxy_cidrs: str = ""
     oidc_enabled: bool = False
     oidc_issuer: str = ""

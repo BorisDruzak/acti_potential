@@ -31,6 +31,8 @@ EVENT_FIELDS = {
 EVENT_FIELDS["platform.admin_created"] = frozenset({"user_id"})
 EVENT_FIELDS["document.sync.launched"] = frozenset()
 EVENT_FIELDS["document.sync.finished"] = frozenset()
+EVENT_FIELDS["document.sync.lease_resumed"] = frozenset({"session_id", "revision"})
+EVENT_FIELDS["document.sync.recovered"] = frozenset({"session_id", "command_id", "local_sha256"})
 EVENT_FIELDS["document.binary.saved"] = frozenset({
     "original_id", "file_id", "version", "previous_file_id", "from_format", "to_format",
 })
@@ -101,7 +103,12 @@ def validate_payload(event_type, payload):
         ):
             raise ValueError("Invalid binary conversion evidence")
     for key, value in payload.items():
-        if key in {"revision", "version"}:
+        if event_type == "document.sync.recovered" and key == "local_sha256":
+            import re
+
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError("Invalid recovery SHA256")
+        elif key in {"revision", "version"}:
             if type(value) is not int or value < 1:
                 raise ValueError("Invalid event version")
         elif event_type == "document.binary.saved" and key in {"from_format", "to_format"}:

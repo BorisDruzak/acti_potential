@@ -13,12 +13,13 @@ internal static class WatcherChecks {
   var value=typeof(SyncEngine).GetField("watchers",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(engine)!;
   return (value is IDictionary map ? map.Values : (IEnumerable)value).Cast<FileSystemWatcher>().ToArray();
  }
- private static Dictionary<string,SessionState> Sessions(SyncEngine engine)=>(Dictionary<string,SessionState>)typeof(SyncEngine).GetField("sessions",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(engine)!;
+ private static IReadOnlyDictionary<string,SessionState> Sessions(SyncEngine engine)=>(IReadOnlyDictionary<string,SessionState>)typeof(SyncEngine).GetField("sessions",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(engine)!;
  private static async Task Changed(SessionState state) {
   for(var i=0;i<60 && !state.Dirty;i++)await Task.Delay(50);
   Check(state.Dirty,"active session still observes current working-file changes");
  }
  internal static async Task Run() {await CompletedHistory();await SessionLifetime();}
+ internal static void RecoveryFinished(SyncEngine engine) {Check(Watchers(engine).Length==0,"successful recovery releases its completed session watcher");}
  private static async Task CompletedHistory() {
   var root=Path.Combine(Path.GetTempPath(),"ACTISync-watch-history-"+Guid.NewGuid().ToString("N"));
   var sid=WindowsIdentity.GetCurrent().User!.Value;

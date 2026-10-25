@@ -32,6 +32,10 @@
                   Execute="commit" Impersonate="no" Return="ignore" />
     <CustomAction Id="ResumeInstallerUsers" FileRef="UpdaterExe" ExeCommand="--msi-resume"
                   Execute="commit" Impersonate="no" Return="ignore" />
+    <SetProperty Id="CheckInstalledHealth" Value="Version=[ProductVersion]" Before="CheckInstalledHealth"
+                 Sequence="execute" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
+    <CustomAction Id="CheckInstalledHealth" BinaryRef="InstallerActions" DllEntry="CheckInstalledHealth"
+                  Execute="deferred" Impersonate="no" Return="check" />
     <UIRef Id="ACTIServerUI" />
     <CustomAction Id="CleanupUpdaterPolicy" FileRef="UpdaterExe" ExeCommand="--uninstall-cleanup"
                   Execute="deferred" Impersonate="no" Return="check" />
@@ -42,6 +46,7 @@
       <Custom Action="PrepareInstallerUsers" Before="CommitInstallerUsers" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
       <Custom Action="CommitInstallerUsers" Before="ResumeInstallerUsers" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
       <Custom Action="ResumeInstallerUsers" Before="StopServices" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
+      <Custom Action="CheckInstalledHealth" After="StartServices" Condition="NOT (REMOVE ~= &quot;ALL&quot;)" />
       <Custom Action="CleanupUpdaterPolicy" After="StopServices" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
     <StandardDirectory Id="ProgramFiles64Folder">

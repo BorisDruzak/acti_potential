@@ -10,7 +10,11 @@ namespace ACTISync.Service;
 public sealed class SyncWorker(SyncEngine engine) : BackgroundService {
  protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
   engine.Initialize();
-  await Task.WhenAll(PipeLoop(stoppingToken), PollLoop(stoppingToken),AgentLoop(stoppingToken));
+  await Task.WhenAll(PipeLoop(stoppingToken), PollLoop(stoppingToken),AgentLoop(stoppingToken),LeaseLoop(stoppingToken));
+ }
+ private async Task LeaseLoop(CancellationToken ct) {
+  using var timer=new PeriodicTimer(TimeSpan.FromSeconds(20));
+  while(!ct.IsCancellationRequested) { await engine.LeaseTick(ct);await timer.WaitForNextTickAsync(ct); }
  }
  private async Task AgentLoop(CancellationToken ct) {
   using var timer=new PeriodicTimer(TimeSpan.FromSeconds(4));

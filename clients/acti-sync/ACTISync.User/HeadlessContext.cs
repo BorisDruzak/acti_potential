@@ -75,6 +75,7 @@ internal sealed class HeadlessContext : ApplicationContext {
   try {
    var response=await ServiceClient.Send(new(){Action="pulse"});
    if(!maintenance) foreach(var command in response.Commands) if(executing.Add(command.Id)) _=Execute(command);
+   if(!maintenance) foreach(var session in response.Sessions) if(session.RecoveryCommandId!=null) _=RevealRecovery(session);
   } catch { } finally { pulsing=false; }
  }
  private async Task Execute(AgentCommand command) {
@@ -97,8 +98,26 @@ internal sealed class HeadlessContext : ApplicationContext {
      }
     } catch { }
     await ServiceClient.Send(new(){Action="command_result",SessionId=command.SessionId,CommandId=command.Id,Ok=ok});
-   } else if(command.Action is "retry" or "finish") await ServiceClient.Send(request);
+   } else if(command.Action is "retry" or "finish" or "recover") {
+    var result=await ServiceClient.Send(request);
+    if(command.Action=="recover" && result.Ok && result.Session!=null) await RevealRecovery(result.Session);
+   }
   } catch { } finally { executing.Remove(command.Id); activeOperations--; }
+ }
+ private async Task RevealRecovery(SessionView session) {
+  var key="recovery:"+session.RecoveryCommandId;
+  if(maintenance || session.RecoveryCommandId is null || !executing.Add(key)) return;
+  activeOperations++;
+  try {
+   var expected=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"ACTI","Sync","recovery",Guid.Parse(session.SessionId).ToString("D"),"recovered.docx");
+   if(!string.Equals(session.RecoveryPath,expected,StringComparison.OrdinalIgnoreCase)) return;
+   SafeFiles.NoReparse(expected);
+   using(var file=SafeFiles.OpenRead(expected)) if(Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(file))!=session.RecoverySha256) return;
+   if(maintenance) return;
+   var start=new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"explorer.exe")){UseShellExecute=false};
+   start.ArgumentList.Add("/select,"+expected);using var process=Process.Start(start);
+   if(process!=null) await ServiceClient.Send(new(){Action="recovery_revealed",SessionId=session.SessionId,CommandId=session.RecoveryCommandId});
+  } catch { } finally {executing.Remove(key);activeOperations--;}
  }
  private static string? WordPath() {
   foreach(var view in new[]{RegistryView.Registry64,RegistryView.Registry32}) {

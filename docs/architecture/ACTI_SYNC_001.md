@@ -1,10 +1,116 @@
-# ACTI Sync v1 (Issue #21), current implementation 1.3.8
+# ACTI Sync v1 (Issue #21), current implementation 1.4.3
+
+Version **1.4.3** stops retrying a relay credential rejected with HTTP 401/403.
+The authorization pause persists across service restarts; the existing automatic
+browser connection flow supplies a fresh scoped credential to resume it. Network
+and server failures retry with exponential delays from 2 to 60 seconds. A late
+response for an old credential cannot alter a newly connected credential.
+Queued files, encrypted tokens, pending commands and durable action receipts
+remain intact. New native commands pause after a known authorization rejection,
+while already started action results and completed receipts remain accepted.
+This closes the observed repeated renewals of rejected credentials without
+weakening token expiry, current ACL checks or browser session requirements.
+
+Version **1.4.2** adds scoped lease resumption after an interrupted installation
+or service outage longer than the 90-second lease. `POST /sessions/{id}/resume`
+accepts the prior acknowledged `revision` and `sha256`, plus optional `pending`
+proof (`key`, `revision`, `sha256`). Under the existing document/original/session
+locks it requires an unchanged original and no other live lease. The sole
+exception is the exact same-session committed save receipt whose expected
+revision, key and hash match the preserved pending request, whose original base
+hash matches immutable history, and whose committed bytes are still current.
+That permits a lost save ACK to be replayed without an arbitrary rebase.
+
+Resume never writes content, rotates a token, extends access expiry or revives a
+finished session; the browser session and current ACL remain mandatory. Expired
+credentials still require authorization. A genuine reacquisition records one
+`document.sync.lease_resumed` audit/outbox event with session ID and revision;
+repeating a successful request while its lease is live does not duplicate it.
+The native client validates the session/file/base or exact pending proof, retains
+the old ACK and pending idempotency key until the ordinary save ACK, and preserves
+all bytes on conflict, unauthorized access, unavailable servers and older servers
+without the optional route. Existing heartbeat/save/renew expiry rules remain.
+
+Version **1.4.1** changes the native installer and post-install health image
+query to a pinned process handle with `PROCESS_QUERY_LIMITED_INFORMATION` and
+`QueryFullProcessImageNameW`. It preserves exact installed paths, service accounts,
+Automatic/Running checks and the MSI commit gate. The handle remains pinned through
+an SCM PID/state recheck and kernel exit-time validation, including exit code 259.
+This avoids the extra module-memory rights requested by `Process.MainModule`.
+A restricted-token regression reproduces its AccessDenied failure and verifies
+the limited query succeeds. The 1.4.0 canary MSI failed its health action with
+AccessDenied; native rollback restored the previous installation. 1.4.1 release
+and real MSI acceptance remain separate.
 
 Version **1.3.5** implements automatic browser connection, a separate tray and
 signed in-place updates. The architecture below describes the implementation;
 historical verification remains separately recorded. Current installed, browser
 and native Word evidence is in
 [the automation acceptance report](ACTI_SYNC_AUTOMATION_ACCEPTANCE.md).
+
+## Multi-file reliability in 1.4.0
+
+The service processes each edit session independently. Up to 20 unfinished local
+sessions per Windows SID share at most four concurrent file transfers. Per-session
+serialization preserves revision/token/queue ordering; separate lease heartbeats
+continue during slow uploads. HTTP deadlines include response bodies. Durable
+pending and next snapshots coalesce later saves without treating an older server
+ACK as confirmation of newer bytes. Per-SID quota reservations include temporary
+copy space; hitting the limit preserves existing work and requires Retry.
+
+Session responses advertise `queue-telemetry-v1` and `recovery-v1`. Until queue
+support is negotiated, the agent uses the legacy heartbeat shape. Optional
+telemetry rejected with HTTP 422 is retried once using the legacy shape, allowing
+server rollback; authentication and ambiguous transport failures are never replayed.
+Optional
+`pending_uploads` (0–2) and an allowlisted `error_code` never carry paths or raw
+exception text. Migration `0022_office_recovery` adds nullable telemetry and a
+command-bound preservation receipt. Apply it before starting the new API.
+Existing sessions and legacy clients retain unknown queue state. Downgrade is
+refused once recovery commands exist, preserving their evidence.
+
+The ACTI Sync panel shows open documents, documents awaiting upload and documents
+requiring attention. Unknown or stale telemetry remains unknown; a historical ACK
+does not claim that pending local work is saved. The document action rows retain
+only **Редактировать в Word** and **Скачать**.
+
+**Сохранить копию и завершить** requires a 1.4.0 agent and a closed Word document.
+It first durably copies the working bytes into a service-owned recovery directory
+and retains all queued snapshots, then acknowledges its scoped browser command through
+`POST /api/v1/office-sync/sessions/{id}/recover`. This endpoint rechecks the bearer,
+browser authentication, ACLs, command/session/connection binding and copy SHA256.
+It finishes only that session and emits `document.sync.recovered`; it never writes
+a binary revision or releases another editor's lease. Lost ACK replay is
+idempotent. The user component reveals the preserved copy, and the browser offers
+**Открыть актуальный оригинал**. There is no automatic conflict overwrite or merge.
+
+The MSI checks installed service versions, identities, automatic startup and
+stable SCM/process health before commit. Failure triggers Windows Installer
+rollback. After commit, the updater resumes User/Tray even when its additional
+health check fails; its installed receipt permits reconciliation without another
+installation. These checks never save, close or terminate Word.
+
+Update staging uses `ACTI_SYNC_ROLLOUT_PERCENTAGE` (default 100),
+`ACTI_SYNC_ROLLOUT_SHA256` and `ACTI_SYNC_LEGACY_FALLBACK_TAG`. At percentages below
+100, a rollout-aware updater advertises `X-ACTI-Update-Capabilities: rollout-v1`
+and checks the candidate-bound `/distribution/policy`; its random local cohort
+seed is never transmitted. Legacy updaters receive the separately verified
+fallback. Missing or mismatched staged configuration fails closed. The existing
+RSA release-manifest schema and verification remain unchanged.
+
+For the first rollout-aware release, set repository variable
+`ACTI_SYNC_RELEASE_AS_LATEST=false`, publish the immutable candidate, deploy the
+rollout-aware API with percentage 0 and the verified fallback, and only then
+promote the verified candidate to GitHub latest. Expand the percentage after
+canary acceptance. Publishing an older release cannot move latest backwards.
+
+Packaging optionally validates and signs all four EXEs and the MSI using a trusted
+Code Signing certificate and timestamp. `ACTI_SYNC_REQUIRE_AUTHENTICODE=true`
+requires this gate; RSA-only publication is allowed only when all five artifacts
+are unsigned. Mixed, invalid or untrusted signatures fail closed. No Code Signing
+certificate is currently available: this implements the signing path but does
+not establish Authenticode publisher trust. Real Word 2021 acceptance remains
+separate from tests on Microsoft 365.
 
 ## Model and compatibility
 

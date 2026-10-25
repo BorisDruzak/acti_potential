@@ -146,19 +146,24 @@ def bounded_get(client, url: str, limit: int, *, redirects=False) -> bytes:
     raise ReleaseUnavailable("Too many release redirects")
 
 
-def fetch_release():
+def fetch_release(tag: str | None = None):
+    if tag is not None and not re.fullmatch(r"acti-sync-v1\.\d{1,5}\.\d{1,5}-[0-9a-f]{12}", tag):
+        raise ReleaseUnavailable("Invalid configured fallback tag")
+    metadata_url = LATEST_URL if tag is None else f"https://api.github.com/repos/{REPOSITORY}/releases/tags/{tag}"
     with httpx.Client(
         timeout=httpx.Timeout(5, connect=3), follow_redirects=False, trust_env=False,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "ACTI-Sync-release-feed",
                  "X-GitHub-Api-Version": "2022-11-28"},
     ) as client:
-        release = strict_json(bounded_get(client, LATEST_URL, MAX_METADATA))
+        release = strict_json(bounded_get(client, metadata_url, MAX_METADATA))
         if (not isinstance(release, dict) or release.get("draft") is not False
                 or release.get("prerelease") is not False
                 or not isinstance(release.get("tag_name"), str)
                 or not re.fullmatch(r"acti-sync-v1\.\d{1,5}\.\d{1,5}-[0-9a-f]{12}",
                                     release["tag_name"])):
             raise ReleaseUnavailable("Invalid GitHub release")
+        if tag is not None and release["tag_name"] != tag:
+            raise ReleaseUnavailable("Fallback release tag mismatch")
         tag = release["tag_name"]
         assets = release.get("assets")
         if not isinstance(assets, list):
@@ -211,12 +216,57 @@ class ReleaseCache:
 
 
 cache = ReleaseCache()
+fallback_caches: dict[str, ReleaseCache] = {}
+fallback_lock = threading.Lock()
+
+
+def rollout_policy(request: Request, payload):
+    settings = getattr(request.app.state, "settings", None)
+    percentage = getattr(settings, "sync_rollout_percentage", 100)
+    digest = getattr(settings, "sync_rollout_sha256", "")
+    fallback = getattr(settings, "sync_legacy_fallback_tag", "")
+    if type(percentage) is not int or not 0 <= percentage <= 100:
+        raise ReleaseUnavailable("Invalid rollout percentage")
+    # A restricted rollout is always pinned to exactly one verified candidate.
+    if (digest and digest != payload["sha256"]) or (percentage < 100 and not digest):
+        raise ReleaseUnavailable("Rollout candidate mismatch")
+    if percentage < 100 and not re.fullmatch(r"acti-sync-v1\.\d{1,5}\.\d{1,5}-[0-9a-f]{12}", fallback):
+        raise ReleaseUnavailable("Missing verified legacy fallback")
+    return dict(schema=1, sha256=payload["sha256"], percentage=percentage), fallback
+
+
+def legacy_release(tag, candidate):
+    with fallback_lock:
+        # Only server configuration selects the tag. Bound memory across config changes.
+        if tag not in fallback_caches:
+            fallback_caches.clear()
+            fallback_caches[tag] = ReleaseCache(lambda: fetch_release(tag))
+        selected = fallback_caches[tag]
+    fallback = selected.get_release()
+    if fallback[1]["release_tag"] != tag or fallback[2] >= candidate[2]:
+        raise ReleaseUnavailable("Fallback must be a separately verified older release")
+    return fallback
+
+
+@router.get("/policy")
+def policy(request: Request):
+    try:
+        _, payload, _ = cache.get_release()
+        value, _ = rollout_policy(request, payload)
+        return JSONResponse(value, headers={"Cache-Control": "no-store"})
+    except ReleaseUnavailable:
+        return unavailable(request)
 
 
 @router.get("/latest")
 def latest(request: Request):
     try:
-        return JSONResponse(cache.get(), headers={"Cache-Control": "no-store"})
+        current = cache.get_release()
+        policy, fallback = rollout_policy(request, current[1])
+        capabilities = request.headers.get("X-ACTI-Update-Capabilities", "").split(",")
+        if policy["percentage"] < 100 and "rollout-v1" not in [item.strip() for item in capabilities]:
+            current = legacy_release(fallback, current)
+        return JSONResponse(current[0], headers={"Cache-Control": "no-store", "Vary": "X-ACTI-Update-Capabilities"})
     except ReleaseUnavailable:
         return unavailable(request)
 

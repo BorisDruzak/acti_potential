@@ -35,6 +35,7 @@ public sealed record ClientConfig(Uri Origin) {
  public Uri Api(string suffix) => new(Origin, "/api/v1/office-sync/" + suffix);
 }
 public sealed class ServerSession {
+ public string[] Capabilities { get; set; } = [];
  public string SourceFormat { get; set; } = "docx";
  public AgentCredentials? Agent { get; set; }
  public string SessionId { get; set; } = "";
@@ -55,6 +56,12 @@ public sealed class Snapshot {
  public int ExpectedRevision { get; set; }
 }
 public sealed class SessionState {
+ public bool SupportsTelemetry { get; set; }
+ public string? ErrorCode { get; set; }
+ public string? RecoveryCommandId { get; set; }
+ public string? RecoverySha256 { get; set; }
+ public bool RecoveryPending { get; set; }
+ public bool RecoveryRevealPending { get; set; }
  public string SourceFormat { get; set; } = "docx";
  public string? ConversionSourcePath { get; set; }
  public string? ConversionSourceSha256 { get; set; }
@@ -92,6 +99,11 @@ public sealed class IpcRequest {
  public string? SessionId { get; set; }
 }
 public sealed class SessionView {
+ public string? RecoveryPath { get; set; }
+ public string? RecoveryCommandId { get; set; }
+ public string? RecoverySha256 { get; set; }
+ public int PendingUploads { get; set; }
+ public string? ErrorCode { get; set; }
  public string SourceFormat { get; set; } = "docx";
  public string? ConversionSourcePath { get; set; }
  public string? ConversionSourceSha256 { get; set; }
@@ -104,7 +116,7 @@ public sealed class SessionView {
  public int Revision { get; set; }
  public DateTimeOffset? LastAck { get; set; }
  public bool HasPending { get; set; }
- public static SessionView From(SessionState s) => new() { SourceFormat=s.SourceFormat,ConversionSourcePath=s.ConversionSourcePath,ConversionSourceSha256=s.ConversionSourceSha256,DocumentOpen=s.DocumentOpen, SessionId=s.SessionId, FileName=s.FileName, WorkingPath=s.WorkingPath, Status=s.Status, Error=s.Error, Revision=s.Revision, LastAck=s.LastAck, HasPending=s.Pending!=null || s.NextPending!=null };
+ public static SessionView From(SessionState s) => new() { PendingUploads=(s.Pending!=null ? 1 : 0)+(s.NextPending!=null ? 1 : 0),ErrorCode=s.ErrorCode,SourceFormat=s.SourceFormat,ConversionSourcePath=s.ConversionSourcePath,ConversionSourceSha256=s.ConversionSourceSha256,DocumentOpen=s.DocumentOpen, SessionId=s.SessionId, FileName=s.FileName, WorkingPath=s.WorkingPath, Status=s.Status, Error=s.Error, Revision=s.Revision, LastAck=s.LastAck, HasPending=s.Pending!=null || s.NextPending!=null };
 }
 public sealed class IpcResponse {
  public bool AgentOnline { get; set; }
@@ -139,8 +151,12 @@ public sealed class AgentState {
  public string ConnectionId { get; set; } = "";
  public string ProtectedToken { get; set; } = "";
  public DateTimeOffset ExpiresAt { get; set; }
+ public bool AuthorizationRequired { get; set; }
+ public int RelayFailures { get; set; }
+ public DateTimeOffset NextRelayAt { get; set; }
  public List<CommandResult> Results { get; set; } = [];
  public Dictionary<string,CommandResult> Completed { get; set; } = [];
+ public Dictionary<string,string> CompletedSessions { get; set; } = [];
  public Dictionary<string,AgentCommand> Pending { get; set; } = [];
  public HashSet<string> Started { get; set; } = [];
 }

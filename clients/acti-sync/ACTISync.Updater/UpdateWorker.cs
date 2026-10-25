@@ -39,9 +39,14 @@ internal sealed class UpdateWorker:BackgroundService {
   await Bootstrap(ct);
   SecureStore.Status("checking");
   using var client=ReleaseDownload.CreateClient();
-  var envelope=await ReleaseDownload.ReadBounded(client,ClientConfig.Load().Api("distribution/latest"),ReleaseTrust.MaxEnvelopeSize,ct);
+  client.DefaultRequestHeaders.Add("X-ACTI-Update-Capabilities",RolloutPolicy.Capability);
+  var config=ClientConfig.Load();var latest=config.Api("distribution/latest");var policyUri=config.Api("distribution/policy");
+  RolloutPolicy.RequireOrigin(latest,policyUri);
+  var envelope=await ReleaseDownload.ReadBounded(client,latest,ReleaseTrust.MaxEnvelopeSize,ct);
   var release=ReleaseTrust.Verify(envelope,ReleaseTrust.PublicKey());
   if(!release.IsNewerThan(SecureStore.CurrentVersion)){SecureStore.Status("current");return;}
+  var policy=await ReleaseDownload.ReadBounded(client,policyUri,RolloutPolicy.MaximumBytes,ct);
+  if(!RolloutPolicy.Allows(policy,release.Sha256,RolloutPolicy.LoadSeed(Path.Combine(SecureStore.Root,"cohort.json")))){SecureStore.Status("deferred");return;}
   SecureStore.Status("downloading");SecureStore.Delete(SecureStore.Package);SecureStore.WriteEnvelope(envelope);
   await ReleaseDownload.Download(client,release,SecureStore.Package,ct);
   using(var package=ReleaseDownload.VerifyFile(release,SecureStore.Package))MsiIdentity.Verify(SecureStore.Package,release);

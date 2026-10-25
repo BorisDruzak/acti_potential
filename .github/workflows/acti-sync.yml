@@ -21,11 +21,16 @@ jobs:
           dotnet-version: '10.0.402'
       - name: Test and build single MSI with embedded service and user component
         shell: pwsh
-        run: ./clients/acti-sync/packaging/build.ps1 -SourceSha '${{ github.event.pull_request.head.sha || github.sha }}'
+        run: ./clients/acti-sync/packaging/build.ps1 -SourceSha '${{ github.event.pull_request.head.sha || github.sha }}' -RequireAuthenticode:('${{ vars.ACTI_SYNC_REQUIRE_AUTHENTICODE }}' -eq 'true')
       - uses: actions/upload-artifact@v4
         with:
           name: ACTISync-installer-win-x64-${{ github.event.pull_request.head.sha || github.sha }}
-          path: clients/acti-sync/artifacts/ACTISync-*-win-x64.msi
+          path: |
+            clients/acti-sync/artifacts/ACTISync-*-win-x64.msi
+            clients/acti-sync/artifacts/Service/ACTISync.Service.exe
+            clients/acti-sync/artifacts/User/ACTISync.User.exe
+            clients/acti-sync/artifacts/Updater/ACTISync.Updater.exe
+            clients/acti-sync/artifacts/Tray/ACTISync.Tray.exe
           if-no-files-found: error
   web:
     runs-on: ubuntu-latest
@@ -72,7 +77,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen
-      - run: uv run pytest -q tests/test_office_agent.py tests/test_office_sync.py tests/test_office_sync_distribution.py tests/test_office_open.py tests/test_documents.py tests/test_search_quality_v2.py tests/test_task005_content.py
+      - run: uv run pytest -q tests/test_office_agent.py tests/test_office_sync.py tests/test_office_recovery.py tests/test_office_resume.py tests/test_office_sync_distribution.py tests/test_migrations.py tests/test_office_open.py tests/test_documents.py tests/test_search_quality_v2.py tests/test_task005_content.py
       - run: uv run ruff check app tests
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -97,4 +102,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ACTI_SYNC_RELEASE_SIGNING_KEY: ${{ secrets.ACTI_SYNC_RELEASE_SIGNING_KEY }}
-        run: ./clients/acti-sync/packaging/publish-release.ps1 -ArtifactDirectory ./release-artifact -SourceSha '${{ github.sha }}'
+        run: ./clients/acti-sync/packaging/publish-release.ps1 -ArtifactDirectory ./release-artifact -SourceSha '${{ github.sha }}' -RequireAuthenticode:('${{ vars.ACTI_SYNC_REQUIRE_AUTHENTICODE }}' -eq 'true') -ReleaseAsLatest:('${{ vars.ACTI_SYNC_RELEASE_AS_LATEST }}' -ne 'false')

@@ -217,3 +217,75 @@ def test_canonical_github_release_and_asset_consistency(signing, monkeypatch, tm
     metadata["assets"][0]["browser_download_url"] = "https://evil.example/manifest"
     with pytest.raises(feed.ReleaseUnavailable):
         feed.fetch_release()
+
+
+@pytest.mark.parametrize("percentage", [0, 37, 100])
+def test_rollout_policy_and_legacy_fallback(signing, monkeypatch, percentage):
+    from types import SimpleNamespace
+    current = candidate(signing, "1.4.0")
+    fallback = candidate(signing, "1.3.8")
+    monkeypatch.setattr(feed, "cache", feed.ReleaseCache(lambda: current))
+    calls = []
+    monkeypatch.setattr(feed, "fetch_release", lambda tag=None: calls.append(tag) or fallback)
+    monkeypatch.setattr(feed, "fallback_caches", {})
+    app = FastAPI()
+    app.state.settings = SimpleNamespace(sync_rollout_percentage=percentage,
+        sync_rollout_sha256=current[1]["sha256"], sync_legacy_fallback_tag=fallback[1]["release_tag"])
+    app.include_router(feed.router)
+    with TestClient(app, follow_redirects=False) as client:
+        legacy = client.get("/office-sync/distribution/latest?tag=evil&url=https://evil.example")
+        assert legacy.json() == (fallback if percentage < 100 else current)[0]
+        capable = client.get("/office-sync/distribution/latest", headers={"X-ACTI-Update-Capabilities": "rollout-v1"})
+        assert capable.json() == current[0]
+        policy = client.get("/office-sync/distribution/policy")
+        assert policy.json() == dict(schema=1, sha256=current[1]["sha256"], percentage=percentage)
+        assert client.get("/office-sync/distribution/download").headers["location"] == feed.asset_url(current[1]["release_tag"], current[1]["filename"])
+    assert calls == ([fallback[1]["release_tag"]] if percentage < 100 else [])
+
+
+@pytest.mark.parametrize("change", [dict(sync_rollout_percentage=-1), dict(sync_rollout_percentage=101),
+    dict(sync_rollout_percentage=True), dict(sync_rollout_sha256="c" * 64),
+    dict(sync_legacy_fallback_tag="https://evil.example")])
+def test_partial_rollout_invalid_configuration_fails_closed(signing, monkeypatch, change):
+    from types import SimpleNamespace
+    current = candidate(signing, "1.4.0")
+    monkeypatch.setattr(feed, "cache", feed.ReleaseCache(lambda: current))
+    settings = dict(sync_rollout_percentage=25, sync_rollout_sha256=current[1]["sha256"],
+        sync_legacy_fallback_tag="acti-sync-v1.3.8-aaaaaaaaaaaa")
+    settings.update(change)
+    app = FastAPI()
+    app.state.settings = SimpleNamespace(**settings)
+    app.include_router(feed.router)
+    with TestClient(app) as client:
+        assert client.get("/office-sync/distribution/latest").status_code == 503
+        assert client.get("/office-sync/distribution/policy").status_code == 503
+
+
+@pytest.mark.parametrize("tamper", ["signature", "tag", "asset", "newer"])
+def test_configured_fallback_is_independently_verified(signing, monkeypatch, tamper):
+    current = candidate(signing, "1.4.0")
+    data = payload("1.3.8" if tamper != "newer" else "1.4.1")
+    tag = data["release_tag"]
+    configured = tag
+    raw = signed(signing, data)
+    if tamper == "signature":
+        raw = raw.replace(b'"signature": "', b'"signature": "AA')
+    if tamper == "tag":
+        configured = "acti-sync-v1.3.7-aaaaaaaaaaaa"
+    metadata = dict(draft=False, prerelease=False, tag_name=tag, assets=[
+        dict(name=feed.MANIFEST_NAME, browser_download_url=feed.asset_url(tag, feed.MANIFEST_NAME)),
+        dict(name=data["filename"], size=data["size"], browser_download_url=feed.asset_url(tag, data["filename"])),
+    ])
+    if tamper == "asset":
+        metadata["assets"][1]["browser_download_url"] = "https://evil.example/file"
+    def respond(request):
+        if request.url.host == "api.github.com":
+            assert request.url.path.endswith("/releases/tags/" + configured)
+            return httpx.Response(200, json=metadata)
+        return httpx.Response(200, content=raw)
+    real_client = httpx.Client
+    monkeypatch.setattr(feed.httpx, "Client", lambda **kwargs: real_client(transport=httpx.MockTransport(respond), **kwargs))
+    monkeypatch.setattr(feed, "PUBLIC_KEY", type("Key", (), {"read_bytes": lambda _: signing[1]})())
+    monkeypatch.setattr(feed, "fallback_caches", {})
+    with pytest.raises(feed.ReleaseUnavailable):
+        feed.legacy_release(configured, current)
