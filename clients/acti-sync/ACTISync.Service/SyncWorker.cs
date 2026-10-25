@@ -7,7 +7,16 @@ using System.Text.Json;
 
 namespace ACTISync.Service;
 
-public sealed class SyncWorker(SyncEngine engine) : BackgroundService {
+public sealed class SyncWorker : BackgroundService {
+ private readonly SyncEngine engine;
+ public SyncWorker(SyncEngine engine) {
+  this.engine=engine;
+  // In a single-file EXE, resolving WindowsIdentity inside RunAsClient can
+  // lazily load System.Security.Claims under an Identification-only token.
+  // Load and exercise the identity dependencies as the service before IPC.
+  using var identity=WindowsIdentity.GetCurrent();
+  _=identity.User; _=identity.IsAuthenticated; _=identity.IsAnonymous;
+ }
  protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
   engine.Initialize();
   await Task.WhenAll(PipeLoop(stoppingToken), PollLoop(stoppingToken),AgentLoop(stoppingToken),LeaseLoop(stoppingToken));

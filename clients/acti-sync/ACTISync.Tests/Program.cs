@@ -8,6 +8,7 @@ if(args.Contains("--deadline")) { await HttpDeadlineChecks.Run(); return; }
 if(args.Contains("--telemetry")) { await TelemetryNegotiationChecks.Run(); return; }
 if(args.Contains("--lease-resume")) { await LeaseResumeChecks.Run(); return; }
 if(args.Contains("--agent-retry")) { await AgentRetryChecks.Run(); return; }
+if(args.Contains("--service-pipe")) { await ServicePipeChecks.Run(); return; }
 
 static void Check(bool condition, string name) { if (!condition) throw new Exception(name); Console.WriteLine("PASS " + name); }
 static void Reject(Action action, string name) { try { action(); } catch (ArgumentException) { Console.WriteLine("PASS " + name); return; } throw new Exception(name); }
@@ -63,6 +64,7 @@ try {
  Console.WriteLine("ALL WINDOWS CORE CHECKS PASSED");
 } finally { Directory.Delete(root, true); }
 await UserPipeChecks.Run();
+await ServicePipeChecks.Run();
 await BrowserBridgeChecks.Run();
 await EngineChecks.Run();
 await MultifileChecks.Run();

@@ -40,6 +40,13 @@ try {
     Run-Native $DotNet @('run', '--project', 'ACTISync.Tests', '-c', 'Release')
     Run-Native $DotNet @('run', '--project', 'ACTISync.Updater.Tests', '-c', 'Release')
     Run-Native $DotNet @('run', '--project', 'ACTISync.InstallerActions.Tests', '-c', 'Release')
+    # A fresh bundled process must receive Identification before any identity
+    # preload in the general test suite masks cold IPC assembly loading.
+    $coldPipeDirectory = Join-Path $OutputDirectory 'ColdPipeChecks'
+    Run-Native $DotNet @('publish', 'ACTISync.Tests/ACTISync.Tests.csproj', '-c', 'Release',
+        '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true',
+        '-p:IncludeNativeLibrariesForSelfExtract=true', '-o', $coldPipeDirectory)
+    Run-Native (Join-Path $coldPipeDirectory 'ACTISync.Tests.exe') @('--service-pipe')
     foreach ($component in @('Service', 'User', 'Updater', 'Tray')) {
         $destination = Join-Path $OutputDirectory $component
         Run-Native $DotNet @('publish', "ACTISync.$component/ACTISync.$component.csproj", '-c', 'Release',
