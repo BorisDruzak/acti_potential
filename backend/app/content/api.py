@@ -3,8 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import aliased
+from sqlalchemy import func, select
 
 from app.api.dependencies import current_actor, current_admin, db_session
 from app.api.errors import fail
@@ -12,6 +11,7 @@ from app.content.contracts import SearchInput, SearchRead
 from app.content.engine import search_errors
 from app.content.indexing import queue_file
 from app.content.models import ContentExtraction, DocumentBlock, DocumentIndexState
+from app.content.queries import latest_extraction_clause
 from app.content.search import (
     ContentExportParameters,
     ContentSearchParameters,
@@ -176,16 +176,6 @@ def extraction_output(session, row, file, version, *, include_blocks=True):
     }
 
 
-def latest_extraction_clause():
-    """Show the newest run per immutable original; keep prior runs addressable."""
-    newer = aliased(ContentExtraction)
-    return ~select(newer.id).where(
-        newer.file_id == ContentExtraction.file_id,
-        or_(newer.created_at > ContentExtraction.created_at,
-            (newer.created_at == ContentExtraction.created_at) & (newer.id > ContentExtraction.id)),
-    ).correlate(ContentExtraction).exists()
-
-
 @router.get("/documents/{document_id}/content", response_model=Page[ExtractionWithBlocks])
 def document_content(
     document_id: UUID,
@@ -303,25 +293,26 @@ def errors(
     page: int = Query(1, ge=1, le=1000000),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    from fastapi import HTTPException
+    from app.content.authorization import download_clause, source_clauses
+    from app.registry.models import Document
+    from app.registry.policy import accessible_document_clause
 
-    items, total = [], 0
-    for row, file, version in session.execute(
+    query = (
         select(ContentExtraction, DocumentFile, DocumentVersion.version)
         .join(DocumentFile, DocumentFile.id == ContentExtraction.file_id)
         .join(DocumentVersion, DocumentVersion.id == ContentExtraction.version_id)
+        .join(Document, Document.id == ContentExtraction.document_id)
         .where(ContentExtraction.state.in_(["failed", "encrypted", "unsupported", "no_text"]),
-               latest_extraction_clause())
+               latest_extraction_clause(), accessible_document_clause(session, actor, mode),
+               download_clause(actor),
+               source_clauses(session, actor, mode, DocumentFile.field_key, files=True))
+    )
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
+    rows = session.execute(
+        query
         .order_by(ContentExtraction.created_at.desc(), ContentExtraction.id)
-        .execution_options(yield_per=100)
-    ):
-        try:
-            authorize_file(session, actor, file, mode)
-        except HTTPException as error:
-            if error.status_code in {403, 404}:
-                continue
-            raise
-        if (page - 1) * page_size <= total < page * page_size:
-            items.append(extraction_output(session, row, file, version, include_blocks=False))
-        total += 1
+        .offset((page - 1) * page_size).limit(page_size)
+    )
+    items = [extraction_output(session, row, file, version, include_blocks=False)
+             for row, file, version in rows]
     return {"items": items, "total": total, "page": page, "page_size": page_size}

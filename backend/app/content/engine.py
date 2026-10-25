@@ -35,6 +35,7 @@ from app.api.errors import fail
 from app.content.authorization import download_clause, source_clauses
 from app.content.models import ContentExtraction, DocumentBlock, MetadataFragment
 from app.content.normalization import expand, fuzzy_allowed, normalize, number_key
+from app.content.queries import latest_extraction_clause
 from app.content.search import context_snippet
 from app.registry.document_search import search_query
 from app.registry.models import Document, DocumentFile, DocumentVersion, FormSchema
@@ -211,6 +212,7 @@ def candidate_query(session, actor, params, *, weights=None, synonyms=None, lega
             .where(
                 *clauses,
                 ContentExtraction.state == "completed",
+                latest_extraction_clause(),
                 download_clause(actor),
                 source_clauses(session, actor, params.mode, DocumentFile.field_key, files=True),
                 predicate,
