@@ -10,7 +10,7 @@ namespace ACTISync.Service;
 public sealed partial class SyncEngine : IDisposable {
  private readonly string root;
  private readonly Dictionary<string, SessionState> sessions = [];
- private readonly List<FileSystemWatcher> watchers = [];
+ private readonly Dictionary<string,FileSystemWatcher> watchers = [];
  private readonly SemaphoreSlim gate = new(1);
  private readonly HttpClient http;
  private ClientConfig config = null!;
@@ -30,12 +30,14 @@ public sealed partial class SyncEngine : IDisposable {
   }
  }
  private void Watch(SessionState s) {
-  if (!Directory.Exists(Path.GetDirectoryName(s.WorkingPath))) return;
+  Unwatch(s.SessionId);
+  if (s.Finished || !Directory.Exists(Path.GetDirectoryName(s.WorkingPath))) return;
   var w = new FileSystemWatcher(Path.GetDirectoryName(s.WorkingPath)!) { NotifyFilter=NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size, EnableRaisingEvents=true };
   // Watcher is a latency hint. Periodic content hashing remains authoritative after lost events.
   w.Changed += (_,_) => s.Dirty=true; w.Created += (_,_) => s.Dirty=true; w.Renamed += (_,_) => s.Dirty=true;
-  watchers.Add(w);
+  watchers[s.SessionId]=w;
  }
+ private void Unwatch(string id) { if(watchers.Remove(id,out var watcher)) watcher.Dispose(); }
  public async Task<IpcResponse> Handle(string sid, IpcRequest request, CancellationToken ct) {
   if(request.Action=="presence") return new(){Ok=true,AgentOnline=AgentOnline(sid)};
   if(request.Action=="pulse") return Pulse(sid);
@@ -91,7 +93,7 @@ public sealed partial class SyncEngine : IDisposable {
       s.Status = prior.AckHash==server.Sha256 ? "editing" : "conflict";
       if(s.Status=="conflict") s.Error="На сервере уже другая редакция. Локальная копия сохранена; сохраните её отдельно для разрешения конфликта.";
       if(s.Pending!=null && s.Status!="conflict") s.Pending.ExpectedRevision=server.Revision;
-      prior.Finished=true; prior.Status="finished"; Persist(prior);
+      prior.Finished=true; prior.Status="finished"; Persist(prior); Unwatch(prior.SessionId);
      }
      sessions[s.SessionId]=s; Persist(s); Watch(s);
      if (!File.Exists(s.WorkingPath)) await Download(s,ct);
@@ -118,7 +120,7 @@ public sealed partial class SyncEngine : IDisposable {
      session.Finished=true; session.Status="finished"; break;
     default: return new() { Error="Неизвестное действие." };
    }
-   Persist(session); return new() { Ok=true, Session=SessionView.From(session) };
+   Persist(session); if(session.Finished) Unwatch(session.SessionId); return new() { Ok=true, Session=SessionView.From(session) };
   } catch(Exception e) when(e is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException or CryptographicException or JsonException or InvalidOperationException) { return new() { Error=UserError(e) }; }
  }
  private static bool OwnerFilePresent(SessionState s) { SafeFiles.NoReparse(Path.GetDirectoryName(s.WorkingPath)!); return Directory.EnumerateFiles(Path.GetDirectoryName(s.WorkingPath)!,"~$*.docx").Any(); }
@@ -240,6 +242,6 @@ public sealed partial class SyncEngine : IDisposable {
  private async Task<HttpResponseMessage> Send(SessionState s,HttpMethod method,string operation,HttpContent? content,CancellationToken ct) { using var request=Request(s,method,operation,content); return await http.SendAsync(request,ct); }
  private static async Task Ensure(HttpResponseMessage response) { if(response.IsSuccessStatusCode) return; await Task.CompletedTask; throw new ApiException(response.StatusCode); }
  private static string UserError(Exception e) => e is ApiException api ? api.Status switch { HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "Доступ истёк или отозван. Войдите в ACTI и снова нажмите «Редактировать в Word». Локальная копия сохранена.", HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed => "Конфликт редакции или истёкшая блокировка. Локальная копия сохранена; требуется повторный вход или сохранение копии.", HttpStatusCode.RequestEntityTooLarge => "Размер превышает 25 МиБ. Локальная копия сохранена.", _ => "ACTI отклонил запрос ("+(int)api.Status+"). Локальная копия сохранена." } : "Нет связи с ACTI или файл занят. Локальная копия и очередь сохранены; повтор будет выполнен автоматически.";
- public void Dispose() { foreach(var watcher in watchers) watcher.Dispose(); gate.Dispose(); http.Dispose(); }
+ public void Dispose() { foreach(var watcher in watchers.Values) watcher.Dispose(); gate.Dispose(); http.Dispose(); }
  private sealed class ApiException(HttpStatusCode status) : HttpRequestException { public HttpStatusCode Status { get; }=status; }
 }

@@ -10,6 +10,7 @@ internal static class EngineChecks {
  private static void Check(bool condition,string message) { if(!condition) throw new Exception(message); Console.WriteLine("PASS "+message); }
  internal static byte[] Document(string text) { using var memory=new MemoryStream(); using(var zip=new ZipArchive(memory,ZipArchiveMode.Create,true)) { using(var writer=new StreamWriter(zip.CreateEntry("[Content_Types].xml").Open())) writer.Write("<Types />"); using(var writer=new StreamWriter(zip.CreateEntry("word/document.xml").Open())) writer.Write(text); } return memory.ToArray(); }
  internal static async Task Run() {
+  await WatcherChecks.Run();
   await LegacyDoc();
   await ClosedWord();
   var root=Path.Combine(Path.GetTempPath(),"ACTISync-engine-"+Guid.NewGuid().ToString("N"));
