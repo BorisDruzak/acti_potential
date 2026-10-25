@@ -221,6 +221,50 @@ it.each([false,true])("creates a draft by default or publishes through the separ
  expect(body.card_state).toBe(publish?"published":"draft");
 });
 
+it.each(["success", "failure"])("locks the creation draft until its pending request completes (%s)", async outcome => {
+  const requests = setup(false, false, "editor", true);
+  const base = requests.getMockImplementation()!;
+  let complete!: (response: Response) => void;
+  requests.mockImplementation(async (url, init) => {
+    if (url.endsWith("/documents") && init?.method === "POST")
+      return new Promise<Response>(resolve => {complete = resolve;});
+    return base(url, init);
+  });
+  fireEvent.click(await screen.findByRole("button", {name: "Создать документ"}));
+  const creation = document.querySelector(".document-create") as HTMLElement;
+  const form = within(creation);
+  const registry = form.getByLabelText("Реестр документа") as HTMLSelectElement;
+  const type = form.getByLabelText("Тип документа", {exact: true}) as HTMLSelectElement;
+  fireEvent.change(type, {target: {value: "type"}});
+  const title = await form.findByRole("textbox", {name: "Наименование"});
+  fireEvent.change(title, {target: {value: "Сохраняемый черновик"}});
+  fireEvent.click(form.getByRole("button", {name: "Создать документ"}));
+  await waitFor(() => expect(complete).toBeTypeOf("function"));
+
+  // A new type/registry or edits here would be discarded by the older onCreated callback.
+  expect(title.matches(":disabled")).toBe(true);
+  expect(type.disabled).toBe(true);
+  expect(registry.disabled).toBe(true);
+  expect(form.getByRole("button", {name: "Отмена создания"})).toHaveProperty("disabled", true);
+  expect(form.getByLabelText("Внутренняя база").matches(":disabled")).toBe(true);
+
+  await act(async () => complete(outcome === "success"
+    ? new Response(JSON.stringify({id: "a"}), {status: 201})
+    : new Response(JSON.stringify({error: {code: "validation_error", message: "Проверьте реквизиты"}}), {status: 422})));
+  if (outcome === "success") {
+    await waitFor(() => expect(document.querySelector(".document-create")).toBeNull());
+    await screen.findByRole("button", {name: "Сохранить карточку"});
+  } else {
+    await form.findByText("Проверьте реквизиты");
+    expect(title.matches(":disabled")).toBe(false);
+    expect(type.disabled).toBe(false);
+    expect(registry.disabled).toBe(false);
+    expect(title).toHaveProperty("value", "Сохраняемый черновик");
+    expect(type.value).toBe("type");
+    expect(registry.value).toBe("r");
+  }
+});
+
 it("allows correcting a duplicate manual registration number without treating it as a stale document revision", async () => {
  const fetch=setup(),base=fetch.getMockImplementation()!;let writes=0;
  const schema: FormSchema={sections:[{key:"main",title:"Основное",fields:[

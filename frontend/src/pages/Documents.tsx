@@ -602,11 +602,12 @@ function CreateDocument({
         </div>
       </DocumentDock>
       <div className="document-create-configuration">
-      <label className="picker">Реестр документа<select value={registry.id} onChange={event => onRegistryChange(event.target.value)}>{registries.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label className="picker">Реестр документа<select value={registry.id} disabled={formStatus.busy} onChange={event => onRegistryChange(event.target.value)}>{registries.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label className="picker">
         Тип документа
         <select
           value={typeId}
+          disabled={formStatus.busy}
           onChange={event => {if (!draftDirty.current || window.confirm("В новом документе есть несохранённые изменения. Сменить тип документа?")) setTypeId(event.target.value);}}
         >
           <option value="">Выберите тип</option>
@@ -732,6 +733,7 @@ function NewDocumentForm({
         if (!action.busy && onBeforeCreate()) void action.run(()=>create(publish?"published":"draft"),publish?"Карточка опубликована":"Документ создан");
       }}
     >
+      <fieldset className="document-fields" disabled={action.busy}>
       <DynamicForm
         navigationPlacement="side"
         compactRegistration
@@ -772,6 +774,7 @@ function NewDocumentForm({
           </button>
         </div>
       ))}
+      </fieldset>
       <Feedback {...action} />
     </form>
   );
