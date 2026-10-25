@@ -299,6 +299,8 @@ def detail(
             .order_by(ProcessVersion.effective_from.desc(), ProcessVersion.version.desc())
             .limit(1)
         )
+        if version is None and not service.can_configure(session, actor, process):
+            fail(404, "process_not_found", "Процесс не найден")
     result = service.process_output(process)
     if version and version.state == "published":
         result.update(version.metadata_snapshot)
