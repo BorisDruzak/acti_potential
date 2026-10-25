@@ -14,6 +14,11 @@ def test_fixture_refuses_non_test_database():
 
 
 def test_clean_repeat_and_concurrent_upgrade():
+    from pathlib import Path
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
     from app.db.migrate import upgrade_database
 
     engine = create_engine(os.environ["ACTI_DATABASE_URL"])
@@ -36,9 +41,16 @@ def test_clean_repeat_and_concurrent_upgrade():
         "audit_events",
         "outbox_events",
         "processed_events",
+        "logical_originals",
+        "binary_revisions",
+        "office_agent_connections",
+        "office_agent_commands",
     } <= set(inspect(engine).get_table_names())
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    expected_head = ScriptDirectory.from_config(config).get_current_head()
+    assert expected_head is not None
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0019_number_year_type"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == expected_head
         assert conn.scalar(text("SELECT count(*) FROM roles")) == 4
     engine.dispose()
 
