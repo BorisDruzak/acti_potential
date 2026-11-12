@@ -33,11 +33,11 @@ able to modify its key file, helper, configuration or sudoers entry. Do not
 copy an operator key or the monitoring private key to ACTI. Keep SSH host-key
 verification enabled; pin ACTI's host key through the already trusted channel.
 
-The helper returns only this versioned, Boolean aggregate:
+The helper returns this versioned, bounded aggregate:
 
 ```json
 {
-  "format": "acti-observer-v1",
+  "format": "acti-observer-v2",
   "services": {
     "frontend": false,
     "api": false,
@@ -51,11 +51,16 @@ The helper returns only this versioned, Boolean aggregate:
   "storage_capacity": false,
   "outbox_healthy": false,
   "backup_fresh": false,
-  "backup_check_fresh": false
+  "backup_check_fresh": false,
+  "backup_job": {"state": "unconfirmed", "completed_at": null, "exit_code": null, "timer_active": null}
 }
 ```
 
-False means the check is not proven healthy. It must not expose container
+For health flags, false means health is unconfirmed. `backup_job` describes the
+daily systemd job and timer. Its state can also be `running`, `succeeded` or
+`failed`. A known completion time is UTC Unix seconds. An exit code is present
+only when systemd confirms a process exit. Deploy a consumer that accepts both
+helper versions before updating the helper. The response must not expose container
 IDs, filesystem UUIDs, paths, queue contents, credentials, identities or raw
 exception text. Collection performs no writes, retries of business work,
 service starts, mount changes or remediation. PostgreSQL access is only to

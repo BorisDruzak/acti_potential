@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""Fixed, root-only, read-only ACTI observation; stdout is a closed boolean contract."""
+"""Fixed, root-only, read-only ACTI observation with a closed JSON contract."""
 
 import json
 import math
@@ -46,7 +46,7 @@ class ObservationError(Exception):
 
 def unknown():
     return {
-        "format": "acti-observer-v1",
+        "format": "acti-observer-v2",
         "services": dict.fromkeys(SERVICES, False),
         "worker_heartbeat": False,
         "mounts_verified": False,
@@ -54,6 +54,8 @@ def unknown():
         "outbox_healthy": False,
         "backup_fresh": False,
         "backup_check_fresh": False,
+        "backup_job": {"state": "unconfirmed", "completed_at": None,
+                       "exit_code": None, "timer_active": None},
     }
 
 
@@ -286,20 +288,19 @@ def outbox_healthy(identifier, budget):
     return True
 
 
-def backup_jobs(budget):
+def backup_jobs(budget, now):
     names = ("acti-v3-backup", "acti-v3-backup-check")
     units = tuple(name + suffix for name in names for suffix in (".service", ".timer"))
+    properties = ("Id", "LoadState", "ActiveState", "Result", "ExecMainStatus",
+                  "ExecMainCode", "ExecMainStartTimestamp", "ExecMainExitTimestamp")
     raw = budget.command(
         (
             "/usr/bin/systemctl",
             "--system",
             "show",
             "--no-pager",
-            "--property=Id",
-            "--property=LoadState",
-            "--property=ActiveState",
-            "--property=Result",
-            "--property=ExecMainStatus",
+            "--timestamp=unix",
+            *("--property=" + name for name in properties),
             "--",
             *units,
         )
@@ -309,9 +310,7 @@ def backup_jobs(budget):
         values = {}
         for line in block.splitlines():
             key, value = line.split("=", 1)
-            require(
-                key in {"Id", "LoadState", "ActiveState", "Result", "ExecMainStatus"}
-            )
+            require(key in properties)
             require(key not in values)
             values[key] = value
         identity = values.get("Id")
@@ -329,7 +328,39 @@ def backup_jobs(budget):
             and timer.get("LoadState") == "loaded"
             and timer.get("ActiveState") == "active"
         )
-    return tuple(results)
+    return tuple(results), backup_job_status(
+        observed["acti-v3-backup.service"], observed["acti-v3-backup.timer"], now
+    )
+
+
+def backup_job_status(service, timer, now):
+    job = unknown()["backup_job"]
+    if timer.get("LoadState") == "loaded" and timer.get("ActiveState") in {"active", "inactive", "failed"}:
+        job["timer_active"] = timer["ActiveState"] == "active"
+    if service.get("LoadState") != "loaded":
+        return job
+    active = service.get("ActiveState")
+    if active == "activating":
+        job["state"] = "running"
+        return job
+    start, end = (service.get(key, "") for key in ("ExecMainStartTimestamp", "ExecMainExitTimestamp"))
+    if all(re.fullmatch(r"@[1-9][0-9]{0,9}", value) for value in (start, end)):
+        started, ended = int(start[1:]), int(end[1:])
+        if started <= ended <= now + 5:
+            job["completed_at"] = ended
+            status = service.get("ExecMainStatus", "")
+            if service.get("ExecMainCode") == "1" and re.fullmatch(r"[0-9]{1,3}", status):
+                code = int(status)
+                if code <= 255:
+                    job["exit_code"] = code
+    result = service.get("Result")
+    if active == "failed" or (result and result != "success"):
+        job["state"] = "failed"
+    elif result == "success" and job["exit_code"] == 0:
+        job["state"] = "succeeded"
+    else:
+        job.update(completed_at=None, exit_code=None)
+    return job
 
 
 def backup_receipts(budget, now):
@@ -398,7 +429,7 @@ def observe():
             outbox_healthy, identifiers["postgres"], budget
         )
     receipts = attempt(backup_receipts, budget, now, default=(False, False))
-    jobs = attempt(backup_jobs, budget, default=(False, False))
+    jobs, report["backup_job"] = attempt(backup_jobs, budget, now, default=((False, False), report["backup_job"]))
     report["backup_fresh"], report["backup_check_fresh"] = (
         bool(receipt and job) for receipt, job in zip(receipts, jobs, strict=True)
     )

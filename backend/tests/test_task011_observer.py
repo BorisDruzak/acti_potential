@@ -33,8 +33,7 @@ def test_nonroot_cli_emits_closed_unknown_without_inspecting_the_host(monkeypatc
     captured = capsys.readouterr()
     report = json.loads(captured.out)
     assert_closed_contract(report)
-    assert not any(report["services"].values())
-    assert not any(value for key, value in report.items() if key not in {"format", "services"})
+    assert report == module.unknown()
     assert captured.err == ""
 
 
@@ -206,6 +205,9 @@ def host(observer, monkeypatch, tmp_path):
                             "ActiveState=inactive",
                             "Result=exit-code" if failed else "Result=success",
                             "ExecMainStatus=1" if failed else "ExecMainStatus=0",
+                            "ExecMainCode=1",
+                            "ExecMainStartTimestamp=@1794435348",
+                            "ExecMainExitTimestamp=@1794435967",
                         )
                     )
                 )
@@ -260,20 +262,39 @@ def assert_closed_contract(report):
         "outbox_healthy",
         "backup_fresh",
         "backup_check_fresh",
+        "backup_job",
     }
-    assert report["format"] == "acti-observer-v1"
+    assert report["format"] == "acti-observer-v2"
     assert set(report["services"]) == set(SERVICES)
     assert all(type(value) is bool for value in report["services"].values())
     assert all(
-        type(value) is bool for key, value in report.items() if key not in {"format", "services"}
+        type(value) is bool for key, value in report.items() if key not in {"format", "services", "backup_job"}
     )
 
 
-def test_healthy_host_returns_only_the_complete_boolean_contract(observer, host):
+def test_healthy_host_returns_only_the_complete_observer_contract(observer, host):
     result = observer.observe()
     assert_closed_contract(result)
     assert all(result["services"].values())
-    assert all(value for key, value in result.items() if key not in {"format", "services"})
+    assert all(value for key, value in result.items() if key not in {"format", "services", "backup_job"})
+    assert result["backup_job"] == {
+        "state": "succeeded", "completed_at": 1794435967, "exit_code": 0, "timer_active": True,
+    }
+
+
+def test_daily_backup_job_reports_the_failure_even_with_a_fresh_receipt(observer, host):
+    host.behavior.failed_backup = True
+    host.behavior.inactive_timer = True
+    assert observer.observe()["backup_job"] == {
+        "state": "failed", "completed_at": 1794435967, "exit_code": 1, "timer_active": False,
+    }
+
+
+def test_daily_backup_default_success_is_unconfirmed_without_timestamps(observer):
+    assert observer.backup_job_status({"Result": "success", "ExecMainStatus": "0", "LoadState": "loaded"},
+                                      {"LoadState": "loaded", "ActiveState": "active"}, 1794435967) == {
+        "state": "unconfirmed", "completed_at": None, "exit_code": None, "timer_active": True,
+    }
 
 
 def test_backup_operation_uuid_can_differ_from_the_export_bundle_uuid(observer, host):
@@ -339,8 +360,7 @@ def test_unsafe_config_produces_unknown_without_running_commands(observer, host,
         host.config.write_text(json.dumps(value), encoding="utf-8")
     result = observer.observe()
     assert_closed_contract(result)
-    assert not any(result["services"].values())
-    assert not any(value for key, value in result.items() if key not in {"format", "services"})
+    assert result == observer.unknown()
     assert host.commands == []
 
 
